@@ -18,7 +18,7 @@ on:
         default: '.'
         type: string
       version:
-        description: 'Application version (from Dockerfile ARG)'
+        description: 'Application version (from VERSION.json or Dockerfile ARG)'
         required: false
         type: string
     secrets:
@@ -48,6 +48,31 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}
       
+      - name: Extract version from VERSION.json or Dockerfile
+        id: version
+        run: |
+          # Try to read from VERSION.json first (hotio pattern)
+          if [ -f VERSION.json ]; then
+            VERSION=$(jq -r '.VERSION' VERSION.json 2>/dev/null || echo "")
+            if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              echo "Found version in VERSION.json: $VERSION"
+              exit 0
+            fi
+          fi
+          
+          # Fallback to input parameter
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "Using version from input: ${{ inputs.version }}"
+            exit 0
+          fi
+          
+          # Fallback to Dockerfile parsing
+          VERSION=$(grep -oP 'ARG\s+\w+_?VERSION=\K[^\s]+' ${{ inputs.dockerfile_path }} 2>/dev/null | head -1 || echo "unknown")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version from Dockerfile: $VERSION"
+      
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -56,7 +81,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=raw,value=${{ github.ref_name }}-${{ github.sha }},enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-            type=raw,value=${{ github.ref_name }}-${{ inputs.version }},enable=${{ inputs.version != '' && inputs.version != null }}
+            type=raw,value=${{ github.ref_name }}-${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' && steps.version.outputs.version != 'unknown' }}
       
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -72,17 +97,27 @@ jobs:
       - name: Update tags.json
         if: github.ref_name == 'release' || github.ref_name == 'nightly'
         run: |
-          # Extract version from Dockerfile or use input
-          VERSION="${{ inputs.version }}"
-          if [ -z "$VERSION" ]; then
-            VERSION=$(grep -oP 'ARG.*VERSION=\K[^\s]+' ${{ inputs.dockerfile_path }} || echo "unknown")
+          set -e
+          
+          # Get default branch name
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          BUILD_BRANCH="${{ github.ref_name }}"
+          
+          # Use version from previous step (already extracted from VERSION.json or Dockerfile)
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            VERSION="unknown"
           fi
           
-          # Switch to main branch
-          git checkout main
+          echo "Using version: $VERSION"
+          
+          # Switch to default branch (main) for tags.json update
+          git checkout "$DEFAULT_BRANCH" || {
+            echo "Error: Failed to checkout $DEFAULT_BRANCH branch"
+            exit 1
+          }
           
           # Update tags.json
-          BRANCH="${{ github.ref_name }}"
           COMMIT_SHA="${{ github.sha }}"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
           BUILD_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -92,37 +127,60 @@ jobs:
             echo '{}' > tags.json
           fi
           
-          # Use jq or python to update JSON
+          # Update JSON using Python (hotio-inspired approach)
           python3 << EOF
           import json
           import sys
           
+          branch = "$BUILD_BRANCH"
+          version = "$VERSION"
+          commit_sha = "$COMMIT_SHA"
+          timestamp = "$TIMESTAMP"
+          build_url = "$BUILD_URL"
+          
           try:
               with open('tags.json', 'r') as f:
                   data = json.load(f)
-          except:
+          except (FileNotFoundError, json.JSONDecodeError) as e:
+              print(f"Warning: Could not read tags.json: {e}", file=sys.stderr)
               data = {}
           
-          data["$BRANCH"] = {
-              "description": "$BRANCH",
+          data[branch] = {
+              "description": branch,
               "hide": False,
-              "last_updated": "$TIMESTAMP",
-              "last_updated_url": "$BUILD_URL",
-              "latest": True if "$BRANCH" == "release" else False,
+              "last_updated": timestamp,
+              "last_updated_url": build_url,
+              "latest": branch == "release",
               "tags": [
-                  "$BRANCH",
-                  "$BRANCH-$VERSION",
-                  "$BRANCH-${COMMIT_SHA:0:7}"
+                  branch,
+                  f"{branch}-{version}",
+                  f"{branch}-{commit_sha[:7]}"
               ]
           }
           
-          with open('tags.json', 'w') as f:
-              json.dump(data, f, indent=2)
+          try:
+              with open('tags.json', 'w') as f:
+                  json.dump(data, f, indent=2)
+              print(f"Updated tags.json for {branch} branch with version {version}")
+          except Exception as e:
+              print(f"Error writing tags.json: {e}", file=sys.stderr)
+              sys.exit(1)
           EOF
           
-          # Commit and push
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add tags.json
-          git commit -m "Update tags.json for $BRANCH branch" || exit 0
-          git push
+          # Check if there are changes to commit
+          if ! git diff --quiet tags.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add tags.json
+            git commit -m "Update tags.json for $BUILD_BRANCH branch (version: $VERSION)" || {
+              echo "Warning: Failed to commit tags.json (may already be up to date)"
+              exit 0
+            }
+            git push || {
+              echo "Error: Failed to push tags.json update"
+              exit 1
+            }
+            echo "Successfully updated tags.json"
+          else
+            echo "No changes to tags.json, skipping commit"
+          fi
