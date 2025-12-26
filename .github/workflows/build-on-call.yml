@@ -78,8 +78,8 @@ jobs:
             VERSION=$(grep -oP 'ARG.*VERSION=\K[^\s]+' ${{ inputs.dockerfile_path }} || echo "unknown")
           fi
           
-          # Switch to master branch
-          git checkout master
+          # Switch to main branch
+          git checkout main
           
           # Update tags.json
           BRANCH="${{ github.ref_name }}"
