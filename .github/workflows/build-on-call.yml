@@ -53,14 +53,15 @@ jobs:
         run: |
           # Try to read from VERSION.json first (hotio pattern)
           if [ -f VERSION.json ]; then
-            VERSION=$(jq -r '.VERSION' VERSION.json 2>/dev/null || echo "")
+            # Try lowercase first (hotio format), then uppercase (backward compatibility)
+            VERSION=$(jq -r '.version // .VERSION // empty' VERSION.json 2>/dev/null || echo "")
             if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
               echo "version=$VERSION" >> $GITHUB_OUTPUT
               echo "Found version in VERSION.json: $VERSION"
               
-              # Extract other variables from VERSION.json for build args
-              AMD64_URL=$(jq -r '.AMD64_URL // empty' VERSION.json 2>/dev/null || echo "")
-              SBRANCH=$(jq -r '.SBRANCH // empty' VERSION.json 2>/dev/null || echo "")
+              # Extract other variables from VERSION.json for build args (try lowercase first, then uppercase)
+              AMD64_URL=$(jq -r '.amd64_url // .AMD64_URL // empty' VERSION.json 2>/dev/null || echo "")
+              SBRANCH=$(jq -r '.sbranch // .SBRANCH // empty' VERSION.json 2>/dev/null || echo "")
               
               if [ -n "$AMD64_URL" ] && [ "$AMD64_URL" != "null" ]; then
                 echo "amd64_url=$AMD64_URL" >> $GITHUB_OUTPUT
