@@ -40,6 +40,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.branch }}
           fetch-depth: 0
+          persist-credentials: false
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -207,6 +208,7 @@ jobs:
       
       - name: Create Pull Request
         if: steps.update_version.outputs.updated == 'true'
+        id: create_pr
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -229,9 +231,21 @@ jobs:
           branch: update-digests-${{ github.run_id }}
           base: ${{ inputs.branch }}
           delete-branch: true
-          auto-merge: ${{ inputs.auto_merge == 'true' }}
-          auto-merge-method: merge
           labels: |
             automated
             dependencies
+      
+      - name: Enable auto-merge if requested
+        if: steps.update_version.outputs.updated == 'true' && inputs.auto_merge == 'true' && steps.create_pr.outputs.pull-request-number != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
+          REPO: ${{ inputs.repository }}
+        run: |
+          # Use GitHub CLI to enable auto-merge
+          gh pr merge "$PR_NUMBER" --auto --merge --repo "$REPO" || {
+            echo "Warning: Failed to enable auto-merge on PR #$PR_NUMBER"
+            echo "Note: Auto-merge requires repository settings to be enabled"
+            echo "Note: PR may need to pass status checks before auto-merge can be enabled"
+          }
 
