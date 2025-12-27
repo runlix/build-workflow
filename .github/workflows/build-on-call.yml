@@ -139,11 +139,17 @@ jobs:
           get_digest() {
             local image=$1
             local platform=$2
+            local digest=""
             if [ -n "$platform" ]; then
-              docker buildx imagetools inspect "$image" --platform "$platform" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || echo ""
+              # For platform-specific images, use --platform flag and get the digest
+              # The format returns the full digest (sha256:...)
+              digest=$(docker buildx imagetools inspect "$image" --platform "$platform" --format '{{.Digest}}' 2>/dev/null || echo "")
             else
-              docker buildx imagetools inspect "$image" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || echo ""
+              # For architecture-specific tags, get digest directly
+              digest=$(docker buildx imagetools inspect "$image" --format '{{.Digest}}' 2>/dev/null || echo "")
             fi
+            # Ensure we return the digest (already includes sha256: prefix)
+            echo "$digest"
           }
           
           # Get current digests (debian:bookworm-slim is multi-arch, get platform-specific)
