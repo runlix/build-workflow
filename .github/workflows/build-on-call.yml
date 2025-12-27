@@ -107,7 +107,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
           build-args: |
+            TARGETARCH=amd64
+            TARGETVARIANT=latest
             VERSION=${{ steps.version.outputs.version }}
             AMD64_URL=${{ steps.version.outputs.amd64_url }}
             ARM64_URL=${{ steps.version.outputs.arm64_url }}
