@@ -301,6 +301,7 @@ jobs:
         uses: docker/build-push-action@v6
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+          BUILDX_NO_DEFAULT_ATTESTATIONS: 1
         with:
           context: ${{ inputs.build_context }}
           file: linux-amd64.Dockerfile
@@ -326,6 +327,7 @@ jobs:
         uses: docker/build-push-action@v6
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+          BUILDX_NO_DEFAULT_ATTESTATIONS: 1
         with:
           context: ${{ inputs.build_context }}
           file: linux-arm64.Dockerfile
