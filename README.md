@@ -88,27 +88,85 @@ jobs:
 
 The workflow supports two version management approaches:
 
-1. **VERSION.json pattern (recommended)**: Create a `VERSION.json` file in your `release`/`nightly` branch:
+1. **VERSION.json pattern (recommended)**: Create a `VERSION.json` file in your `release`/`nightly` branch.
+
+   **For application images** (e.g., sonarr):
    ```json
    {
-     "VERSION": "4.0.16.2944",
-     "SBRANCH": "main",
-     "AMD64_URL": "https://services.sonarr.tv/v1/download/main/4.0.16.2944?version=linux"
+     "version": "4.0.16.2944",
+     "sbranch": "main",
+     "platforms": ["linux/amd64", "linux/arm64"],
+     "amd64_url": "https://services.sonarr.tv/v1/download/main/4.0.16.2944?version=linux",
+     "arm64_url": "https://services.sonarr.tv/v1/download/main/4.0.16.2944?version=linux-arm"
    }
    ```
 
-   For base images (like `distroless-runtime`), include digest fields:
+   **For base images** (e.g., distroless-runtime), include digest fields:
    ```json
    {
-     "VERSION": "1.0.0",
-     "DEBIAN_DIGEST_AMD64": "sha256:...",
-     "DEBIAN_DIGEST_ARM64": "sha256:...",
-     "DISTROLESS_DIGEST_AMD64": "sha256:...",
-     "DISTROLESS_DIGEST_ARM64": "sha256:..."
+     "version": "1.0.1",
+     "platforms": ["linux/amd64", "linux/arm64"],
+     "base_images": {
+       "debian": {
+         "digests": {
+           "amd64": "sha256:...",
+           "arm64": "sha256:..."
+         }
+       },
+       "distroless": {
+         "variants": {
+           "latest": {
+             "digests": {
+               "amd64": "sha256:...",
+               "arm64": "sha256:..."
+             }
+           },
+           "debug": {
+             "digests": {
+               "amd64": "sha256:...",
+               "arm64": "sha256:..."
+             }
+           }
+         }
+       }
+     }
    }
    ```
+
+   **Backward compatibility**: The workflow supports both old format (uppercase keys, flat structure) and new format (lowercase keys, nested structure).
 
 2. **Dockerfile ARG pattern**: Use `ARG VERSION=...` or `ARG APP_VERSION=...` in your Dockerfile (fallback)
+
+## Multi-Platform Builds
+
+The build system supports multi-platform builds using separate Dockerfiles per architecture (Hotio pattern).
+
+### Dockerfile Structure
+
+Each repository should have separate Dockerfiles for each supported architecture:
+- `linux-amd64.Dockerfile` - AMD64-specific Dockerfile with hardcoded values
+- `linux-arm64.Dockerfile` - ARM64-specific Dockerfile with hardcoded values
+
+**Benefits:**
+- No conditionals in Dockerfiles - each is clean and simple
+- No detection logic - values are hardcoded per architecture
+- Better separation - changes to one architecture don't affect the other
+- Easier to understand - each Dockerfile is self-contained
+
+**Example structure:**
+```
+distroless-runtime/
+  ├── linux-amd64.Dockerfile
+  ├── linux-arm64.Dockerfile
+  └── VERSION.json
+
+sonarr/
+  ├── linux-amd64.Dockerfile
+  ├── linux-arm64.Dockerfile
+  └── VERSION.json
+```
+
+The workflow automatically detects platforms from `VERSION.json` and builds each platform separately with its corresponding Dockerfile, then creates a manifest list combining all platforms.
 
 The build workflow will automatically detect and use VERSION.json if present, otherwise it will parse the Dockerfile.
 
