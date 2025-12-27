@@ -218,7 +218,7 @@ jobs:
           fi
           
           # Update VERSION.json with current digests (use current if available, otherwise keep existing)
-          python3 << EOF
+          BUILD_DATE=$(python3 << EOF
           import json
           import sys
           from datetime import datetime
@@ -248,17 +248,10 @@ jobs:
           with open('VERSION.json', 'w') as f:
               json.dump(data, f, indent=2)
           
-          print(f"Updated VERSION.json: version={data['VERSION']}, build_date={build_date}")
-          print(f"BUILD_DATE={build_date}")
+          print(f"Updated VERSION.json: version={data['VERSION']}, build_date={build_date}", file=sys.stderr)
+          print(build_date)
           EOF
-          
-          BUILD_DATE=$(python3 << 'PYEOF'
-import json
-with open('VERSION.json', 'r') as f:
-    data = json.load(f)
-print(data['BUILD_DATE'])
-PYEOF
-)
+          )
           
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
