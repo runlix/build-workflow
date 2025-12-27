@@ -61,10 +61,14 @@ jobs:
               
               # Extract other variables from VERSION.json for build args (try lowercase first, then uppercase)
               AMD64_URL=$(jq -r '.amd64_url // .AMD64_URL // empty' VERSION.json 2>/dev/null || echo "")
+              ARM64_URL=$(jq -r '.arm64_url // .ARM64_URL // empty' VERSION.json 2>/dev/null || echo "")
               SBRANCH=$(jq -r '.sbranch // .SBRANCH // empty' VERSION.json 2>/dev/null || echo "")
               
               if [ -n "$AMD64_URL" ] && [ "$AMD64_URL" != "null" ]; then
                 echo "amd64_url=$AMD64_URL" >> $GITHUB_OUTPUT
+              fi
+              if [ -n "$ARM64_URL" ] && [ "$ARM64_URL" != "null" ]; then
+                echo "arm64_url=$ARM64_URL" >> $GITHUB_OUTPUT
               fi
               if [ -n "$SBRANCH" ] && [ "$SBRANCH" != "null" ]; then
                 echo "sbranch=$SBRANCH" >> $GITHUB_OUTPUT
@@ -106,6 +110,7 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             AMD64_URL=${{ steps.version.outputs.amd64_url }}
+            ARM64_URL=${{ steps.version.outputs.arm64_url }}
             SBRANCH=${{ steps.version.outputs.sbranch }}
             ${{ steps.version.outputs.build_args }}
           cache-from: type=gha
