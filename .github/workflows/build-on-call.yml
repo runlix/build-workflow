@@ -136,25 +136,32 @@ jobs:
         id: digests
         run: |
           # Function to get digest for an image (platform-specific)
+          # Unified approach that works for both multi-arch manifest lists and single-platform images
           get_digest() {
             local image=$1
             local platform=$2
-            local digest=""
-            if [ -n "$platform" ]; then
-              # For platform-specific images, use --platform flag and get the digest
-              # The format returns the full digest (sha256:...)
-              digest=$(docker buildx imagetools inspect "$image" --platform "$platform" --format '{{.Digest}}' 2>/dev/null || echo "")
+            local raw_json=$(docker buildx imagetools inspect "$image" --raw 2>/dev/null)
+            
+            # Check if it's a manifest list (multi-arch)
+            if echo "$raw_json" | jq -e '.manifests' >/dev/null 2>&1; then
+              # Multi-arch manifest list - extract platform-specific digest
+              if [ -n "$platform" ]; then
+                local arch=$(echo "$platform" | cut -d/ -f2)
+                echo "$raw_json" | jq -r ".manifests[] | select(.platform.architecture == \"$arch\" and .platform.os == \"linux\") | .digest"
+              else
+                # No platform specified, return first manifest digest
+                echo "$raw_json" | jq -r ".manifests[0].digest"
+              fi
             else
-              # For architecture-specific tags, get digest directly
-              digest=$(docker buildx imagetools inspect "$image" --format '{{.Digest}}' 2>/dev/null || echo "")
+              # Single-platform image - get digest from human-readable output
+              docker buildx imagetools inspect "$image" 2>&1 | grep -E '^Digest:' | awk '{print $2}'
             fi
-            # Ensure we return the digest (already includes sha256: prefix)
-            echo "$digest"
           }
           
           # Get current digests (debian:bookworm-slim is multi-arch, get platform-specific)
-          DEBIAN_AMD64=$(get_digest "debian:bookworm-slim" "linux/amd64" || echo "")
-          DEBIAN_ARM64=$(get_digest "debian:bookworm-slim" "linux/arm64" || echo "")
+          # Use full registry path for Docker Hub images
+          DEBIAN_AMD64=$(get_digest "docker.io/library/debian:bookworm-slim" "linux/amd64" || echo "")
+          DEBIAN_ARM64=$(get_digest "docker.io/library/debian:bookworm-slim" "linux/arm64" || echo "")
           DISTROLESS_AMD64=$(get_digest "gcr.io/distroless/base-debian12:latest-amd64" || echo "")
           DISTROLESS_ARM64=$(get_digest "gcr.io/distroless/base-debian12:latest-arm64" || echo "")
           DISTROLESS_DEBUG_AMD64=$(get_digest "gcr.io/distroless/base-debian12:debug-amd64" || echo "")
