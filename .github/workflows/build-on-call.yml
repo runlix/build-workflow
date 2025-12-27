@@ -203,105 +203,6 @@ jobs:
             exit 1
           fi
       
-      - name: Update VERSION.json if digests changed
-        if: steps.version.outputs.has_digests == 'true'
-        id: update_version
-        run: |
-          UPDATED=false
-          NEW_VERSION="${{ steps.version.outputs.version }}"
-          
-          # Check if any digest changed
-          if [ "${{ steps.version.outputs.debian_digest_amd64 }}" != "${{ steps.digests.outputs.current_debian_digest_amd64 }}" ] && [ -n "${{ steps.digests.outputs.current_debian_digest_amd64 }}" ]; then
-            echo "Debian AMD64 digest changed"
-            UPDATED=true
-          fi
-          if [ "${{ steps.version.outputs.debian_digest_arm64 }}" != "${{ steps.digests.outputs.current_debian_digest_arm64 }}" ] && [ -n "${{ steps.digests.outputs.current_debian_digest_arm64 }}" ]; then
-            echo "Debian ARM64 digest changed"
-            UPDATED=true
-          fi
-          if [ "${{ steps.version.outputs.distroless_digest_amd64 }}" != "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" ]; then
-            echo "Distroless AMD64 digest changed"
-            UPDATED=true
-          fi
-          if [ "${{ steps.version.outputs.distroless_digest_arm64 }}" != "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" ]; then
-            echo "Distroless ARM64 digest changed"
-            UPDATED=true
-          fi
-          if [ "${{ steps.version.outputs.distroless_debug_digest_amd64 }}" != "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" ]; then
-            echo "Distroless Debug AMD64 digest changed"
-            UPDATED=true
-          fi
-          if [ "${{ steps.version.outputs.distroless_debug_digest_arm64 }}" != "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" ]; then
-            echo "Distroless Debug ARM64 digest changed"
-            UPDATED=true
-          fi
-          
-          if [ "$UPDATED" = "true" ]; then
-            # Bump patch version
-            MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
-            MINOR=$(echo "$NEW_VERSION" | cut -d. -f2)
-            PATCH=$(echo "$NEW_VERSION" | cut -d. -f3)
-            PATCH=$((PATCH + 1))
-            NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            echo "Bumping version to $NEW_VERSION"
-          fi
-          
-          # Update VERSION.json with current digests (use current if available, otherwise keep existing)
-          BUILD_DATE=$(python3 << EOF
-          import json
-          import sys
-          from datetime import datetime
-          
-          with open('VERSION.json', 'r') as f:
-              data = json.load(f)
-          
-          # Update digests (use current from registry if available, otherwise keep existing)
-          if "${{ steps.digests.outputs.current_debian_digest_amd64 }}" and "${{ steps.digests.outputs.current_debian_digest_amd64 }}" != "":
-              data['DEBIAN_DIGEST_AMD64'] = "${{ steps.digests.outputs.current_debian_digest_amd64 }}"
-          if "${{ steps.digests.outputs.current_debian_digest_arm64 }}" and "${{ steps.digests.outputs.current_debian_digest_arm64 }}" != "":
-              data['DEBIAN_DIGEST_ARM64'] = "${{ steps.digests.outputs.current_debian_digest_arm64 }}"
-          if "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" and "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" != "":
-              data['DISTROLESS_DIGEST_AMD64'] = "${{ steps.digests.outputs.current_distroless_digest_amd64 }}"
-          if "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" and "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" != "":
-              data['DISTROLESS_DIGEST_ARM64'] = "${{ steps.digests.outputs.current_distroless_digest_arm64 }}"
-          if "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" and "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" != "":
-              data['DISTROLESS_DEBUG_DIGEST_AMD64'] = "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}"
-          if "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" and "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" != "":
-              data['DISTROLESS_DEBUG_DIGEST_ARM64'] = "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}"
-          
-          # Update version and build date
-          data['VERSION'] = "$NEW_VERSION"
-          build_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-          data['BUILD_DATE'] = build_date
-          
-          with open('VERSION.json', 'w') as f:
-              json.dump(data, f, indent=2)
-          
-          print(f"Updated VERSION.json: version={data['VERSION']}, build_date={build_date}", file=sys.stderr)
-          print(build_date)
-          EOF
-          )
-          
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
-          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
-      
-      - name: Commit VERSION.json if updated
-        if: steps.update_version.outputs.updated == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.json
-          git commit -m "Update base image digests and bump version to ${{ steps.update_version.outputs.version }}" || {
-            echo "Warning: Failed to commit VERSION.json (may already be up to date)"
-            exit 0
-          }
-          git push || {
-            echo "Error: Failed to push VERSION.json update"
-            exit 1
-          }
-          echo "Successfully updated and committed VERSION.json"
-      
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -310,7 +211,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=raw,value=${{ github.ref_name }}-${{ github.sha }},enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-            type=raw,value=${{ github.ref_name }}-${{ steps.update_version.outputs.version || steps.version.outputs.version }},enable=${{ (steps.update_version.outputs.version || steps.version.outputs.version) != '' && (steps.update_version.outputs.version || steps.version.outputs.version) != 'unknown' }}
+            type=raw,value=${{ github.ref_name }}-${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' && steps.version.outputs.version != 'unknown' }}
       
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -324,8 +225,8 @@ jobs:
           build-args: |
             TARGETARCH=amd64
             TARGETVARIANT=latest
-            VERSION=${{ steps.update_version.outputs.version || steps.version.outputs.version }}
-            BUILD_DATE=${{ steps.update_version.outputs.BUILD_DATE || steps.version.outputs.build_date || '' }}
+            VERSION=${{ steps.version.outputs.version }}
+            BUILD_DATE=${{ steps.version.outputs.build_date || '' }}
             GIT_COMMIT=${{ github.sha }}
             AMD64_URL=${{ steps.version.outputs.amd64_url }}
             ARM64_URL=${{ steps.version.outputs.arm64_url }}
@@ -351,8 +252,8 @@ jobs:
           DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
           BUILD_BRANCH="${{ github.ref_name }}"
           
-          # Use version from update_version step if digests were updated, otherwise from version step
-          VERSION="${{ steps.update_version.outputs.version || steps.version.outputs.version }}"
+          # Use version from version step
+          VERSION="${{ steps.version.outputs.version }}"
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
             VERSION="unknown"
           fi

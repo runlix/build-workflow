@@ -1,0 +1,249 @@
+name: Update Digests
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: 'Repository to update (e.g., runlix/distroless-runtime)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to update (e.g., release)'
+        required: true
+        type: string
+      version_file_path:
+        description: 'Path to VERSION.json file'
+        required: false
+        default: 'VERSION.json'
+        type: string
+      auto_merge:
+        description: 'Enable auto-merge for created PRs'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: update-digests-${{ inputs.repository }}-${{ inputs.branch }}
+      cancel-in-progress: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Extract current digests from registry
+        id: digests
+        run: |
+          # Function to get digest for an image (platform-specific)
+          # Unified approach that works for both multi-arch manifest lists and single-platform images
+          get_digest() {
+            local image=$1
+            local platform=$2
+            local raw_json=$(docker buildx imagetools inspect "$image" --raw 2>/dev/null)
+            
+            # Check if it's a manifest list (multi-arch)
+            if echo "$raw_json" | jq -e '.manifests' >/dev/null 2>&1; then
+              # Multi-arch manifest list - extract platform-specific digest
+              if [ -n "$platform" ]; then
+                local arch=$(echo "$platform" | cut -d/ -f2)
+                echo "$raw_json" | jq -r ".manifests[] | select(.platform.architecture == \"$arch\" and .platform.os == \"linux\") | .digest"
+              else
+                # No platform specified, return first manifest digest
+                echo "$raw_json" | jq -r ".manifests[0].digest"
+              fi
+            else
+              # Single-platform image - get digest from human-readable output
+              docker buildx imagetools inspect "$image" 2>&1 | grep -E '^Digest:' | awk '{print $2}'
+            fi
+          }
+          
+          # Get current digests (debian:bookworm-slim is multi-arch, get platform-specific)
+          # Use full registry path for Docker Hub images
+          DEBIAN_AMD64=$(get_digest "docker.io/library/debian:bookworm-slim" "linux/amd64" || echo "")
+          DEBIAN_ARM64=$(get_digest "docker.io/library/debian:bookworm-slim" "linux/arm64" || echo "")
+          DISTROLESS_AMD64=$(get_digest "gcr.io/distroless/base-debian12:latest-amd64" || echo "")
+          DISTROLESS_ARM64=$(get_digest "gcr.io/distroless/base-debian12:latest-arm64" || echo "")
+          DISTROLESS_DEBUG_AMD64=$(get_digest "gcr.io/distroless/base-debian12:debug-amd64" || echo "")
+          DISTROLESS_DEBUG_ARM64=$(get_digest "gcr.io/distroless/base-debian12:debug-arm64" || echo "")
+          
+          # Output digests
+          if [ -n "$DEBIAN_AMD64" ] && [ "$DEBIAN_AMD64" != "null" ]; then
+            echo "current_debian_digest_amd64=$DEBIAN_AMD64" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$DEBIAN_ARM64" ] && [ "$DEBIAN_ARM64" != "null" ]; then
+            echo "current_debian_digest_arm64=$DEBIAN_ARM64" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$DISTROLESS_AMD64" ] && [ "$DISTROLESS_AMD64" != "null" ]; then
+            echo "current_distroless_digest_amd64=$DISTROLESS_AMD64" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$DISTROLESS_ARM64" ] && [ "$DISTROLESS_ARM64" != "null" ]; then
+            echo "current_distroless_digest_arm64=$DISTROLESS_ARM64" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$DISTROLESS_DEBUG_AMD64" ] && [ "$DISTROLESS_DEBUG_AMD64" != "null" ]; then
+            echo "current_distroless_debug_digest_amd64=$DISTROLESS_DEBUG_AMD64" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$DISTROLESS_DEBUG_ARM64" ] && [ "$DISTROLESS_DEBUG_ARM64" != "null" ]; then
+            echo "current_distroless_debug_digest_arm64=$DISTROLESS_DEBUG_ARM64" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Extracted digests:"
+          echo "  Debian AMD64: ${DEBIAN_AMD64:-not found}"
+          echo "  Debian ARM64: ${DEBIAN_ARM64:-not found}"
+          echo "  Distroless AMD64: ${DISTROLESS_AMD64:-not found}"
+          echo "  Distroless ARM64: ${DISTROLESS_ARM64:-not found}"
+          echo "  Distroless Debug AMD64: ${DISTROLESS_DEBUG_AMD64:-not found}"
+          echo "  Distroless Debug ARM64: ${DISTROLESS_DEBUG_ARM64:-not found}"
+      
+      - name: Check if digests changed and update VERSION.json
+        id: update_version
+        run: |
+          VERSION_FILE="${{ inputs.version_file_path }}"
+          
+          if [ ! -f "$VERSION_FILE" ]; then
+            echo "Error: VERSION.json file not found at $VERSION_FILE"
+            exit 1
+          fi
+          
+          # Read current version and digests from VERSION.json
+          CURRENT_VERSION=$(jq -r '.VERSION // .version // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          CURRENT_DEBIAN_AMD64=$(jq -r '.DEBIAN_DIGEST_AMD64 // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          CURRENT_DEBIAN_ARM64=$(jq -r '.DEBIAN_DIGEST_ARM64 // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          CURRENT_DISTROLESS_AMD64=$(jq -r '.DISTROLESS_DIGEST_AMD64 // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          CURRENT_DISTROLESS_ARM64=$(jq -r '.DISTROLESS_DIGEST_ARM64 // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          CURRENT_DISTROLESS_DEBUG_AMD64=$(jq -r '.DISTROLESS_DEBUG_DIGEST_AMD64 // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          CURRENT_DISTROLESS_DEBUG_ARM64=$(jq -r '.DISTROLESS_DEBUG_DIGEST_ARM64 // empty' "$VERSION_FILE" 2>/dev/null || echo "")
+          
+          UPDATED=false
+          NEW_VERSION="$CURRENT_VERSION"
+          CHANGES=""
+          
+          # Check if any digest changed
+          if [ "$CURRENT_DEBIAN_AMD64" != "${{ steps.digests.outputs.current_debian_digest_amd64 }}" ] && [ -n "${{ steps.digests.outputs.current_debian_digest_amd64 }}" ]; then
+            echo "Debian AMD64 digest changed: $CURRENT_DEBIAN_AMD64 -> ${{ steps.digests.outputs.current_debian_digest_amd64 }}"
+            UPDATED=true
+            CHANGES="${CHANGES}- Debian AMD64: \`$CURRENT_DEBIAN_AMD64\` → \`${{ steps.digests.outputs.current_debian_digest_amd64 }}\`\n"
+          fi
+          if [ "$CURRENT_DEBIAN_ARM64" != "${{ steps.digests.outputs.current_debian_digest_arm64 }}" ] && [ -n "${{ steps.digests.outputs.current_debian_digest_arm64 }}" ]; then
+            echo "Debian ARM64 digest changed: $CURRENT_DEBIAN_ARM64 -> ${{ steps.digests.outputs.current_debian_digest_arm64 }}"
+            UPDATED=true
+            CHANGES="${CHANGES}- Debian ARM64: \`$CURRENT_DEBIAN_ARM64\` → \`${{ steps.digests.outputs.current_debian_digest_arm64 }}\`\n"
+          fi
+          if [ "$CURRENT_DISTROLESS_AMD64" != "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" ]; then
+            echo "Distroless AMD64 digest changed: $CURRENT_DISTROLESS_AMD64 -> ${{ steps.digests.outputs.current_distroless_digest_amd64 }}"
+            UPDATED=true
+            CHANGES="${CHANGES}- Distroless AMD64: \`$CURRENT_DISTROLESS_AMD64\` → \`${{ steps.digests.outputs.current_distroless_digest_amd64 }}\`\n"
+          fi
+          if [ "$CURRENT_DISTROLESS_ARM64" != "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" ]; then
+            echo "Distroless ARM64 digest changed: $CURRENT_DISTROLESS_ARM64 -> ${{ steps.digests.outputs.current_distroless_digest_arm64 }}"
+            UPDATED=true
+            CHANGES="${CHANGES}- Distroless ARM64: \`$CURRENT_DISTROLESS_ARM64\` → \`${{ steps.digests.outputs.current_distroless_digest_arm64 }}\`\n"
+          fi
+          if [ "$CURRENT_DISTROLESS_DEBUG_AMD64" != "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" ]; then
+            echo "Distroless Debug AMD64 digest changed: $CURRENT_DISTROLESS_DEBUG_AMD64 -> ${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}"
+            UPDATED=true
+            CHANGES="${CHANGES}- Distroless Debug AMD64: \`$CURRENT_DISTROLESS_DEBUG_AMD64\` → \`${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}\`\n"
+          fi
+          if [ "$CURRENT_DISTROLESS_DEBUG_ARM64" != "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" ] && [ -n "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" ]; then
+            echo "Distroless Debug ARM64 digest changed: $CURRENT_DISTROLESS_DEBUG_ARM64 -> ${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}"
+            UPDATED=true
+            CHANGES="${CHANGES}- Distroless Debug ARM64: \`$CURRENT_DISTROLESS_DEBUG_ARM64\` → \`${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}\`\n"
+          fi
+          
+          if [ "$UPDATED" = "true" ]; then
+            # Bump patch version
+            MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
+            MINOR=$(echo "$NEW_VERSION" | cut -d. -f2)
+            PATCH=$(echo "$NEW_VERSION" | cut -d. -f3)
+            PATCH=$((PATCH + 1))
+            NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Bumping version to $NEW_VERSION"
+            
+            # Update VERSION.json with current digests
+            BUILD_DATE=$(python3 << EOF
+            import json
+            import sys
+            from datetime import datetime
+            
+            with open('$VERSION_FILE', 'r') as f:
+                data = json.load(f)
+            
+            # Update digests
+            if "${{ steps.digests.outputs.current_debian_digest_amd64 }}" and "${{ steps.digests.outputs.current_debian_digest_amd64 }}" != "":
+                data['DEBIAN_DIGEST_AMD64'] = "${{ steps.digests.outputs.current_debian_digest_amd64 }}"
+            if "${{ steps.digests.outputs.current_debian_digest_arm64 }}" and "${{ steps.digests.outputs.current_debian_digest_arm64 }}" != "":
+                data['DEBIAN_DIGEST_ARM64'] = "${{ steps.digests.outputs.current_debian_digest_arm64 }}"
+            if "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" and "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" != "":
+                data['DISTROLESS_DIGEST_AMD64'] = "${{ steps.digests.outputs.current_distroless_digest_amd64 }}"
+            if "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" and "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" != "":
+                data['DISTROLESS_DIGEST_ARM64'] = "${{ steps.digests.outputs.current_distroless_digest_arm64 }}"
+            if "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" and "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" != "":
+                data['DISTROLESS_DEBUG_DIGEST_AMD64'] = "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}"
+            if "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" and "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" != "":
+                data['DISTROLESS_DEBUG_DIGEST_ARM64'] = "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}"
+            
+            # Update version and build date
+            data['VERSION'] = "$NEW_VERSION"
+            build_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+            data['BUILD_DATE'] = build_date
+            
+            with open('$VERSION_FILE', 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            print(build_date)
+            EOF
+            )
+            
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
+            echo "updated=true" >> $GITHUB_OUTPUT
+            echo "changes<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$CHANGES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "updated=false" >> $GITHUB_OUTPUT
+            echo "No digest changes detected, skipping update"
+          fi
+      
+      - name: Create Pull Request
+        if: steps.update_version.outputs.updated == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update base image digests and bump version to ${{ steps.update_version.outputs.version }}"
+          title: "Update base image digests to ${{ steps.update_version.outputs.version }}"
+          body: |
+            ## Base Image Digest Updates
+            
+            This PR updates the base image digests and bumps the version to **${{ steps.update_version.outputs.version }}**.
+            
+            ### Changes
+            
+            ${{ steps.update_version.outputs.changes }}
+            
+            ### Build Date
+            ${{ steps.update_version.outputs.BUILD_DATE }}
+            
+            ---
+            *This PR was automatically created by the update-digests workflow.*
+          branch: update-digests-${{ github.run_id }}
+          base: ${{ inputs.branch }}
+          delete-branch: true
+          auto-merge: ${{ inputs.auto_merge }}
+          auto-merge-method: merge
+          labels: |
+            automated
+            dependencies
+
