@@ -20,7 +20,7 @@ on:
         description: 'Enable auto-merge for created PRs'
         required: false
         default: 'false'
-        type: boolean
+        type: string
 
 jobs:
   update:
@@ -241,7 +241,7 @@ jobs:
           branch: update-digests-${{ github.run_id }}
           base: ${{ inputs.branch }}
           delete-branch: true
-          auto-merge: ${{ inputs.auto_merge }}
+          auto-merge: ${{ inputs.auto_merge == 'true' }}
           auto-merge-method: merge
           labels: |
             automated
