@@ -171,65 +171,28 @@ jobs:
             NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
             echo "Bumping version to $NEW_VERSION"
             
-            # Update VERSION.json with current digests
-            # Pass digest values as environment variables to avoid heredoc issues
-            export DEBIAN_DIGEST_AMD64="${{ steps.digests.outputs.current_debian_digest_amd64 }}"
-            export DEBIAN_DIGEST_ARM64="${{ steps.digests.outputs.current_debian_digest_arm64 }}"
-            export DISTROLESS_DIGEST_AMD64="${{ steps.digests.outputs.current_distroless_digest_amd64 }}"
-            export DISTROLESS_DIGEST_ARM64="${{ steps.digests.outputs.current_distroless_digest_arm64 }}"
-            export DISTROLESS_DEBUG_DIGEST_AMD64="${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}"
-            export DISTROLESS_DEBUG_DIGEST_ARM64="${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}"
-            export NEW_VERSION_VALUE="$NEW_VERSION"
-            export VERSION_FILE_PATH="$VERSION_FILE"
+            # Update VERSION.json with current digests using jq (simpler and more reliable)
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             
-            BUILD_DATE=$(python3 << 'PYTHON_SCRIPT'
-            import json
-            import os
-            import sys
-            from datetime import datetime
-            
-            version_file = os.environ['VERSION_FILE_PATH']
-            new_version = os.environ['NEW_VERSION_VALUE']
-            
-            with open(version_file, 'r') as f:
-                data = json.load(f)
-            
-            # Update digests if they are provided and not empty
-            debian_amd64 = os.environ.get('DEBIAN_DIGEST_AMD64', '')
-            if debian_amd64:
-                data['DEBIAN_DIGEST_AMD64'] = debian_amd64
-            
-            debian_arm64 = os.environ.get('DEBIAN_DIGEST_ARM64', '')
-            if debian_arm64:
-                data['DEBIAN_DIGEST_ARM64'] = debian_arm64
-            
-            distroless_amd64 = os.environ.get('DISTROLESS_DIGEST_AMD64', '')
-            if distroless_amd64:
-                data['DISTROLESS_DIGEST_AMD64'] = distroless_amd64
-            
-            distroless_arm64 = os.environ.get('DISTROLESS_DIGEST_ARM64', '')
-            if distroless_arm64:
-                data['DISTROLESS_DIGEST_ARM64'] = distroless_arm64
-            
-            distroless_debug_amd64 = os.environ.get('DISTROLESS_DEBUG_DIGEST_AMD64', '')
-            if distroless_debug_amd64:
-                data['DISTROLESS_DEBUG_DIGEST_AMD64'] = distroless_debug_amd64
-            
-            distroless_debug_arm64 = os.environ.get('DISTROLESS_DEBUG_DIGEST_ARM64', '')
-            if distroless_debug_arm64:
-                data['DISTROLESS_DEBUG_DIGEST_ARM64'] = distroless_debug_arm64
-            
-            # Update version and build date
-            data['VERSION'] = new_version
-            build_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-            data['BUILD_DATE'] = build_date
-            
-            with open(version_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            
-            print(build_date)
-            PYTHON_SCRIPT
-            )
+            # Use jq to update all fields in one operation
+            jq \
+              --arg version "$NEW_VERSION" \
+              --arg build_date "$BUILD_DATE" \
+              --arg debian_amd64 "${{ steps.digests.outputs.current_debian_digest_amd64 }}" \
+              --arg debian_arm64 "${{ steps.digests.outputs.current_debian_digest_arm64 }}" \
+              --arg distroless_amd64 "${{ steps.digests.outputs.current_distroless_digest_amd64 }}" \
+              --arg distroless_arm64 "${{ steps.digests.outputs.current_distroless_digest_arm64 }}" \
+              --arg distroless_debug_amd64 "${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}" \
+              --arg distroless_debug_arm64 "${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}" \
+              '.VERSION = $version |
+               .BUILD_DATE = $build_date |
+               (if $debian_amd64 != "" then .DEBIAN_DIGEST_AMD64 = $debian_amd64 else . end) |
+               (if $debian_arm64 != "" then .DEBIAN_DIGEST_ARM64 = $debian_arm64 else . end) |
+               (if $distroless_amd64 != "" then .DISTROLESS_DIGEST_AMD64 = $distroless_amd64 else . end) |
+               (if $distroless_arm64 != "" then .DISTROLESS_DIGEST_ARM64 = $distroless_arm64 else . end) |
+               (if $distroless_debug_amd64 != "" then .DISTROLESS_DEBUG_DIGEST_AMD64 = $distroless_debug_amd64 else . end) |
+               (if $distroless_debug_arm64 != "" then .DISTROLESS_DEBUG_DIGEST_ARM64 = $distroless_debug_arm64 else . end)' \
+              "$VERSION_FILE" > "${VERSION_FILE}.tmp" && mv "${VERSION_FILE}.tmp" "$VERSION_FILE"
             
             echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
             echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
