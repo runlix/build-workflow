@@ -82,25 +82,31 @@ jobs:
               DISTROLESS_DEBUG_DIGEST_AMD64=$(jq -r '.DISTROLESS_DEBUG_DIGEST_AMD64 // empty' VERSION.json 2>/dev/null || echo "")
               DISTROLESS_DEBUG_DIGEST_ARM64=$(jq -r '.DISTROLESS_DEBUG_DIGEST_ARM64 // empty' VERSION.json 2>/dev/null || echo "")
               
-              # Check if any digest fields exist (detect if this is a base image)
-              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ]; then
+              # Check if any digest fields exist and are valid (not placeholder, not empty, not null)
+              # Only output valid digests (filter out "sha256:placeholder")
+              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ] && [ "$DEBIAN_DIGEST_AMD64" != "sha256:placeholder" ]; then
                 echo "has_digests=true" >> $GITHUB_OUTPUT
                 echo "debian_digest_amd64=$DEBIAN_DIGEST_AMD64" >> $GITHUB_OUTPUT
               fi
-              if [ -n "$DEBIAN_DIGEST_ARM64" ] && [ "$DEBIAN_DIGEST_ARM64" != "null" ]; then
+              if [ -n "$DEBIAN_DIGEST_ARM64" ] && [ "$DEBIAN_DIGEST_ARM64" != "null" ] && [ "$DEBIAN_DIGEST_ARM64" != "sha256:placeholder" ]; then
                 echo "debian_digest_arm64=$DEBIAN_DIGEST_ARM64" >> $GITHUB_OUTPUT
               fi
-              if [ -n "$DISTROLESS_DIGEST_AMD64" ] && [ "$DISTROLESS_DIGEST_AMD64" != "null" ]; then
+              if [ -n "$DISTROLESS_DIGEST_AMD64" ] && [ "$DISTROLESS_DIGEST_AMD64" != "null" ] && [ "$DISTROLESS_DIGEST_AMD64" != "sha256:placeholder" ]; then
                 echo "distroless_digest_amd64=$DISTROLESS_DIGEST_AMD64" >> $GITHUB_OUTPUT
               fi
-              if [ -n "$DISTROLESS_DIGEST_ARM64" ] && [ "$DISTROLESS_DIGEST_ARM64" != "null" ]; then
+              if [ -n "$DISTROLESS_DIGEST_ARM64" ] && [ "$DISTROLESS_DIGEST_ARM64" != "null" ] && [ "$DISTROLESS_DIGEST_ARM64" != "sha256:placeholder" ]; then
                 echo "distroless_digest_arm64=$DISTROLESS_DIGEST_ARM64" >> $GITHUB_OUTPUT
               fi
-              if [ -n "$DISTROLESS_DEBUG_DIGEST_AMD64" ] && [ "$DISTROLESS_DEBUG_DIGEST_AMD64" != "null" ]; then
+              if [ -n "$DISTROLESS_DEBUG_DIGEST_AMD64" ] && [ "$DISTROLESS_DEBUG_DIGEST_AMD64" != "null" ] && [ "$DISTROLESS_DEBUG_DIGEST_AMD64" != "sha256:placeholder" ]; then
                 echo "distroless_debug_digest_amd64=$DISTROLESS_DEBUG_DIGEST_AMD64" >> $GITHUB_OUTPUT
               fi
-              if [ -n "$DISTROLESS_DEBUG_DIGEST_ARM64" ] && [ "$DISTROLESS_DEBUG_DIGEST_ARM64" != "null" ]; then
+              if [ -n "$DISTROLESS_DEBUG_DIGEST_ARM64" ] && [ "$DISTROLESS_DEBUG_DIGEST_ARM64" != "null" ] && [ "$DISTROLESS_DEBUG_DIGEST_ARM64" != "sha256:placeholder" ]; then
                 echo "distroless_debug_digest_arm64=$DISTROLESS_DEBUG_DIGEST_ARM64" >> $GITHUB_OUTPUT
+              fi
+              
+              # Set has_digests if any digest field exists (even if placeholder, so we know to extract real ones)
+              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ]; then
+                echo "has_digests=true" >> $GITHUB_OUTPUT
               fi
               
               # Extract BUILD_DATE and GIT_COMMIT if available
@@ -173,6 +179,16 @@ jobs:
           echo "  Debian ARM64: ${DEBIAN_ARM64:-not found}"
           echo "  Distroless AMD64: ${DISTROLESS_AMD64:-not found}"
           echo "  Distroless ARM64: ${DISTROLESS_ARM64:-not found}"
+          
+          # Ensure we have at least one valid digest for amd64 (required for build)
+          if [ -z "$DEBIAN_AMD64" ] || [ "$DEBIAN_AMD64" = "null" ]; then
+            echo "Error: Failed to extract Debian AMD64 digest. Cannot proceed with build."
+            exit 1
+          fi
+          if [ -z "$DISTROLESS_AMD64" ] || [ "$DISTROLESS_AMD64" = "null" ]; then
+            echo "Error: Failed to extract Distroless AMD64 digest. Cannot proceed with build."
+            exit 1
+          fi
       
       - name: Update VERSION.json if digests changed
         if: steps.version.outputs.has_digests == 'true'
