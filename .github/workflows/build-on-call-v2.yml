@@ -44,6 +44,11 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}  
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          image: tonistiigi/binfmt:qemu-v9.2.2
+
       - name: Create Outputs for Next Steps
         id: prep
         run: |
@@ -69,6 +74,23 @@ jobs:
           BASE_TAG="${{ matrix.target.base.tag }}"
           BASE_DIGEST="${{ matrix.target.base.digest }}"
           GIT_COMMIT="${{ github.sha }}"
+          
+          # Convert architecture format (linux-amd64 → linux/amd64)
+          ARCH=$(echo "${{ matrix.target.arch }}" | sed 's/linux-/linux\//')
+          PLATFORM="${ARCH}"
+          
+          # Output all values to GITHUB_OUTPUT for use in subsequent steps
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "git_commit=${GIT_COMMIT}" >> $GITHUB_OUTPUT
+          echo "package_version=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "builder_tag=${BUILDER_TAG}" >> $GITHUB_OUTPUT
+          echo "builder_digest=${BUILDER_DIGEST}" >> $GITHUB_OUTPUT
+          echo "base_tag=${BASE_TAG}" >> $GITHUB_OUTPUT
+          echo "base_digest=${BASE_DIGEST}" >> $GITHUB_OUTPUT
+          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
+          echo "dockerfile=${{ matrix.target.dockerfile }}" >> $GITHUB_OUTPUT
           
           # Echo all parameters organized by category
           echo ""
@@ -103,3 +125,22 @@ jobs:
           echo "  Base Image:        ${{ matrix.target.base.image }}"
           echo ""
           echo "═══════════════════════════════════════════════════════════"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ steps.prep.outputs.dockerfile }}
+          platforms: ${{ steps.prep.outputs.platform }}
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ steps.prep.outputs.image_tag }}
+          build-args: |
+            BUILDER_TAG=${{ steps.prep.outputs.builder_tag }}
+            BUILDER_DIGEST=${{ steps.prep.outputs.builder_digest }}
+            BASE_TAG=${{ steps.prep.outputs.base_tag }}
+            BASE_DIGEST=${{ steps.prep.outputs.base_digest }}
+            VERSION=${{ steps.prep.outputs.version }}
+            BUILD_DATE=${{ steps.prep.outputs.build_date }}
+            GIT_COMMIT=${{ steps.prep.outputs.git_commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
