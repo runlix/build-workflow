@@ -2,465 +2,290 @@ name: Build on Call
 
 on:
   workflow_call:
-    inputs:
-      image_name:
-        description: 'Docker image name (e.g., sonarr-distroless)'
-        required: true
-        type: string
-      dockerfile_path:
-        description: 'Path to Dockerfile (deprecated - use separate Dockerfiles per architecture)'
-        required: false
-        default: 'Dockerfile'
-        type: string
-      build_context:
-        description: 'Build context path'
-        required: false
-        default: '.'
-        type: string
-      version:
-        description: 'Application version (from VERSION.json or Dockerfile ARG)'
-        required: false
-        type: string
-      platforms:
-        description: 'Comma-separated list of platforms to build (e.g., linux/amd64,linux/arm64). Overrides VERSION.json platforms.'
-        required: false
-        type: string
-    secrets:
-      GHCR_TOKEN:
-        required: true
 
 jobs:
-  build:
+  prepare-version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      build_date: ${{ steps.extract.outputs.build_date }}
+      branch: ${{ steps.extract.outputs.branch }}
+      sha: ${{ steps.extract.outputs.sha }}
+      default_branch: ${{ steps.extract.outputs.default_branch }}
+      variants: ${{ steps.extract.outputs.variants }}
+      matrix: ${{ steps.extract.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract metadata from VERSION.json
+        id: extract
+        run: |
+          # Extract version and build_date
+          VERSION=$(jq -r '.version // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+          BUILD_DATE=$(jq -r '.build_date // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+          
+          # Extract enabled targets matrix
+          MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
+          
+          # Extract unique variants
+          VARIANTS=$(jq -r '.targets[] | select(.enabled == true) | .variant' VERSION.json | sort -u)
+          
+          # GitHub context values
+          BRANCH="${{ github.ref_name }}"
+          SHA="${{ github.sha }}"
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          
+          # Output all values
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "default_branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
+          {
+            echo 'variants<<EOF'
+            echo "$VARIANTS"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo 'matrix<<EOF'
+            echo "$MATRIX"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.prepare-version.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}  
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          image: tonistiigi/binfmt:qemu-v9.2.2
+
+      - name: Generate build metadata
+        id: metadata
+        run: |
+          CREATED=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+          ARCH="${{ matrix.target.arch }}"
+          PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
+          echo "created=${CREATED}" >> $GITHUB_OUTPUT
+          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          platforms: ${{ steps.metadata.outputs.platform }}
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}-${{ needs.prepare-version.outputs.version }}-${{ matrix.target.name }}
+          provenance: false
+          build-args: |
+            BUILDER_TAG=${{ matrix.target.builder.tag }}
+            BUILDER_DIGEST=${{ matrix.target.builder.digest }}
+            BASE_TAG=${{ matrix.target.base.tag }}
+            BASE_DIGEST=${{ matrix.target.base.digest }}
+            VERSION=${{ needs.prepare-version.outputs.version }}
+            BUILD_DATE=${{ needs.prepare-version.outputs.build_date }}
+            GIT_COMMIT=${{ needs.prepare-version.outputs.sha }}
+          labels: |
+            org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
+            org.opencontainers.image.title=${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}
+            org.opencontainers.image.revision=${{ needs.prepare-version.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}/tree/${{ needs.prepare-version.outputs.branch }}
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+            org.opencontainers.image.version=${{ needs.prepare-version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
+    needs: [build, prepare-version]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Log in to GitHub Container Registry
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}
       
-      - name: Extract build configuration
-        id: config
-        run: |
-          # Initialize outputs
-          PLATFORMS_JSON='[]'
-          HAS_BASE_IMAGES=false
-          HAS_APPLICATION_URLS=false
-          
-          if [ -f VERSION.json ]; then
-            echo "Reading VERSION.json..."
-            
-            # Detect format: new format has lowercase 'version' and 'platforms', old format has uppercase 'VERSION'
-            HAS_NEW_FORMAT=$(jq -e 'has("version") or has("platforms")' VERSION.json 2>/dev/null || echo "false")
-            HAS_OLD_FORMAT=$(jq -e 'has("VERSION")' VERSION.json 2>/dev/null || echo "false")
-            
-            # Extract version (try new format first, then old)
-            VERSION=$(jq -r '.version // .VERSION // empty' VERSION.json 2>/dev/null || echo "")
-            if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
-            fi
-            
-            # Extract platforms array (new format) or infer from digests/URLs (old format)
-            if [ "$HAS_NEW_FORMAT" = "true" ]; then
-              # New format: platforms array exists
-              PLATFORMS_JSON=$(jq -c '.platforms // []' VERSION.json 2>/dev/null || echo '[]')
-            else
-              # Old format: infer platforms from existing keys
-              PLATFORMS='[]'
-              if jq -e '.DEBIAN_DIGEST_AMD64 // .amd64_url // .AMD64_URL' VERSION.json >/dev/null 2>&1; then
-                PLATFORMS=$(echo "$PLATFORMS" | jq '. + ["linux/amd64"]')
-              fi
-              if jq -e '.DEBIAN_DIGEST_ARM64 // .arm64_url // .ARM64_URL' VERSION.json >/dev/null 2>&1; then
-                PLATFORMS=$(echo "$PLATFORMS" | jq '. + ["linux/arm64"]')
-              fi
-              if [ "$PLATFORMS" = "[]" ]; then
-                PLATFORMS='["linux/amd64"]'  # Default to amd64
-              fi
-              PLATFORMS_JSON="$PLATFORMS"
-            fi
-            
-            # If platforms array is empty, default to amd64
-            if [ "$PLATFORMS_JSON" = "[]" ] || [ -z "$PLATFORMS_JSON" ]; then
-              PLATFORMS_JSON='["linux/amd64"]'
-            fi
-            
-            echo "platforms=$PLATFORMS_JSON" >> $GITHUB_OUTPUT
-            echo "Platforms: $PLATFORMS_JSON"
-            
-            # Check if base_images section exists (new format) or digest fields exist (old format)
-            if jq -e '.base_images' VERSION.json >/dev/null 2>&1 || \
-               jq -e '.DEBIAN_DIGEST_AMD64 // .DISTROLESS_DIGEST_AMD64' VERSION.json >/dev/null 2>&1; then
-              echo "has_base_images=true" >> $GITHUB_OUTPUT
-              HAS_BASE_IMAGES=true
-            fi
-            
-            # Check if application URLs exist
-            if jq -e '.amd64_url // .AMD64_URL // .application.urls' VERSION.json >/dev/null 2>&1; then
-              echo "has_application_urls=true" >> $GITHUB_OUTPUT
-              HAS_APPLICATION_URLS=true
-            fi
-            
-            # Extract application URLs (support both formats)
-            AMD64_URL=$(jq -r '.amd64_url // .AMD64_URL // .application.urls.amd64 // empty' VERSION.json 2>/dev/null || echo "")
-            ARM64_URL=$(jq -r '.arm64_url // .ARM64_URL // .application.urls.arm64 // empty' VERSION.json 2>/dev/null || echo "")
-            SBRANCH=$(jq -r '.sbranch // .SBRANCH // empty' VERSION.json 2>/dev/null || echo "")
-            
-            if [ -n "$AMD64_URL" ] && [ "$AMD64_URL" != "null" ]; then
-              echo "amd64_url=$AMD64_URL" >> $GITHUB_OUTPUT
-            fi
-            if [ -n "$ARM64_URL" ] && [ "$ARM64_URL" != "null" ]; then
-              echo "arm64_url=$ARM64_URL" >> $GITHUB_OUTPUT
-            fi
-            if [ -n "$SBRANCH" ] && [ "$SBRANCH" != "null" ]; then
-              echo "sbranch=$SBRANCH" >> $GITHUB_OUTPUT
-            fi
-            
-            # Extract BUILD_DATE
-            BUILD_DATE=$(jq -r '.BUILD_DATE // .build_date // empty' VERSION.json 2>/dev/null || echo "")
-            if [ -n "$BUILD_DATE" ] && [ "$BUILD_DATE" != "null" ]; then
-              echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
-            fi
-            
-            # Extract digests from old format (for backward compatibility)
-            if [ "$HAS_BASE_IMAGES" = "true" ] && [ "$HAS_OLD_FORMAT" = "true" ]; then
-              DEBIAN_DIGEST_AMD64=$(jq -r '.DEBIAN_DIGEST_AMD64 // empty' VERSION.json 2>/dev/null || echo "")
-              DEBIAN_DIGEST_ARM64=$(jq -r '.DEBIAN_DIGEST_ARM64 // empty' VERSION.json 2>/dev/null || echo "")
-              DISTROLESS_DIGEST_AMD64=$(jq -r '.DISTROLESS_DIGEST_AMD64 // empty' VERSION.json 2>/dev/null || echo "")
-              DISTROLESS_DIGEST_ARM64=$(jq -r '.DISTROLESS_DIGEST_ARM64 // empty' VERSION.json 2>/dev/null || echo "")
-              
-              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ] && [ "$DEBIAN_DIGEST_AMD64" != "sha256:placeholder" ]; then
-                echo "debian_digest_amd64=$DEBIAN_DIGEST_AMD64" >> $GITHUB_OUTPUT
-              fi
-              if [ -n "$DEBIAN_DIGEST_ARM64" ] && [ "$DEBIAN_DIGEST_ARM64" != "null" ] && [ "$DEBIAN_DIGEST_ARM64" != "sha256:placeholder" ]; then
-                echo "debian_digest_arm64=$DEBIAN_DIGEST_ARM64" >> $GITHUB_OUTPUT
-              fi
-              if [ -n "$DISTROLESS_DIGEST_AMD64" ] && [ "$DISTROLESS_DIGEST_AMD64" != "null" ] && [ "$DISTROLESS_DIGEST_AMD64" != "sha256:placeholder" ]; then
-                echo "distroless_digest_amd64=$DISTROLESS_DIGEST_AMD64" >> $GITHUB_OUTPUT
-              fi
-              if [ -n "$DISTROLESS_DIGEST_ARM64" ] && [ "$DISTROLESS_DIGEST_ARM64" != "null" ] && [ "$DISTROLESS_DIGEST_ARM64" != "sha256:placeholder" ]; then
-                echo "distroless_digest_arm64=$DISTROLESS_DIGEST_ARM64" >> $GITHUB_OUTPUT
-              fi
-              
-              # Set has_digests flag if any digest exists (even placeholder)
-              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ]; then
-                echo "has_digests=true" >> $GITHUB_OUTPUT
-              fi
-            fi
-            
-            # Extract digests from new format
-            if [ "$HAS_BASE_IMAGES" = "true" ] && [ "$HAS_NEW_FORMAT" = "true" ]; then
-              DEBIAN_DIGEST_AMD64=$(jq -r '.base_images.debian.digests.amd64 // empty' VERSION.json 2>/dev/null || echo "")
-              DEBIAN_DIGEST_ARM64=$(jq -r '.base_images.debian.digests.arm64 // empty' VERSION.json 2>/dev/null || echo "")
-              DISTROLESS_DIGEST_AMD64=$(jq -r '.base_images.distroless.variants.latest.digests.amd64 // empty' VERSION.json 2>/dev/null || echo "")
-              DISTROLESS_DIGEST_ARM64=$(jq -r '.base_images.distroless.variants.latest.digests.arm64 // empty' VERSION.json 2>/dev/null || echo "")
-              
-              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ] && [ "$DEBIAN_DIGEST_AMD64" != "sha256:placeholder" ]; then
-                echo "debian_digest_amd64=$DEBIAN_DIGEST_AMD64" >> $GITHUB_OUTPUT
-              fi
-              if [ -n "$DEBIAN_DIGEST_ARM64" ] && [ "$DEBIAN_DIGEST_ARM64" != "null" ] && [ "$DEBIAN_DIGEST_ARM64" != "sha256:placeholder" ]; then
-                echo "debian_digest_arm64=$DEBIAN_DIGEST_ARM64" >> $GITHUB_OUTPUT
-              fi
-              if [ -n "$DISTROLESS_DIGEST_AMD64" ] && [ "$DISTROLESS_DIGEST_AMD64" != "null" ] && [ "$DISTROLESS_DIGEST_AMD64" != "sha256:placeholder" ]; then
-                echo "distroless_digest_amd64=$DISTROLESS_DIGEST_AMD64" >> $GITHUB_OUTPUT
-              fi
-              if [ -n "$DISTROLESS_DIGEST_ARM64" ] && [ "$DISTROLESS_DIGEST_ARM64" != "null" ] && [ "$DISTROLESS_DIGEST_ARM64" != "sha256:placeholder" ]; then
-                echo "distroless_digest_arm64=$DISTROLESS_DIGEST_ARM64" >> $GITHUB_OUTPUT
-              fi
-              
-              # Set has_digests flag
-              if [ -n "$DEBIAN_DIGEST_AMD64" ] && [ "$DEBIAN_DIGEST_AMD64" != "null" ]; then
-                echo "has_digests=true" >> $GITHUB_OUTPUT
-              fi
-            fi
-            
-            exit 0
-          fi
-          
-          # No VERSION.json - use defaults
-          echo "platforms=[\"linux/amd64\"]" >> $GITHUB_OUTPUT
-          
-          # Fallback to input parameter for version
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          # Fallback to Dockerfile parsing
-          VERSION=$(grep -oP 'ARG\s+\w+_?VERSION=\K[^\s]+' ${{ inputs.dockerfile_path }} 2>/dev/null | head -1 || echo "unknown")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Determine platforms
-        id: platforms
-        run: |
-          # Priority: input > VERSION.json > default
-          if [ -n "${{ inputs.platforms }}" ]; then
-            # Convert comma-separated string to JSON array
-            PLATFORMS_STR="${{ inputs.platforms }}"
-            PLATFORMS_JSON=$(echo "$PLATFORMS_STR" | jq -R -s -c 'split(",") | map(select(length > 0))')
-            echo "platforms=$PLATFORMS_JSON" >> $GITHUB_OUTPUT
-            echo "Using platforms from input: $PLATFORMS_JSON"
-          elif [ -n "${{ steps.config.outputs.platforms }}" ]; then
-            echo "platforms=${{ steps.config.outputs.platforms }}" >> $GITHUB_OUTPUT
-            echo "Using platforms from VERSION.json: ${{ steps.config.outputs.platforms }}"
-          else
-            echo "platforms=[\"linux/amd64\"]" >> $GITHUB_OUTPUT
-            echo "Using default platform: linux/amd64"
-          fi
-      
-      - name: Extract current digests from registry
-        if: steps.config.outputs.has_base_images == 'true'
-        id: digests
-        run: |
-          # Function to get digest for an image (platform-specific)
-          # Unified approach that works for both multi-arch manifest lists and single-platform images
-          get_digest() {
-            local image=$1
-            local platform=$2
-            local raw_json=$(docker buildx imagetools inspect "$image" --raw 2>/dev/null)
-            
-            # Check if it's a manifest list (multi-arch)
-            if echo "$raw_json" | jq -e '.manifests' >/dev/null 2>&1; then
-              # Multi-arch manifest list - extract platform-specific digest
-              if [ -n "$platform" ]; then
-                local arch=$(echo "$platform" | cut -d/ -f2)
-                echo "$raw_json" | jq -r ".manifests[] | select(.platform.architecture == \"$arch\" and .platform.os == \"linux\") | .digest"
-              else
-                # No platform specified, return first manifest digest
-                echo "$raw_json" | jq -r ".manifests[0].digest"
-              fi
-            else
-              # Single-platform image - get digest from human-readable output
-              docker buildx imagetools inspect "$image" 2>&1 | grep -E '^Digest:' | awk '{print $2}'
-            fi
-          }
-          
-          # Get platforms array
-          PLATFORMS_JSON='${{ steps.platforms.outputs.platforms }}'
-          
-          # Extract digests for each platform dynamically
-          echo "$PLATFORMS_JSON" | jq -r '.[]' | while read -r platform; do
-            arch=$(echo "$platform" | cut -d/ -f2)
-            
-            # Get Debian digest (multi-arch image)
-            DEBIAN_DIGEST=$(get_digest "docker.io/library/debian:bookworm-slim" "$platform" || echo "")
-            if [ -n "$DEBIAN_DIGEST" ] && [ "$DEBIAN_DIGEST" != "null" ]; then
-              echo "current_debian_digest_${arch}=$DEBIAN_DIGEST" >> $GITHUB_OUTPUT
-            fi
-            
-            # Get Distroless digests (single-platform images)
-            DISTROLESS_DIGEST=$(get_digest "gcr.io/distroless/base-debian12:latest-${arch}" || echo "")
-            if [ -n "$DISTROLESS_DIGEST" ] && [ "$DISTROLESS_DIGEST" != "null" ]; then
-              echo "current_distroless_digest_${arch}=$DISTROLESS_DIGEST" >> $GITHUB_OUTPUT
-            fi
-            
-            DISTROLESS_DEBUG_DIGEST=$(get_digest "gcr.io/distroless/base-debian12:debug-${arch}" || echo "")
-            if [ -n "$DISTROLESS_DEBUG_DIGEST" ] && [ "$DISTROLESS_DEBUG_DIGEST" != "null" ]; then
-              echo "current_distroless_debug_digest_${arch}=$DISTROLESS_DEBUG_DIGEST" >> $GITHUB_OUTPUT
-            fi
-            
-            echo "Extracted digests for $platform:"
-            echo "  Debian: ${DEBIAN_DIGEST:-not found}"
-            echo "  Distroless: ${DISTROLESS_DIGEST:-not found}"
-          done
-          
-          # Verify we have at least one valid digest (check amd64 as minimum)
-          DEBIAN_AMD64=$(echo "$PLATFORMS_JSON" | jq -r '.[] | select(. == "linux/amd64")' >/dev/null && echo "check" || echo "")
-          if [ -n "$DEBIAN_AMD64" ]; then
-            # Check if amd64 digest was extracted (read from output)
-            if ! grep -q "current_debian_digest_amd64" <<< "$(cat $GITHUB_OUTPUT 2>/dev/null || echo '')"; then
-              echo "Warning: Failed to extract Debian AMD64 digest. Build may fail."
-            fi
-          fi
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}
-          tags: |
-            type=ref,event=branch
-            type=raw,value=${{ github.ref_name }}-${{ github.sha }},enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-            type=raw,value=${{ github.ref_name }}-${{ steps.config.outputs.version }},enable=${{ steps.config.outputs.version != '' && steps.config.outputs.version != 'unknown' }}
-      
-      - name: Build and push amd64
-        id: build-amd64
-        if: contains(steps.platforms.outputs.platforms, 'linux/amd64')
-        uses: docker/build-push-action@v6
+      - name: Create and push manifest lists
+        uses: nick-fields/retry@v3
         env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
-          BUILDX_NO_DEFAULT_ATTESTATIONS: 1
+          VARIANTS: ${{ needs.prepare-version.outputs.variants }}
+          VERSION: ${{ needs.prepare-version.outputs.version }}
+          BRANCH: ${{ needs.prepare-version.outputs.branch }}
+          SHA: ${{ needs.prepare-version.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+          MATRIX: ${{ needs.prepare-version.outputs.matrix }}
         with:
-          context: ${{ inputs.build_context }}
-          file: linux-amd64.Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}-amd64
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.config.outputs.version }}
-            BUILD_DATE=${{ steps.config.outputs.build_date || '' }}
-            GIT_COMMIT=${{ github.sha }}
-            TARGETVARIANT=latest
-            DEBIAN_DIGEST=${{ steps.digests.outputs.current_debian_digest_amd64 || steps.config.outputs.debian_digest_amd64 || '' }}
-            DISTROLESS_DIGEST=${{ steps.digests.outputs.current_distroless_digest_amd64 || steps.config.outputs.distroless_digest_amd64 || '' }}
-            APP_URL=${{ steps.config.outputs.amd64_url || '' }}
-            SBRANCH=${{ steps.config.outputs.sbranch || '' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          max_attempts: 3
+          timeout_minutes: 5
+          retry_wait_seconds: 30
+          command: |
+            # For each variant, collect platform images and create manifest list
+            echo "$VARIANTS" | while IFS= read -r variant; do
+              echo "Processing variant: $variant"
+              
+              # Get all enabled targets for this variant from matrix JSON
+              TARGETS=$(echo "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
+              
+              # Build image tag list and verify existence
+              PLATFORM_IMAGES=()
+              for target in $TARGETS; do
+                IMAGE_TAG="ghcr.io/${REPOSITORY}:${BRANCH}-${VERSION}-${target}"
+                if docker buildx imagetools inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+                  PLATFORM_IMAGES+=("$IMAGE_TAG")
+                  echo "  ✓ Found: $IMAGE_TAG"
+                else
+                  echo "  ✗ Missing: $IMAGE_TAG"
+                fi
+              done
+              
+              # Only create manifest if we have at least 2 platforms
+              if [ ${#PLATFORM_IMAGES[@]} -lt 2 ]; then
+                echo "Skipping manifest creation for $variant: only ${#PLATFORM_IMAGES[@]} platform(s) available"
+                continue
+              fi
+              
+              # Define primary tag (first tag becomes the manifest reference)
+              PRIMARY_TAG="ghcr.io/${REPOSITORY}:${BRANCH}-${variant}"
+              
+              # Create manifest list once with primary tag
+              echo "Creating manifest list: $PRIMARY_TAG"
+              docker buildx imagetools create \
+                --tag "$PRIMARY_TAG" \
+                "${PLATFORM_IMAGES[@]}"
+              
+              # Create additional tags as aliases pointing to the same manifest
+              # This is more efficient than creating separate manifests (matches Hotio pattern)
+              echo "Creating tag alias: ${BRANCH}-${VERSION}-${variant}"
+              docker buildx imagetools create \
+                --tag "ghcr.io/${REPOSITORY}:${BRANCH}-${VERSION}-${variant}" \
+                "$PRIMARY_TAG"
+              
+              echo "Creating tag alias: ${BRANCH}-${SHA:0:7}-${variant}"
+              docker buildx imagetools create \
+                --tag "ghcr.io/${REPOSITORY}:${BRANCH}-${SHA:0:7}-${variant}" \
+                "$PRIMARY_TAG"
+              
+              echo "✓ Manifest list created for variant: $variant with all tag aliases"
+            done
       
-      - name: Build and push arm64
-        id: build-arm64
-        if: contains(steps.platforms.outputs.platforms, 'linux/arm64')
-        uses: docker/build-push-action@v6
-        env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
-          BUILDX_NO_DEFAULT_ATTESTATIONS: 1
+      - name: Checkout default branch for tags.json
+        uses: actions/checkout@v6
         with:
-          context: ${{ inputs.build_context }}
-          file: linux-arm64.Dockerfile
-          platforms: linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}-arm64
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.config.outputs.version }}
-            BUILD_DATE=${{ steps.config.outputs.build_date || '' }}
-            GIT_COMMIT=${{ github.sha }}
-            TARGETVARIANT=latest
-            DEBIAN_DIGEST=${{ steps.digests.outputs.current_debian_digest_arm64 || steps.config.outputs.debian_digest_arm64 || '' }}
-            DISTROLESS_DIGEST=${{ steps.digests.outputs.current_distroless_digest_arm64 || steps.config.outputs.distroless_digest_arm64 || '' }}
-            APP_URL=${{ steps.config.outputs.arm64_url || '' }}
-            SBRANCH=${{ steps.config.outputs.sbranch || '' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Create manifest list
-        if: |
-          (contains(steps.platforms.outputs.platforms, 'linux/amd64') && steps.build-amd64.outcome == 'success') ||
-          (contains(steps.platforms.outputs.platforms, 'linux/arm64') && steps.build-arm64.outcome == 'success')
-        run: |
-          PLATFORMS_JSON='${{ steps.platforms.outputs.platforms }}'
-          BASE_TAG="${{ steps.meta.outputs.tags }}"
-          MANIFEST_ARGS=""
-          
-          # Add platform-specific tags to manifest list
-          if echo "$PLATFORMS_JSON" | jq -e '.[] | select(. == "linux/amd64")' >/dev/null 2>&1 && \
-             [ "${{ steps.build-amd64.outcome }}" = "success" ]; then
-            MANIFEST_ARGS="$MANIFEST_ARGS ${BASE_TAG}-amd64"
-          fi
-          
-          if echo "$PLATFORMS_JSON" | jq -e '.[] | select(. == "linux/arm64")' >/dev/null 2>&1 && \
-             [ "${{ steps.build-arm64.outcome }}" = "success" ]; then
-            MANIFEST_ARGS="$MANIFEST_ARGS ${BASE_TAG}-arm64"
-          fi
-          
-          if [ -n "$MANIFEST_ARGS" ]; then
-            echo "Creating manifest list: $BASE_TAG"
-            docker buildx imagetools create --tag "$BASE_TAG" $MANIFEST_ARGS
-          else
-            echo "Warning: No platform builds succeeded, skipping manifest list creation"
-          fi
+          ref: ${{ needs.prepare-version.outputs.default_branch }}
+          fetch-depth: 0
       
       - name: Update tags.json
-        if: github.ref_name == 'release' || github.ref_name == 'nightly'
-        run: |
-          set -e
-          
-          # Get default branch name
-          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
-          BUILD_BRANCH="${{ github.ref_name }}"
-          
-          # Use version from config step
-          VERSION="${{ steps.config.outputs.version }}"
-          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-            VERSION="unknown"
-          fi
-          
-          echo "Using version: $VERSION"
-          
-          # Switch to default branch (main) for tags.json update
-          git checkout "$DEFAULT_BRANCH" || {
-            echo "Error: Failed to checkout $DEFAULT_BRANCH branch"
-            exit 1
-          }
-          
-          # Update tags.json
-          COMMIT_SHA="${{ github.sha }}"
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-          BUILD_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          
-          # Create/update tags.json entry
-          if [ ! -f tags.json ]; then
-            echo '{}' > tags.json
-          fi
-          
-          # Update JSON using Python (hotio-inspired approach)
-          python3 << EOF
-          import json
-          import sys
-          
-          branch = "$BUILD_BRANCH"
-          version = "$VERSION"
-          commit_sha = "$COMMIT_SHA"
-          timestamp = "$TIMESTAMP"
-          build_url = "$BUILD_URL"
-          
-          try:
-              with open('tags.json', 'r') as f:
-                  data = json.load(f)
-          except (FileNotFoundError, json.JSONDecodeError) as e:
-              print(f"Warning: Could not read tags.json: {e}", file=sys.stderr)
-              data = {}
-          
-          data[branch] = {
-              "description": branch,
-              "hide": False,
-              "last_updated": timestamp,
-              "last_updated_url": build_url,
-              "latest": branch == "release",
-              "tags": [
-                  branch,
-                  f"{branch}-{version}",
-                  f"{branch}-{commit_sha[:7]}"
-              ]
-          }
-          
-          try:
-              with open('tags.json', 'w') as f:
-                  json.dump(data, f, indent=2)
-              print(f"Updated tags.json for {branch} branch with version {version}")
-          except Exception as e:
-              print(f"Error writing tags.json: {e}", file=sys.stderr)
-              sys.exit(1)
-          EOF
-          
-          # Check if there are changes to commit
-          if ! git diff --quiet tags.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add tags.json
-            git commit -m "Update tags.json for $BUILD_BRANCH branch (version: $VERSION)" || {
-              echo "Warning: Failed to commit tags.json (may already be up to date)"
-              exit 0
-            }
-            git push || {
-              echo "Error: Failed to push tags.json update"
-              exit 1
-            }
-            echo "Successfully updated tags.json"
-          else
-            echo "No changes to tags.json, skipping commit"
-          fi
+        uses: nick-fields/retry@v3
+        env:
+          RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          BRANCH: ${{ needs.prepare-version.outputs.branch }}
+          VERSION: ${{ needs.prepare-version.outputs.version }}
+          SHA: ${{ needs.prepare-version.outputs.sha }}
+          VARIANTS: ${{ needs.prepare-version.outputs.variants }}
+        with:
+          max_attempts: 3
+          timeout_minutes: 5
+          retry_wait_seconds: 30
+          command: |
+            set -e
+            
+            # Pull latest changes to handle concurrent updates
+            git pull --rebase || true
+            
+            # Create tags.json if it doesn't exist
+            [ ! -f tags.json ] && echo '{}' > tags.json
+            
+            # Generate timestamp
+            TIMESTAMP=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+            BUILD_URL="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
+            
+            # Update tags.json for each variant (matching publish job tag format)
+            echo "$VARIANTS" | while IFS= read -r variant; do
+              # Create tags matching publish job format: branch-variant, branch-version-variant, branch-sha-variant
+              TAG_BRANCH_VARIANT="${BRANCH}-${variant}"
+              TAG_BRANCH_VERSION_VARIANT="${BRANCH}-${VERSION}-${variant}"
+              TAG_BRANCH_SHA_VARIANT="${BRANCH}-${SHA:0:7}-${variant}"
+              
+              # Update tags.json using jq (same structure as publish job creates)
+              jq --sort-keys \
+                  --arg branch_variant "${TAG_BRANCH_VARIANT}" \
+                  --arg tag_branch_variant "${TAG_BRANCH_VARIANT}" \
+                  --arg tag_branch_version_variant "${TAG_BRANCH_VERSION_VARIANT}" \
+                  --arg tag_branch_sha_variant "${TAG_BRANCH_SHA_VARIANT}" \
+                  --arg last_updated "${TIMESTAMP}" \
+                  --arg last_updated_url "${BUILD_URL}" \
+                  --arg description "${TAG_BRANCH_VARIANT}" \
+                  --argjson hide false \
+                  '.[$branch_variant] = {
+                    "description": $description,
+                    "hide": $hide,
+                    "last_updated": $last_updated,
+                    "last_updated_url": $last_updated_url,
+                    "tags": [$tag_branch_variant, $tag_branch_version_variant, $tag_branch_sha_variant]
+                  }' tags.json > tags.json.tmp && mv tags.json.tmp tags.json
+            done
+            
+            # Only commit if tags.json actually changed
+            if ! git diff --quiet tags.json; then
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git add tags.json
+              git commit -m "Update tags.json for ${BRANCH} branch variants (version: ${VERSION}) [skip ci]" || exit 0
+              git push || { echo "Error: Failed to push tags.json update"; exit 1; }
+            else
+              echo "No changes to tags.json, skipping commit"
+            fi
+          new_command_on_retry: |
+            git pull --rebase
+            git push
+
+  # TODO: Add notification job to send build status notifications
+  # This job should:
+  # - Run after publish job completes (success or failure)
+  # - Send notifications to one or more messaging platforms:
+  #   * WhatsApp (via WhatsApp Business API or third-party service)
+  #   * Telegram (via Telegram Bot API)
+  #   * Discord (via Discord Webhook)
+  #   * Slack (via Slack Webhook)
+  #   * Email (via SMTP)
+  # - Include build metadata: branch, version, SHA, build status, workflow run URL
+  # - Support configurable notification channels via secrets (e.g., NOTIFICATION_WEBHOOK_URL, TELEGRAM_BOT_TOKEN, etc.)
+  # - Handle both success and failure scenarios with appropriate messaging
+  # Example structure:
+  # notify:
+  #   needs: [publish, build]
+  #   if: always()  # Run regardless of previous job status
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Send notification
+  #       run: |
+  #         # Send to configured notification channels
+  #         # Include build status, branch, version, SHA, workflow URL
