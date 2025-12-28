@@ -16,9 +16,12 @@ jobs:
         id: extract
         run: |
           MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Generated matrix:"
-          echo "$MATRIX"
+          {
+            echo 'matrix<<EOF'
+            echo "$MATRIX"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
   
 
   build:
