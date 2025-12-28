@@ -84,14 +84,17 @@ jobs:
         id: metadata
         run: |
           CREATED=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+          ARCH="${{ matrix.target.arch }}"
+          PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
           echo "created=${CREATED}" >> $GITHUB_OUTPUT
+          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
 
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.target.dockerfile }}
-          platforms: ${{ matrix.target.arch | replace('linux-', 'linux/') }}
+          platforms: ${{ steps.metadata.outputs.platform }}
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}-${{ needs.prepare-version.outputs.version }}-${{ matrix.target.name }}
           provenance: false
