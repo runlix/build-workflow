@@ -79,6 +79,15 @@ jobs:
           ARCH=$(echo "${{ matrix.target.arch }}" | sed 's/linux-/linux\//')
           PLATFORM="${ARCH}"
           
+          # Generate label values
+          CREATED=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+          REPOSITORY="${{ github.repository }}"
+          REPOSITORY_OWNER="${{ github.repository_owner }}"
+          BRANCH="${{ github.ref_name }}"
+          SERVER_URL="${{ github.server_url }}"
+          SOURCE="${SERVER_URL}/${REPOSITORY}/tree/${BRANCH}"
+          IMAGE_TAG_BRANCH="${REPOSITORY}:${BRANCH}"
+          
           # Output all values to GITHUB_OUTPUT for use in subsequent steps
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
@@ -91,6 +100,13 @@ jobs:
           echo "base_digest=${BASE_DIGEST}" >> $GITHUB_OUTPUT
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
           echo "dockerfile=${{ matrix.target.dockerfile }}" >> $GITHUB_OUTPUT
+          # Label values
+          echo "label_created=${CREATED}" >> $GITHUB_OUTPUT
+          echo "label_title=${IMAGE_TAG_BRANCH}" >> $GITHUB_OUTPUT
+          echo "label_revision=${GIT_COMMIT}" >> $GITHUB_OUTPUT
+          echo "label_source=${SOURCE}" >> $GITHUB_OUTPUT
+          echo "label_vendor=${REPOSITORY_OWNER}" >> $GITHUB_OUTPUT
+          echo "label_version=${VERSION}" >> $GITHUB_OUTPUT
           
           # Echo all parameters organized by category
           echo ""
@@ -134,6 +150,7 @@ jobs:
           platforms: ${{ steps.prep.outputs.platform }}
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ steps.prep.outputs.image_tag }}
+          attestations: false
           build-args: |
             BUILDER_TAG=${{ steps.prep.outputs.builder_tag }}
             BUILDER_DIGEST=${{ steps.prep.outputs.builder_digest }}
@@ -142,5 +159,12 @@ jobs:
             VERSION=${{ steps.prep.outputs.version }}
             BUILD_DATE=${{ steps.prep.outputs.build_date }}
             GIT_COMMIT=${{ steps.prep.outputs.git_commit }}
+          labels: |
+            org.opencontainers.image.created=${{ steps.prep.outputs.label_created }}
+            org.opencontainers.image.title=${{ steps.prep.outputs.label_title }}
+            org.opencontainers.image.revision=${{ steps.prep.outputs.label_revision }}
+            org.opencontainers.image.source=${{ steps.prep.outputs.label_source }}
+            org.opencontainers.image.vendor=${{ steps.prep.outputs.label_vendor }}
+            org.opencontainers.image.version=${{ steps.prep.outputs.label_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
