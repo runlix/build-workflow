@@ -25,6 +25,13 @@ jobs:
   build:
     needs: generate-matrix
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.prep.outputs.version }}
+      branch: ${{ steps.prep.outputs.branch }}
+      sha: ${{ steps.prep.outputs.sha }}
+      image_tag_branch: ${{ steps.prep.outputs.image_tag_branch }}
+      image_tag_branch_version: ${{ steps.prep.outputs.image_tag_branch_version }}
+      image_tag_branch_sha: ${{ steps.prep.outputs.image_tag_branch_sha }}
     strategy:
       matrix:
         target: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
@@ -87,6 +94,12 @@ jobs:
           SERVER_URL="${{ github.server_url }}"
           SOURCE="${SERVER_URL}/${REPOSITORY}/tree/${BRANCH}"
           IMAGE_TAG_BRANCH="${REPOSITORY}:${BRANCH}"
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          
+          # Generate image tags for tags.json (using variant from first enabled target)
+          # These will be updated by the publish job with actual variant tags
+          IMAGE_TAG_BRANCH_VERSION="${REPOSITORY}:${BRANCH}-${VERSION}"
+          IMAGE_TAG_BRANCH_SHA="${REPOSITORY}:${BRANCH}-${GIT_SHA:0:7}"
           
           # Output all values to GITHUB_OUTPUT for use in subsequent steps
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -107,6 +120,12 @@ jobs:
           echo "label_source=${SOURCE}" >> $GITHUB_OUTPUT
           echo "label_vendor=${REPOSITORY_OWNER}" >> $GITHUB_OUTPUT
           echo "label_version=${VERSION}" >> $GITHUB_OUTPUT
+          # Outputs for tags job
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "sha=${GIT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_tag_branch=${IMAGE_TAG_BRANCH}" >> $GITHUB_OUTPUT
+          echo "image_tag_branch_version=${IMAGE_TAG_BRANCH_VERSION}" >> $GITHUB_OUTPUT
+          echo "image_tag_branch_sha=${IMAGE_TAG_BRANCH_SHA}" >> $GITHUB_OUTPUT
           
           # Echo all parameters organized by category
           echo ""
@@ -150,7 +169,7 @@ jobs:
           platforms: ${{ steps.prep.outputs.platform }}
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ steps.prep.outputs.image_tag }}
-          attestations: false
+          provenance: false
           build-args: |
             BUILDER_TAG=${{ steps.prep.outputs.builder_tag }}
             BUILDER_DIGEST=${{ steps.prep.outputs.builder_digest }}
@@ -273,13 +292,85 @@ jobs:
                 --tag "ghcr.io/${REPOSITORY}:${BRANCH}-${SHA:0:7}-${variant}" \
                 "$PRIMARY_TAG"
               
-              # Add 'latest' tag if variant is "latest" and branch is default
-              if [ "$variant" = "latest" ] && [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
-                echo "Creating tag alias: latest"
-                docker buildx imagetools create \
-                  --tag "ghcr.io/${REPOSITORY}:latest" \
-                  "$PRIMARY_TAG"
-              fi
-              
               echo "✓ Manifest list created for variant: $variant with all tag aliases"
             done
+
+  tags:
+    needs: [build, publish]
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+          fetch-depth: 0
+      
+      - name: Update tags.json
+        uses: nick-fields/retry@v3
+        env:
+          RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          BRANCH: ${{ needs.build.outputs.branch }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SHA: ${{ needs.build.outputs.sha }}
+          IMAGE_TAG_BRANCH: ${{ needs.build.outputs.image_tag_branch }}
+          IMAGE_TAG_BRANCH_VERSION: ${{ needs.build.outputs.image_tag_branch_version }}
+          IMAGE_TAG_BRANCH_SHA: ${{ needs.build.outputs.image_tag_branch_sha }}
+        with:
+          max_attempts: 3
+          timeout_minutes: 5
+          retry_wait_seconds: 30
+          command: |
+            set -e
+            
+            # Pull latest changes to handle concurrent updates
+            git pull --rebase || true
+            
+            # Create tags.json if it doesn't exist
+            [ ! -f tags.json ] && echo '{}' > tags.json
+            
+            # Extract branch name without repository prefix for tags.json key
+            BRANCH_KEY="${BRANCH}"
+            IMAGE_TAG_BRANCH_CLEAN="${IMAGE_TAG_BRANCH/$REPOSITORY:/}"
+            IMAGE_TAG_BRANCH_VERSION_CLEAN="${IMAGE_TAG_BRANCH_VERSION/$REPOSITORY:/}"
+            IMAGE_TAG_BRANCH_SHA_CLEAN="${IMAGE_TAG_BRANCH_SHA/$REPOSITORY:/}"
+            
+            # Generate timestamp
+            TIMESTAMP=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+            BUILD_URL="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
+            
+            # Update tags.json using jq
+            jq --sort-keys \
+                --arg branch "${BRANCH_KEY}" \
+                --arg image_tag_branch "${IMAGE_TAG_BRANCH_CLEAN}" \
+                --arg image_tag_branch_version "${IMAGE_TAG_BRANCH_VERSION_CLEAN}" \
+                --arg image_tag_branch_sha "${IMAGE_TAG_BRANCH_SHA_CLEAN}" \
+                --arg last_updated "${TIMESTAMP}" \
+                --arg last_updated_url "${BUILD_URL}" \
+                --arg description "${BRANCH_KEY}" \
+                --argjson hide false \
+                '.[$branch] = {
+                  "description": $description,
+                  "hide": $hide,
+                  "last_updated": $last_updated,
+                  "last_updated_url": $last_updated_url,
+                  "tags": [$image_tag_branch, $image_tag_branch_version, $image_tag_branch_sha]
+                }' tags.json > tags.json.tmp && mv tags.json.tmp tags.json
+            
+            # Only commit if tags.json actually changed
+            if ! git diff --quiet tags.json; then
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git add tags.json
+              git commit -m "Update tags.json for ${BRANCH_KEY} branch (version: ${VERSION}) [skip ci]" || exit 0
+              git push || { echo "Error: Failed to push tags.json update"; exit 1; }
+            else
+              echo "No changes to tags.json, skipping commit"
+            fi
+          new_command_on_retry: |
+            git pull --rebase
+            git push
