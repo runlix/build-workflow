@@ -22,8 +22,6 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-  
-
   build:
     needs: generate-matrix
     runs-on: ubuntu-latest
@@ -31,15 +29,77 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
     steps:
-      - name: Print target info
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}  
+
+      - name: Create Outputs for Next Steps
+        id: prep
         run: |
-          echo "🔧 Target: ${{ matrix.target.name }}"
-          echo "    Arch: ${{ matrix.target.arch }}"
-          echo "  Builder Image: ${{ matrix.target.builder.image }}"
-          echo "  Builder TAG: ${{ matrix.target.builder.tag }}"
-          echo "  Builder Digest: ${{ matrix.target.builder.digest }}"
-          echo "  Base Image: ${{ matrix.target.base.image }}"
-          echo "  Base TAG: ${{ matrix.target.base.tag }}"
-          echo "  Base Digest: ${{ matrix.target.base.digest }}"
-          echo "  Dockerfile: ${{ matrix.target.dockerfile }}"
+          # Helper function to safely extract JSON values
+          get_json_value() {
+            jq -r "${1} // empty" VERSION.json 2>/dev/null | grep -v "^null$" || echo ""
+          }
           
+          # Extract root-level metadata from VERSION.json
+          VERSION=$(get_json_value '.version')
+          BUILD_DATE=$(get_json_value '.build_date')
+          
+          # Generate PACKAGE_VERSION (branch-sha format)
+          GIT_SHA="${{ github.sha }}"
+          PACKAGE_VERSION="${{ github.ref_name }}-${GIT_SHA:0:7}"
+          
+          # Generate IMAGE_TAG (branch-version-arch format)
+          IMAGE_TAG="${{ github.ref_name }}-${VERSION}-${{ matrix.target.arch }}"
+          
+          # Extract target-specific parameters
+          BUILDER_TAG="${{ matrix.target.builder.tag }}"
+          BUILDER_DIGEST="${{ matrix.target.builder.digest }}"
+          BASE_TAG="${{ matrix.target.base.tag }}"
+          BASE_DIGEST="${{ matrix.target.base.digest }}"
+          GIT_COMMIT="${{ github.sha }}"
+          
+          # Echo all parameters organized by category
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "📋 METADATA"
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  VERSION:           ${VERSION}"
+          echo "  BUILD_DATE:        ${BUILD_DATE}"
+          echo "  GIT_COMMIT:        ${GIT_COMMIT}"
+          echo "  PACKAGE_VERSION:   ${PACKAGE_VERSION}"
+          echo "  IMAGE_TAG:         ${IMAGE_TAG}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "🔧 TARGET CONFIGURATION"
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  Target Name:       ${{ matrix.target.name }}"
+          echo "  Architecture:      ${{ matrix.target.arch }}"
+          echo "  Dockerfile:        ${{ matrix.target.dockerfile }}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "🏗️  BUILDER IMAGE"
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  BUILDER_TAG:       ${BUILDER_TAG}"
+          echo "  BUILDER_DIGEST:    ${BUILDER_DIGEST}"
+          echo "  Builder Image:     ${{ matrix.target.builder.image }}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "📦 BASE IMAGE"
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  BASE_TAG:          ${BASE_TAG}"
+          echo "  BASE_DIGEST:       ${BASE_DIGEST}"
+          echo "  Base Image:        ${{ matrix.target.base.image }}"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
