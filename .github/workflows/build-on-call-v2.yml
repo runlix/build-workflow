@@ -266,3 +266,26 @@ jobs:
           new_command_on_retry: |
             git pull --rebase
             git push
+
+  # TODO: Add notification job to send build status notifications
+  # This job should:
+  # - Run after publish job completes (success or failure)
+  # - Send notifications to one or more messaging platforms:
+  #   * WhatsApp (via WhatsApp Business API or third-party service)
+  #   * Telegram (via Telegram Bot API)
+  #   * Discord (via Discord Webhook)
+  #   * Slack (via Slack Webhook)
+  #   * Email (via SMTP)
+  # - Include build metadata: branch, version, SHA, build status, workflow run URL
+  # - Support configurable notification channels via secrets (e.g., NOTIFICATION_WEBHOOK_URL, TELEGRAM_BOT_TOKEN, etc.)
+  # - Handle both success and failure scenarios with appropriate messaging
+  # Example structure:
+  # notify:
+  #   needs: [publish, build]
+  #   if: always()  # Run regardless of previous job status
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Send notification
+  #       run: |
+  #         # Send to configured notification channels
+  #         # Include build status, branch, version, SHA, workflow URL
