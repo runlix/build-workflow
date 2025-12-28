@@ -35,7 +35,11 @@ jobs:
         run: |
           echo "🔧 Target: ${{ matrix.target.name }}"
           echo "    Arch: ${{ matrix.target.arch }}"
-          echo "  Flavor: ${{ matrix.target.flavor }}"
-          echo " Stage FROM: ${{ matrix.target.stage_from }}"
-          echo "Runtime FROM: ${{ matrix.target.runtime_from }}"
+          echo "  Builder Image: ${{ matrix.target.builder.image }}"
+          echo "  Builder TAG: ${{ matrix.target.builder.tag }}"
+          echo "  Builder Digest: ${{ matrix.target.builder.digest }}"
+          echo "  Base Image: ${{ matrix.target.base.image }}"
+          echo "  Base TAG: ${{ matrix.target.base.tag }}"
+          echo "  Base Digest: ${{ matrix.target.base.digest }}"
+          echo "  Dockerfile: ${{ matrix.target.dockerfile }}"
           
