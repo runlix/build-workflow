@@ -25,11 +25,6 @@ jobs:
         run: |
           apt update && apt install -y jq curl
 
-      - name: Install GitHub CLI
-        uses: cli/cli-action@v1
-        with:
-          version: latest
-
       - name: Authenticate GitHub CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
