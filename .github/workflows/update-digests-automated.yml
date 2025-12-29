@@ -34,11 +34,41 @@ jobs:
             exit 1
           fi
           
+          echo "Discovering repositories with docker-image topic..."
+          REPOS=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | select(.topics[]?=="docker-image") | .name' || echo "")
+          
+          if [ -z "$REPOS" ]; then
+            echo "WARNING: No repositories found with docker-image topic"
+            echo "Debug: Listing all repos to verify API call works..."
+            curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | "\(.name) - topics: \(.topics | join(", "))"' || echo "API call failed"
+            exit 0
+          fi
+          
+          echo "Found repositories:"
+          echo "$REPOS"
+          
           while IFS= read -r REPOSITORY; do
             [ -z "$REPOSITORY" ] && continue
             
+            echo "Processing repository: ${REPOSITORY_OWNER}/${REPOSITORY}"
+            
+            echo "Fetching branches for ${REPOSITORY}..."
+            BRANCHES=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | select(.name!="main" and .name!="master") | .name' || echo "")
+            
+            if [ -z "$BRANCHES" ]; then
+              echo "WARNING: No branches found (excluding main/master) for ${REPOSITORY}"
+              echo "Debug: Listing all branches..."
+              curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | .name' || echo "Failed to fetch branches"
+              continue
+            fi
+            
+            echo "Found branches for ${REPOSITORY}:"
+            echo "$BRANCHES"
+            
             while IFS= read -r BRANCH; do
               [ -z "$BRANCH" ] && continue
+              
+              echo "Processing branch: ${REPOSITORY_OWNER}/${REPOSITORY}:${BRANCH}"
               
               CLONE_DIR=$(mktemp -d)
               
@@ -58,12 +88,14 @@ jobs:
               git remote set-url origin "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
               
               if [ ! -f update-digests.sh ]; then
+                echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
                 cd .. || exit 1
                 rm -rf "${CLONE_DIR}"
                 continue
               fi
               
-              bash ./update-digests.sh || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
+              echo "Executing update-digests.sh for ${REPOSITORY}:${BRANCH}..."
+              bash ./update-digests.sh || { echo "Script failed or no changes for ${REPOSITORY}:${BRANCH}"; cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
               
               COMMIT_MESSAGE="Upstream image update"
               [ "${BRANCH}" = "pr" ] && COMMIT_MESSAGE="Upstream image update [skip ci]"
@@ -71,6 +103,7 @@ jobs:
               git add .
               
               if ! git diff --quiet || ! git diff --cached --quiet; then
+                echo "Changes detected for ${REPOSITORY}:${BRANCH}"
                 PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
                 git checkout -b "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
                 git commit -m "${COMMIT_MESSAGE}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
@@ -83,9 +116,13 @@ jobs:
                   --base "${BRANCH}" \
                   --head "${PR_BRANCH}" \
                   --label "automated,dependencies" || true
+              else
+                echo "No changes detected for ${REPOSITORY}:${BRANCH}"
               fi
               
               cd .. || exit 1
               rm -rf "${CLONE_DIR}"
-            done < <(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>/dev/null | jq -r '.[] | select(.name!="main" and .name!="master") | .name' || true)
-          done < <(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>/dev/null | jq -r '.[] | select(.topics[]?=="docker-image") | .name' || true)
+            done <<< "$BRANCHES"
+          done <<< "$REPOS"
+          
+          echo "Completed processing all repositories"
