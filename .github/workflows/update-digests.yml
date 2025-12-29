@@ -1,333 +1,128 @@
-name: Update Digests
+name: update-digests-automated
 
 on:
-  workflow_call:
-    inputs:
-      repository:
-        description: 'Repository to update (e.g., runlix/distroless-runtime)'
-        required: true
-        type: string
-      branch:
-        description: 'Branch to update (e.g., release)'
-        required: true
-        type: string
-      version_file_path:
-        description: 'Path to VERSION.json file'
-        required: false
-        default: 'VERSION.json'
-        type: string
-      auto_merge:
-        description: 'Enable auto-merge for created PRs'
-        required: false
-        default: 'false'
-        type: string
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
 
 jobs:
-  update:
+  do-work:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     concurrency:
-      group: update-digests-${{ inputs.repository }}-${{ inputs.branch }}
+      group: update-digests-automated
       cancel-in-progress: false
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.branch }}
-          fetch-depth: 0
-          persist-credentials: false
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Detect VERSION.json format and extract platforms
-        id: version_format
+      - name: Git Config
         run: |
-          VERSION_FILE="${{ inputs.version_file_path }}"
-          
-          if [ ! -f "$VERSION_FILE" ]; then
-            echo "Error: VERSION.json file not found at $VERSION_FILE"
-            exit 1
-          fi
-          
-          # Detect format: new format has lowercase 'version' and 'platforms', old format has uppercase 'VERSION'
-          HAS_NEW_FORMAT=$(jq -e 'has("version") or has("platforms") or has("base_images")' "$VERSION_FILE" 2>/dev/null || echo "false")
-          HAS_OLD_FORMAT=$(jq -e 'has("VERSION") or has("DEBIAN_DIGEST_AMD64")' "$VERSION_FILE" 2>/dev/null || echo "false")
-          
-          if [ "$HAS_NEW_FORMAT" = "true" ]; then
-            echo "format=new" >> $GITHUB_OUTPUT
-            # Extract platforms array
-            PLATFORMS_JSON=$(jq -c '.platforms // []' "$VERSION_FILE" 2>/dev/null || echo '[]')
-            if [ "$PLATFORMS_JSON" = "[]" ] || [ -z "$PLATFORMS_JSON" ]; then
-              # Infer from digests/URLs
-              PLATFORMS='[]'
-              if jq -e '.base_images.debian.digests.amd64 // .amd64_url' "$VERSION_FILE" >/dev/null 2>&1; then
-                PLATFORMS=$(echo "$PLATFORMS" | jq '. + ["linux/amd64"]')
-              fi
-              if jq -e '.base_images.debian.digests.arm64 // .arm64_url' "$VERSION_FILE" >/dev/null 2>&1; then
-                PLATFORMS=$(echo "$PLATFORMS" | jq '. + ["linux/arm64"]')
-              fi
-              if [ "$PLATFORMS" = "[]" ]; then
-                PLATFORMS='["linux/amd64"]'
-              fi
-              PLATFORMS_JSON="$PLATFORMS"
-            fi
-            echo "platforms=$PLATFORMS_JSON" >> $GITHUB_OUTPUT
-          elif [ "$HAS_OLD_FORMAT" = "true" ]; then
-            echo "format=old" >> $GITHUB_OUTPUT
-            # Infer platforms from existing keys
-            PLATFORMS='[]'
-            if jq -e '.DEBIAN_DIGEST_AMD64 // .amd64_url // .AMD64_URL' "$VERSION_FILE" >/dev/null 2>&1; then
-              PLATFORMS=$(echo "$PLATFORMS" | jq '. + ["linux/amd64"]')
-            fi
-            if jq -e '.DEBIAN_DIGEST_ARM64 // .arm64_url // .ARM64_URL' "$VERSION_FILE" >/dev/null 2>&1; then
-              PLATFORMS=$(echo "$PLATFORMS" | jq '. + ["linux/arm64"]')
-            fi
-            if [ "$PLATFORMS" = "[]" ]; then
-              PLATFORMS='["linux/amd64"]'
-            fi
-            echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
-          else
-            echo "format=unknown" >> $GITHUB_OUTPUT
-            echo "platforms=[\"linux/amd64\"]" >> $GITHUB_OUTPUT
-          fi
-          
-          echo "Detected format: ${{ steps.version_format.outputs.format }}"
-          echo "Platforms: ${{ steps.version_format.outputs.platforms }}"
-      
-      - name: Extract current digests from registry
-        id: digests
-        run: |
-          # Function to get digest for an image (platform-specific)
-          # Unified approach that works for both multi-arch manifest lists and single-platform images
-          get_digest() {
-            local image=$1
-            local platform=$2
-            local raw_json=$(docker buildx imagetools inspect "$image" --raw 2>/dev/null)
-            
-            # Check if it's a manifest list (multi-arch)
-            if echo "$raw_json" | jq -e '.manifests' >/dev/null 2>&1; then
-              # Multi-arch manifest list - extract platform-specific digest
-              if [ -n "$platform" ]; then
-                local arch=$(echo "$platform" | cut -d/ -f2)
-                echo "$raw_json" | jq -r ".manifests[] | select(.platform.architecture == \"$arch\" and .platform.os == \"linux\") | .digest"
-              else
-                # No platform specified, return first manifest digest
-                echo "$raw_json" | jq -r ".manifests[0].digest"
-              fi
-            else
-              # Single-platform image - get digest from human-readable output
-              docker buildx imagetools inspect "$image" 2>&1 | grep -E '^Digest:' | awk '{print $2}'
-            fi
-          }
-          
-          # Get platforms array
-          PLATFORMS_JSON='${{ steps.version_format.outputs.platforms }}'
-          
-          # Extract digests for each platform dynamically
-          echo "$PLATFORMS_JSON" | jq -r '.[]' | while read -r platform; do
-            arch=$(echo "$platform" | cut -d/ -f2)
-            
-            # Get Debian digest (multi-arch image)
-            DEBIAN_DIGEST=$(get_digest "docker.io/library/debian:bookworm-slim" "$platform" || echo "")
-            if [ -n "$DEBIAN_DIGEST" ] && [ "$DEBIAN_DIGEST" != "null" ]; then
-              echo "current_debian_digest_${arch}=$DEBIAN_DIGEST" >> $GITHUB_OUTPUT
-            fi
-            
-            # Get Distroless digests (single-platform images)
-            DISTROLESS_DIGEST=$(get_digest "gcr.io/distroless/base-debian12:latest-${arch}" || echo "")
-            if [ -n "$DISTROLESS_DIGEST" ] && [ "$DISTROLESS_DIGEST" != "null" ]; then
-              echo "current_distroless_digest_${arch}=$DISTROLESS_DIGEST" >> $GITHUB_OUTPUT
-            fi
-            
-            DISTROLESS_DEBUG_DIGEST=$(get_digest "gcr.io/distroless/base-debian12:debug-${arch}" || echo "")
-            if [ -n "$DISTROLESS_DEBUG_DIGEST" ] && [ "$DISTROLESS_DEBUG_DIGEST" != "null" ]; then
-              echo "current_distroless_debug_digest_${arch}=$DISTROLESS_DEBUG_DIGEST" >> $GITHUB_OUTPUT
-            fi
-            
-            echo "Extracted digests for $platform:"
-            echo "  Debian: ${DEBIAN_DIGEST:-not found}"
-            echo "  Distroless: ${DISTROLESS_DIGEST:-not found}"
-          done
-      
-      - name: Check if digests changed and update VERSION.json
-        id: update_version
-        run: |
-          VERSION_FILE="${{ inputs.version_file_path }}"
-          FORMAT="${{ steps.version_format.outputs.format }}"
-          PLATFORMS_JSON='${{ steps.version_format.outputs.platforms }}'
-          
-          if [ ! -f "$VERSION_FILE" ]; then
-            echo "Error: VERSION.json file not found at $VERSION_FILE"
-            exit 1
-          fi
-          
-          # Read current version
-          CURRENT_VERSION=$(jq -r '.VERSION // .version // empty' "$VERSION_FILE" 2>/dev/null || echo "")
-          
-          UPDATED=false
-          NEW_VERSION="$CURRENT_VERSION"
-          CHANGES=""
-          
-          # Check if any digest changed (for each platform) - use temp file to avoid subshell issues
-          TEMP_CHANGES=$(mktemp)
-          
-          for platform in $(echo "$PLATFORMS_JSON" | jq -r '.[]'); do
-            arch=$(echo "$platform" | cut -d/ -f2)
-            
-            # Get current digests based on format
-            if [ "$FORMAT" = "new" ]; then
-              CURRENT_DEBIAN=$(jq -r ".base_images.debian.digests.${arch} // empty" "$VERSION_FILE" 2>/dev/null || echo "")
-              CURRENT_DISTROLESS=$(jq -r ".base_images.distroless.variants.latest.digests.${arch} // empty" "$VERSION_FILE" 2>/dev/null || echo "")
-              CURRENT_DISTROLESS_DEBUG=$(jq -r ".base_images.distroless.variants.debug.digests.${arch} // empty" "$VERSION_FILE" 2>/dev/null || echo "")
-            else
-              ARCH_UPPER=$(echo "$arch" | tr '[:lower:]' '[:upper:]')
-              CURRENT_DEBIAN=$(jq -r ".DEBIAN_DIGEST_${ARCH_UPPER} // empty" "$VERSION_FILE" 2>/dev/null || echo "")
-              CURRENT_DISTROLESS=$(jq -r ".DISTROLESS_DIGEST_${ARCH_UPPER} // empty" "$VERSION_FILE" 2>/dev/null || echo "")
-              CURRENT_DISTROLESS_DEBUG=$(jq -r ".DISTROLESS_DEBUG_DIGEST_${ARCH_UPPER} // empty" "$VERSION_FILE" 2>/dev/null || echo "")
-            fi
-            
-            # Get new digests from step outputs
-            NEW_DEBIAN="${{ steps.digests.outputs.current_debian_digest_amd64 }}"
-            if [ "$arch" = "arm64" ]; then
-              NEW_DEBIAN="${{ steps.digests.outputs.current_debian_digest_arm64 }}"
-            fi
-            
-            NEW_DISTROLESS="${{ steps.digests.outputs.current_distroless_digest_amd64 }}"
-            if [ "$arch" = "arm64" ]; then
-              NEW_DISTROLESS="${{ steps.digests.outputs.current_distroless_digest_arm64 }}"
-            fi
-            
-            NEW_DISTROLESS_DEBUG="${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }}"
-            if [ "$arch" = "arm64" ]; then
-              NEW_DISTROLESS_DEBUG="${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }}"
-            fi
-            
-            # Check for changes
-            if [ "$CURRENT_DEBIAN" != "$NEW_DEBIAN" ] && [ -n "$NEW_DEBIAN" ] && [ "$NEW_DEBIAN" != "null" ]; then
-              echo "Debian ${arch} digest changed: $CURRENT_DEBIAN -> $NEW_DEBIAN"
-              UPDATED=true
-              echo "- Debian ${arch}: \`${CURRENT_DEBIAN}\` → \`${NEW_DEBIAN}\`" >> "$TEMP_CHANGES"
-            fi
-            if [ "$CURRENT_DISTROLESS" != "$NEW_DISTROLESS" ] && [ -n "$NEW_DISTROLESS" ] && [ "$NEW_DISTROLESS" != "null" ]; then
-              echo "Distroless ${arch} digest changed: $CURRENT_DISTROLESS -> $NEW_DISTROLESS"
-              UPDATED=true
-              echo "- Distroless ${arch}: \`${CURRENT_DISTROLESS}\` → \`${NEW_DISTROLESS}\`" >> "$TEMP_CHANGES"
-            fi
-            if [ "$CURRENT_DISTROLESS_DEBUG" != "$NEW_DISTROLESS_DEBUG" ] && [ -n "$NEW_DISTROLESS_DEBUG" ] && [ "$NEW_DISTROLESS_DEBUG" != "null" ]; then
-              echo "Distroless Debug ${arch} digest changed: $CURRENT_DISTROLESS_DEBUG -> $NEW_DISTROLESS_DEBUG"
-              UPDATED=true
-              echo "- Distroless Debug ${arch}: \`${CURRENT_DISTROLESS_DEBUG}\` → \`${NEW_DISTROLESS_DEBUG}\`" >> "$TEMP_CHANGES"
-            fi
-          done
-          
-          # Read changes from temp file
-          if [ -f "$TEMP_CHANGES" ]; then
-            CHANGES=$(cat "$TEMP_CHANGES")
-            rm "$TEMP_CHANGES"
-          fi
-          
-          # Re-check updated flag (need to read from temp file since we're in a subshell)
-          if [ "$UPDATED" = "true" ]; then
-            # Bump patch version
-            MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1)
-            MINOR=$(echo "$NEW_VERSION" | cut -d. -f2)
-            PATCH=$(echo "$NEW_VERSION" | cut -d. -f3)
-            PATCH=$((PATCH + 1))
-            NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            echo "Bumping version to $NEW_VERSION"
-            
-            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            
-            # Update VERSION.json based on format
-            if [ "$FORMAT" = "new" ]; then
-              # New format: update nested structure
-              jq \
-                --arg version "$NEW_VERSION" \
-                --arg build_date "$BUILD_DATE" \
-                --argjson platforms "$PLATFORMS_JSON" \
-                '.version = $version |
-                 .build_date = $build_date |
-                 .platforms = $platforms |
-                 (if ${{ steps.digests.outputs.current_debian_digest_amd64 }} != "" then .base_images.debian.digests.amd64 = ${{ steps.digests.outputs.current_debian_digest_amd64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_debian_digest_arm64 }} != "" then .base_images.debian.digests.arm64 = ${{ steps.digests.outputs.current_debian_digest_arm64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_digest_amd64 }} != "" then .base_images.distroless.variants.latest.digests.amd64 = ${{ steps.digests.outputs.current_distroless_digest_amd64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_digest_arm64 }} != "" then .base_images.distroless.variants.latest.digests.arm64 = ${{ steps.digests.outputs.current_distroless_digest_arm64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }} != "" then .base_images.distroless.variants.debug.digests.amd64 = ${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }} != "" then .base_images.distroless.variants.debug.digests.arm64 = ${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }} else . end)' \
-                "$VERSION_FILE" > "${VERSION_FILE}.tmp" && mv "${VERSION_FILE}.tmp" "$VERSION_FILE"
-            else
-              # Old format: update flat structure
-              jq \
-                --arg version "$NEW_VERSION" \
-                --arg build_date "$BUILD_DATE" \
-                '.VERSION = $version |
-                 .BUILD_DATE = $build_date |
-                 (if ${{ steps.digests.outputs.current_debian_digest_amd64 }} != "" then .DEBIAN_DIGEST_AMD64 = ${{ steps.digests.outputs.current_debian_digest_amd64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_debian_digest_arm64 }} != "" then .DEBIAN_DIGEST_ARM64 = ${{ steps.digests.outputs.current_debian_digest_arm64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_digest_amd64 }} != "" then .DISTROLESS_DIGEST_AMD64 = ${{ steps.digests.outputs.current_distroless_digest_amd64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_digest_arm64 }} != "" then .DISTROLESS_DIGEST_ARM64 = ${{ steps.digests.outputs.current_distroless_digest_arm64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }} != "" then .DISTROLESS_DEBUG_DIGEST_AMD64 = ${{ steps.digests.outputs.current_distroless_debug_digest_amd64 }} else . end) |
-                 (if ${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }} != "" then .DISTROLESS_DEBUG_DIGEST_ARM64 = ${{ steps.digests.outputs.current_distroless_debug_digest_arm64 }} else . end)' \
-                "$VERSION_FILE" > "${VERSION_FILE}.tmp" && mv "${VERSION_FILE}.tmp" "$VERSION_FILE"
-            fi
-            
-            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
-            echo "updated=true" >> $GITHUB_OUTPUT
-            echo "changes<<EOF" >> $GITHUB_OUTPUT
-            echo -e "$CHANGES" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "updated=false" >> $GITHUB_OUTPUT
-            echo "No digest changes detected, skipping update"
-          fi
-      
-      - name: Create Pull Request
-        if: steps.update_version.outputs.updated == 'true'
-        id: create_pr
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update base image digests and bump version to ${{ steps.update_version.outputs.version }}"
-          title: "Update base image digests to ${{ steps.update_version.outputs.version }}"
-          body: |
-            ## Base Image Digest Updates
-            
-            This PR updates the base image digests and bumps the version to **${{ steps.update_version.outputs.version }}**.
-            
-            ### Changes
-            
-            ${{ steps.update_version.outputs.changes }}
-            
-            ### Build Date
-            ${{ steps.update_version.outputs.BUILD_DATE }}
-            
-            ---
-            *This PR was automatically created by the update-digests workflow.*
-          branch: update-digests-${{ github.run_id }}
-          base: ${{ inputs.branch }}
-          delete-branch: true
-          labels: |
-            automated
-            dependencies
-      
-      - name: Enable auto-merge if requested
-        if: steps.update_version.outputs.updated == 'true' && inputs.auto_merge == 'true' && steps.create_pr.outputs.pull-request-number != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.create_pr.outputs.pull-request-number }}
-          REPO: ${{ inputs.repository }}
-        run: |
-          # Use GitHub CLI to enable auto-merge
-          gh pr merge "$PR_NUMBER" --auto --merge --repo "$REPO" || {
-            echo "Warning: Failed to enable auto-merge on PR #$PR_NUMBER"
-            echo "Note: Auto-merge requires repository settings to be enabled"
-            echo "Note: PR may need to pass status checks before auto-merge can be enabled"
-          }
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Do Work
+        env:
+          REPOSITORY_OWNER: runlix
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: |
+          set -e
+          
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "ERROR: GITHUB_TOKEN is not set"
+            exit 1
+          fi
+          
+          echo "Discovering repositories with docker-image topic..."
+          REPOS=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | select(.topics[]?=="docker-image") | .name' || echo "")
+          
+          if [ -z "$REPOS" ]; then
+            echo "WARNING: No repositories found with docker-image topic"
+            echo "Debug: Listing all repos to verify API call works..."
+            curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | "\(.name) - topics: \(.topics | join(", "))"' || echo "API call failed"
+            exit 0
+          fi
+          
+          echo "Found repositories:"
+          echo "$REPOS"
+          
+          while IFS= read -r REPOSITORY; do
+            [ -z "$REPOSITORY" ] && continue
+            
+            echo "Processing repository: ${REPOSITORY_OWNER}/${REPOSITORY}"
+            
+            echo "Fetching branches for ${REPOSITORY}..."
+            BRANCHES=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | select(.name!="main" and .name!="master") | .name' || echo "")
+            
+            if [ -z "$BRANCHES" ]; then
+              echo "WARNING: No branches found (excluding main/master) for ${REPOSITORY}"
+              echo "Debug: Listing all branches..."
+              curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | .name' || echo "Failed to fetch branches"
+              continue
+            fi
+            
+            echo "Found branches for ${REPOSITORY}:"
+            echo "$BRANCHES"
+            
+            while IFS= read -r BRANCH; do
+              [ -z "$BRANCH" ] && continue
+              
+              echo "Processing branch: ${REPOSITORY_OWNER}/${REPOSITORY}:${BRANCH}"
+              
+              CLONE_DIR=$(mktemp -d)
+              
+              # Clone without token first (for public repos), then configure remote with token for push
+              if ! git clone -b "${BRANCH}" "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
+                # If public clone fails, try with token (for private repos)
+                if ! git clone -b "${BRANCH}" "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
+                  echo "Failed to clone ${REPOSITORY}:${BRANCH}"
+                  rm -rf "${CLONE_DIR}"
+                  continue
+                fi
+              fi
+              
+              cd "${CLONE_DIR}" || { rm -rf "${CLONE_DIR}"; continue; }
+              
+              # Configure remote with token for push operations (set once)
+              git remote set-url origin "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
+              
+              if [ ! -f update-digests.sh ]; then
+                echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
+                cd .. || exit 1
+                rm -rf "${CLONE_DIR}"
+                continue
+              fi
+              
+              echo "Executing update-digests.sh for ${REPOSITORY}:${BRANCH}..."
+              bash ./update-digests.sh || { echo "Script failed or no changes for ${REPOSITORY}:${BRANCH}"; cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
+              
+              COMMIT_MESSAGE="Upstream image update"
+              [ "${BRANCH}" = "pr" ] && COMMIT_MESSAGE="Upstream image update [skip ci]"
+              
+              git add .
+              
+              if ! git diff --quiet || ! git diff --cached --quiet; then
+                echo "Changes detected for ${REPOSITORY}:${BRANCH}"
+                PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
+                git checkout -b "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
+                git commit -m "${COMMIT_MESSAGE}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
+                git push -u origin "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
+                
+                gh pr create \
+                  --repo "${REPOSITORY_OWNER}/${REPOSITORY}" \
+                  --title "Upstream image update" \
+                  --body "Automated upstream image digest update for branch \`${BRANCH}\`" \
+                  --base "${BRANCH}" \
+                  --head "${PR_BRANCH}" \
+                  --label "automated,dependencies" || true
+              else
+                echo "No changes detected for ${REPOSITORY}:${BRANCH}"
+              fi
+              
+              cd .. || exit 1
+              rm -rf "${CLONE_DIR}"
+            done <<< "$BRANCHES"
+          done <<< "$REPOS"
+          
+          echo "Completed processing all repositories"

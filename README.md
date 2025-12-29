@@ -8,138 +8,158 @@ This repository contains reusable workflows that are called by individual image 
 
 ### Workflow: `build-on-call.yml`
 
-Called by image repositories when building Docker images.
+Reusable workflow called by image repositories when building Docker images.
 
-**Inputs**:
-- `image_name`: Docker image name (e.g., `sonarr-distroless`)
-- `dockerfile_path`: Path to Dockerfile (default: `Dockerfile`)
-- `build_context`: Build context path (default: `.`)
-- `version`: Application version (optional, extracted from VERSION.json or Dockerfile if not provided)
+**Inputs**: None (workflow reads all configuration from `VERSION.json`)
 
 **Secrets**:
 - `GHCR_TOKEN`: GitHub Container Registry token (inherited from calling workflow)
 
-## How It Works
-
+**How it works**:
 1. Image repository pushes to `release` or `nightly` branch
 2. Repository's `call-build.yml` workflow triggers
 3. Calls this reusable workflow
-4. Workflow reads version from `VERSION.json` (hotio pattern) or falls back to Dockerfile parsing
-5. Builds Docker image and pushes to `ghcr.io/runlix/<image-name>`
-6. Updates `tags.json` in main branch (default branch) with latest build info
+4. Workflow reads `VERSION.json` from the branch:
+   - Extracts version, build_date, and other metadata
+   - Reads `targets` array and filters to enabled targets (`enabled: true`)
+   - Generates build matrix from enabled targets
+5. For each enabled target in the matrix:
+   - Builds Docker image using the target's specified Dockerfile
+   - Uses base image digest from target's `base.digest` field
+   - Pushes platform-specific image with tag: `{branch}-{version}-{target.name}`
+6. Creates manifest lists per variant, combining all platforms for each variant
+7. Updates `tags.json` in default branch with latest build info
 
-**Note**: The build workflow is now read-only for version management. It reads `VERSION.json` but does not modify it. See [Version Management](#version-management) below for updating versions and digests.
+**Note**: The build workflow is read-only for version management. It reads `VERSION.json` but does not modify it. See [Version Management](#version-management) below for updating versions and digests.
 
 ### Workflow: `update-digests.yml`
 
-Reusable workflow for updating base image digests in `VERSION.json` files. This workflow is separate from the build process to prevent self-triggering loops and follows GitOps best practices.
+Automated workflow that discovers and processes all repositories with the `docker-image` topic. This workflow runs hourly and automatically executes `update-digests.sh` scripts in each repository/branch combination, creating Pull Requests when changes are detected.
 
-**Inputs**:
-- `repository` (required): Repository to update (e.g., `runlix/distroless-runtime`)
-- `branch` (required): Branch to update (e.g., `release`)
-- `version_file_path` (optional, default: `VERSION.json`): Path to version file
-- `auto_merge` (optional, default: `false`): Enable auto-merge for created PRs
+**How it works**:
+1. Discovers all repositories in the `runlix` organization with the `docker-image` topic
+2. For each repository, lists all branches (excluding `main` and `master` branches)
+3. For each branch, clones the repository and checks for `update-digests.sh` script
+4. If the script exists, executes it
+5. If the script makes changes, creates a Pull Request with the updates
 
-**How to use**:
+**Triggers**:
+- `workflow_dispatch`: Manual trigger
+- `schedule`: Runs hourly (`0 * * * *`)
 
-Create a workflow in your repository (e.g., `.github/workflows/update-digests.yml`):
+**Required Secrets**:
+- `GITHUB_TOKEN`: Automatically provided by GitHub Actions (used for API calls, cloning, and creating PRs)
 
-```yaml
-name: Update Digests
+**Repository Requirements**:
+- Repository must have the `docker-image` topic set in GitHub
+- Each branch that should be processed must contain an `update-digests.sh` script
+- The script should:
+  - Update `VERSION.json` files with new digests
+  - Exit with code 0 if changes were made
+  - Exit with non-zero code if no changes are needed or if an error occurs
+  - Not commit changes (the workflow handles commits and PRs)
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'  # Daily at midnight UTC
+**Branch Processing**:
+- Processes all branches except `main` and `master` (to avoid conflicts with default branches)
+- Creates a new branch for each PR: `update-digests-{run_id}-{timestamp}`
+- PRs are created against the branch being updated
 
-jobs:
-  update:
-    permissions:
-      contents: write
-      pull-requests: write
-    concurrency:
-      group: update-digests-release
-      cancel-in-progress: false
-    uses: runlix/build-workflow/.github/workflows/update-digests.yml@main
-    with:
-      repository: ${{ github.repository }}
-      branch: release
-      version_file_path: VERSION.json
-      auto_merge: false  # Set to true when ready to enable auto-merge
-```
+**Error Handling**:
+- Continues processing other repositories if one fails
+- Skips repositories/branches without `update-digests.sh` scripts
+- Logs all errors for debugging
+- Gracefully handles clone failures and script execution errors
 
-**What it does**:
-1. Checks out the specified branch
-2. Extracts current digests from Docker registries
-3. Compares with digests in `VERSION.json`
-4. If digests changed:
-   - Updates digests in `VERSION.json`
-   - Bumps patch version (e.g., 1.0.0 → 1.0.1)
-   - Creates a PR with the changes
-   - Optionally enables auto-merge if `auto_merge: true`
+**Example PR**:
+When changes are detected, the workflow creates a PR with:
+- Title: "Upstream image update"
+- Labels: `automated`, `dependencies`
+- Body: Includes repository and branch information
+- Commit message: "Upstream image update" (or "Upstream image update [skip ci]" for `pr` branch)
 
-**Auto-merge**:
-- Defaults to `false` (PRs require manual review)
-- Can be enabled per-repository by setting `auto_merge: true`
-- Requires repository settings: Settings → General → Pull Requests → Allow auto-merge
-- PRs will be automatically merged when status checks pass (if configured)
+**Concurrency**:
+- Uses workflow-level concurrency to prevent duplicate runs
+- Only one instance of the workflow runs at a time (`cancel-in-progress: false`)
 
 ## Version Management
 
-The workflow supports two version management approaches:
+The workflow uses `VERSION.json` files to define build targets, versions, and base image digests. Create a `VERSION.json` file in your `release`/`nightly` branch.
 
-1. **VERSION.json pattern (recommended)**: Create a `VERSION.json` file in your `release`/`nightly` branch.
+### VERSION.json Structure
 
-   **For application images** (e.g., sonarr):
-   ```json
-   {
-     "version": "4.0.16.2944",
-     "sbranch": "main",
-     "platforms": ["linux/amd64", "linux/arm64"],
-     "amd64_url": "https://services.sonarr.tv/v1/download/main/4.0.16.2944?version=linux",
-     "arm64_url": "https://services.sonarr.tv/v1/download/main/4.0.16.2944?version=linux-arm"
-   }
-   ```
+The `VERSION.json` file uses a `targets` array structure where each target defines a platform-variant combination to build.
 
-   **For base images** (e.g., distroless-runtime), include digest fields:
-   ```json
-   {
-     "version": "1.0.1",
-     "platforms": ["linux/amd64", "linux/arm64"],
-     "base_images": {
-       "debian": {
-         "digests": {
-           "amd64": "sha256:...",
-           "arm64": "sha256:..."
-         }
-       },
-       "distroless": {
-         "variants": {
-           "latest": {
-             "digests": {
-               "amd64": "sha256:...",
-               "arm64": "sha256:..."
-             }
-           },
-           "debug": {
-             "digests": {
-               "amd64": "sha256:...",
-               "arm64": "sha256:..."
-             }
-           }
-         }
-       }
-     }
-   }
-   ```
+**Example for base images** (e.g., distroless-runtime):
+```json
+{
+  "version": "2025.12.29.1",
+  "build_date": "2025-12-29T08:49:05Z",
+  "sbranch": "main",
+  "targets": [
+    {
+      "arch": "linux-amd64",
+      "variant": "latest",
+      "enabled": true,
+      "name": "linux-amd64-latest",
+      "dockerfile": "linux-amd64.Dockerfile",
+      "base": {
+        "image": "gcr.io/distroless/base-debian12",
+        "tag": "latest-amd64",
+        "digest": "sha256:7aa57dbe6daf724d489941dde747932bfbba936b317b021ec7b8362ed5742987"
+      },
+      "builder": {
+        "image": "docker.io/library/debian",
+        "tag": "bookworm-slim",
+        "digest": "sha256:ef5c368548841bdd8199a8606f6307402f7f2a2f8edc4acbc9c1c70c340bc023"
+      },
+      "tags": []
+    },
+    {
+      "arch": "linux-arm64",
+      "variant": "latest",
+      "enabled": true,
+      "name": "linux-arm64-latest",
+      "dockerfile": "linux-arm64.Dockerfile",
+      "base": {
+        "image": "gcr.io/distroless/base-debian12",
+        "tag": "latest-arm64",
+        "digest": "sha256:e1bd9ae4515d76130ff4266a7e03ed4f18775cc4b5afb77c25acc6296be8d6bc"
+      },
+      "builder": {
+        "image": "docker.io/library/debian",
+        "tag": "bookworm-slim",
+        "digest": "sha256:594f2f110240a0a9c94d6e2a1020f6a05b79f713fcacd8c122ad8ff26e31d107"
+      },
+      "tags": []
+    }
+  ]
+}
+```
 
-   **Backward compatibility**: The workflow supports both old format (uppercase keys, flat structure) and new format (lowercase keys, nested structure).
+**Key fields**:
+- `version`: Version string for the image
+- `build_date`: ISO 8601 timestamp (optional)
+- `sbranch`: Source branch name (optional)
+- `targets`: Array of build targets, each with:
+  - `arch`: Architecture (e.g., `linux-amd64`, `linux-arm64`)
+  - `variant`: Variant name (e.g., `latest`, `debug`)
+  - `enabled`: Boolean to enable/disable this target
+  - `name`: Unique target name (typically `{arch}-{variant}`)
+  - `dockerfile`: Path to architecture-specific Dockerfile
+  - `base`: Base image information (image, tag, digest)
+  - `builder`: Builder image information (image, tag, digest) - optional
+  - `tags`: Additional tags array (optional)
 
-2. **Dockerfile ARG pattern**: Use `ARG VERSION=...` or `ARG APP_VERSION=...` in your Dockerfile (fallback)
+**For application images**, add application-specific fields:
+- `url`: Download URL for application binaries (per target, if needed)
+- `base_image`: Base image repository reference (e.g., `ghcr.io/runlix/distroless-runtime`)
+- `base_image_version`: Version of base image to use
 
-## Multi-Platform Builds
+The workflow reads from `.targets[]` array and builds only enabled targets. Each target specifies its own Dockerfile, base image digest, and architecture.
 
-The build system supports multi-platform builds using separate Dockerfiles per architecture (Hotio pattern).
+## Multi-Platform and Multi-Variant Builds
+
+The build system supports multi-platform builds using separate Dockerfiles per architecture (Hotio pattern), and multi-variant builds using GitHub Actions matrix strategy.
 
 ### Dockerfile Structure
 
@@ -166,14 +186,26 @@ sonarr/
   └── VERSION.json
 ```
 
-The workflow automatically detects platforms from `VERSION.json` and builds each platform separately with its corresponding Dockerfile, then creates a manifest list combining all platforms.
+The workflow reads enabled targets from `VERSION.json` and builds each target separately with its corresponding Dockerfile, then creates manifest lists combining all platforms for each variant.
 
-The build workflow will automatically detect and use VERSION.json if present, otherwise it will parse the Dockerfile.
+### Variant Support
+
+The build system supports building multiple variants of images (e.g., `latest` and `debug`). Each variant is defined as a separate target in the `targets` array with its own `variant` field. The workflow uses a matrix strategy to build all enabled targets efficiently.
+
+### Build Matrix Generation
+
+The workflow generates a build matrix dynamically from the `targets` array:
+1. Reads `targets` array from VERSION.json
+2. Filters to only enabled targets (`enabled: true`)
+3. Creates a matrix entry for each enabled target
+4. Each matrix entry includes: `arch`, `variant`, `name`, `dockerfile`, `base`, `builder`
+
+Manifest lists are created per variant, only including platforms that have that variant enabled.
 
 ### Separated Concerns
 
 - **Build workflow** (`build-on-call.yml`): Reads `VERSION.json`, builds images, updates `tags.json`. Does NOT modify `VERSION.json`.
-- **Digest update workflow** (`update-digests.yml`): Updates base image digests and versions in `VERSION.json`, creates PRs for review.
+- **Digest update workflow** (`update-digests.yml`): Executes `update-digests.sh` scripts in repositories, creates PRs for review when digests change.
 
 This separation:
 - Prevents self-triggering workflow loops
@@ -183,10 +215,17 @@ This separation:
 
 ## Image Tagging Strategy
 
-Images are tagged with:
-- Branch name (e.g., `release`, `nightly`)
-- Branch-version (e.g., `release-4.0.16.2944`)
-- Branch-commit (e.g., `release-9e4b4f2`)
+The workflow creates multiple tags for each build:
+
+**Platform-specific images** (one per target):
+- `{branch}-{version}-{target.name}` (e.g., `release-2025.12.29.1-linux-amd64-latest`)
+
+**Manifest lists** (per variant, combining all platforms):
+- `{branch}-{variant}` (e.g., `release-latest`)
+- `{branch}-{version}-{variant}` (e.g., `release-2025.12.29.1-latest`)
+- `{branch}-{sha}-{variant}` (e.g., `release-9e4b4f2-latest`)
+
+Users can pull the manifest list tag and Docker will automatically select the correct platform-specific image for their architecture.
 
 ## License
 
