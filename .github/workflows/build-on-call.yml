@@ -89,6 +89,33 @@ jobs:
           echo "created=${CREATED}" >> $GITHUB_OUTPUT
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
 
+      - name: Prepare build args
+        id: prepare-build-args
+        run: |
+          # Build the build-args multiline string line by line to avoid indentation issues
+          {
+            echo "BUILDER_TAG=${{ matrix.target.builder.tag }}"
+            echo "BUILDER_DIGEST=${{ matrix.target.builder.digest }}"
+            echo "BASE_TAG=${{ matrix.target.base.tag }}"
+            echo "BASE_DIGEST=${{ matrix.target.base.digest }}"
+            echo "VERSION=${{ needs.prepare-version.outputs.version }}"
+            echo "BUILD_DATE=${{ needs.prepare-version.outputs.build_date }}"
+            echo "GIT_COMMIT=${{ needs.prepare-version.outputs.sha }}"
+            
+            # Conditionally add PACKAGE_URL if it exists in the target
+            PACKAGE_URL="${{ matrix.target.package_url }}"
+            if [ -n "$PACKAGE_URL" ] && [ "$PACKAGE_URL" != "null" ]; then
+              echo "PACKAGE_URL=${PACKAGE_URL}"
+            fi
+          } > /tmp/build_args.txt
+          
+          # Output build args using multiline format (required for GitHub Actions multiline outputs)
+          {
+            echo 'build_args<<EOF'
+            cat /tmp/build_args.txt
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
@@ -98,14 +125,7 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}-${{ needs.prepare-version.outputs.version }}-${{ matrix.target.name }}
           provenance: false
-          build-args: |
-            BUILDER_TAG=${{ matrix.target.builder.tag }}
-            BUILDER_DIGEST=${{ matrix.target.builder.digest }}
-            BASE_TAG=${{ matrix.target.base.tag }}
-            BASE_DIGEST=${{ matrix.target.base.digest }}
-            VERSION=${{ needs.prepare-version.outputs.version }}
-            BUILD_DATE=${{ needs.prepare-version.outputs.build_date }}
-            GIT_COMMIT=${{ needs.prepare-version.outputs.sha }}
+          build-args: ${{ steps.prepare-build-args.outputs.build_args }}
           labels: |
             org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
             org.opencontainers.image.title=${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}
