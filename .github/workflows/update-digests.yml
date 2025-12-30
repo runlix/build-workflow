@@ -37,13 +37,17 @@ jobs:
             exit 1
           fi
           
-          # Configure git credential helper to use token from environment variable
-          git config --global credential.helper '!f() { echo "username=x"; echo "password=$GH_TOKEN"; }; f'
-          
           # #region agent log
           DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
-          echo "DEBUG: Credential helper configured - hasToken=${GH_TOKEN:+yes}, tokenLength=${#GH_TOKEN}" | tee -a "$DEBUG_LOG"
-          echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:41\",\"message\":\"Credential helper configured\",\"data\":{\"hasToken\":\"${GH_TOKEN:+yes}\",\"tokenLength\":${#GH_TOKEN}},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" | tee -a "$DEBUG_LOG"
+          echo "DEBUG: Testing credential helper vs URL token approach" | tee -a "$DEBUG_LOG"
+          # #endregion
+          
+          # Remove credential helper - use URL token approach like update-versions.yml
+          git config --global --unset credential.helper 2>/dev/null || true
+          
+          # #region agent log
+          echo "DEBUG: Credential helper removed - will use URL token only" | tee -a "$DEBUG_LOG"
+          echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:41\",\"message\":\"Credential helper removed\",\"data\":{\"hasToken\":\"${GH_TOKEN:+yes}\",\"tokenLength\":${#GH_TOKEN},\"credentialHelper\":\"$(git config --global credential.helper || echo 'none')\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"F\"}" | tee -a "$DEBUG_LOG"
           # #endregion
           
           # Cleanup function for temporary directories
@@ -115,8 +119,10 @@ jobs:
               DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
               REMOTE_URL=$(git remote get-url origin)
               HAS_TOKEN=$(echo "$REMOTE_URL" | grep -q '@' && echo "yes" || echo "no")
-              echo "DEBUG: Remote URL configured - repo=${REPOSITORY}, branch=${BRANCH}, remoteUrl=${REMOTE_URL}, hasTokenInUrl=${HAS_TOKEN}" | tee -a "$DEBUG_LOG"
-              echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:110\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"hasTokenInUrl\":\"${HAS_TOKEN}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" | tee -a "$DEBUG_LOG"
+              # Test token permissions by checking repo access
+              TOKEN_TEST=$(gh api "/repos/${REPOSITORY_OWNER}/${REPOSITORY}" --jq '.permissions.push // false' 2>/dev/null || echo "unknown")
+              echo "DEBUG: Remote URL configured - repo=${REPOSITORY}, branch=${BRANCH}, remoteUrl=${REMOTE_URL}, hasTokenInUrl=${HAS_TOKEN}, tokenHasPushPermission=${TOKEN_TEST}" | tee -a "$DEBUG_LOG"
+              echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:110\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"hasTokenInUrl\":\"${HAS_TOKEN}\",\"tokenHasPushPermission\":\"${TOKEN_TEST}\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"G\"}" | tee -a "$DEBUG_LOG"
               # #endregion
               
               if [ ! -f update-digests.sh ]; then
