@@ -1,0 +1,75 @@
+name: 'Extract Version Metadata'
+description: 'Extract metadata from VERSION.json file'
+
+inputs:
+  extract_test_url:
+    description: 'Whether to extract test_url field'
+    required: false
+    default: 'false'
+
+outputs:
+  version:
+    description: 'Version string from VERSION.json'
+  build_date:
+    description: 'Build date from VERSION.json'
+  branch:
+    description: 'Current branch name'
+  sha:
+    description: 'Current commit SHA'
+  default_branch:
+    description: 'Default branch name'
+  variants:
+    description: 'Unique variants from enabled targets'
+  matrix:
+    description: 'JSON array of enabled targets'
+  test_url:
+    description: 'Test URL from VERSION.json (if extract_test_url is true)'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Extract metadata from VERSION.json
+      id: extract
+      shell: bash
+      run: |
+        # Extract version and build_date
+        VERSION=$(jq -r '.version // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+        BUILD_DATE=$(jq -r '.build_date // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+        
+        # Extract test_url if requested
+        TEST_URL=""
+        if [ "${{ inputs.extract_test_url }}" = "true" ]; then
+          TEST_URL=$(jq -r '.test_url // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+        fi
+        
+        # Extract enabled targets matrix
+        MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
+        
+        # Extract unique variants
+        VARIANTS=$(jq -r '.targets[] | select(.enabled == true) | .variant' VERSION.json | sort -u)
+        
+        # GitHub context values
+        BRANCH="${{ github.ref_name }}"
+        SHA="${{ github.sha }}"
+        DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+        
+        # Output all values
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+        echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+        echo "sha=${SHA}" >> $GITHUB_OUTPUT
+        echo "default_branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
+        if [ "${{ inputs.extract_test_url }}" = "true" ]; then
+          echo "test_url=${TEST_URL}" >> $GITHUB_OUTPUT
+        fi
+        {
+          echo 'variants<<EOF'
+          echo "$VARIANTS"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo 'matrix<<EOF'
+          echo "$MATRIX"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+

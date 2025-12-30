@@ -1,0 +1,39 @@
+name: 'Generate Metadata'
+description: 'Generate platform and image tag from architecture and target info'
+
+inputs:
+  arch:
+    description: 'Architecture (e.g., linux-amd64)'
+    required: true
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+  branch:
+    description: 'Branch name'
+    required: true
+  version:
+    description: 'Version string'
+    required: true
+  target_name:
+    description: 'Target name'
+    required: true
+
+outputs:
+  platform:
+    description: 'Platform string (e.g., linux/amd64)'
+  image-tag:
+    description: 'Full image tag'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate metadata
+      id: metadata
+      shell: bash
+      run: |
+        ARCH="${{ inputs.arch }}"
+        PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
+        IMAGE_TAG="ghcr.io/${{ inputs.repository }}:${{ inputs.branch }}-${{ inputs.version }}-${{ inputs.target_name }}"
+        echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
+        echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+

@@ -1,0 +1,150 @@
+name: Test on PR
+
+on:
+  workflow_call:
+
+jobs:
+  prepare-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      build_date: ${{ steps.extract.outputs.build_date }}
+      branch: ${{ steps.extract.outputs.branch }}
+      sha: ${{ steps.extract.outputs.sha }}
+      default_branch: ${{ steps.extract.outputs.default_branch }}
+      variants: ${{ steps.extract.outputs.variants }}
+      matrix: ${{ steps.extract.outputs.matrix }}
+      test_url: ${{ steps.extract.outputs.test_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Extract metadata from VERSION.json
+        id: extract
+        uses: ./.github/actions/extract-version-metadata
+        with:
+          extract_test_url: 'true'
+
+  test:
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.prepare-version.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker
+        uses: ./.github/actions/setup-docker
+
+      - name: Generate metadata
+        id: metadata
+        uses: ./.github/actions/generate-metadata
+        with:
+          arch: ${{ matrix.target.arch }}
+          repository: ${{ github.repository }}
+          branch: ${{ needs.prepare-version.outputs.branch }}
+          version: ${{ needs.prepare-version.outputs.version }}
+          target_name: ${{ matrix.target.name }}
+
+      - name: Prepare build args
+        id: prepare-build-args
+        uses: ./.github/actions/prepare-build-args
+        with:
+          builder_tag: ${{ matrix.target.builder.tag }}
+          builder_digest: ${{ matrix.target.builder.digest }}
+          base_tag: ${{ matrix.target.base.tag }}
+          base_digest: ${{ matrix.target.base.digest }}
+          version: ${{ needs.prepare-version.outputs.version }}
+          build_date: ${{ needs.prepare-version.outputs.build_date }}
+          git_commit: ${{ needs.prepare-version.outputs.sha }}
+          package_url: ${{ matrix.target.package_url }}
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.target.dockerfile }}
+          platforms: ${{ steps.metadata.outputs.platform }}
+          push: false
+          load: true
+          tags: ${{ steps.metadata.outputs.image-tag }}
+          provenance: false
+          build-args: ${{ steps.prepare-build-args.outputs.build_args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke Test
+        id: smoketest
+        env:
+          IMAGE: ${{ steps.metadata.outputs.image-tag }}
+          PLATFORM: ${{ steps.metadata.outputs.platform }}
+          PACKAGE_VERSION: ${{ needs.prepare-version.outputs.version }}
+          TEST_URL: ${{ needs.prepare-version.outputs.test_url }}
+        run: |
+          set -e
+          exitcode=0
+          container_name="service-test-${PACKAGE_VERSION}-${RANDOM}"
+          
+          echo "Starting container: ${IMAGE} on platform ${PLATFORM}"
+          docker run --platform="${PLATFORM}" --network host -d --name "${container_name}" "${IMAGE}" || {
+            echo "Failed to start container"
+            exit 1
+          }
+          
+          # Wait a moment for container to initialize
+          echo "Waiting for container to initialize..."
+          sleep 5
+          
+          # Check if container is still running
+          if ! docker ps | grep -q "${container_name}"; then
+            echo "Container exited unexpectedly"
+            docker logs "${container_name}" || true
+            exit 1
+          fi
+          
+          # Capture logs
+          echo "Capturing container logs..."
+          docker logs "${container_name}" > "${PACKAGE_VERSION}-test.log" 2>&1 || true
+          
+          # Check logs for errors (basic check)
+          if docker logs "${container_name}" 2>&1 | grep -i "error\|fatal\|panic" | head -5; then
+            echo "Warning: Found errors in container logs"
+            # Don't fail on warnings, but log them
+          fi
+          
+          # Test URL endpoint if test_url is provided
+          if [ -n "${TEST_URL}" ] && [ "${TEST_URL}" != "null" ] && [ "${TEST_URL}" != "" ]; then
+            echo "Testing endpoint: ${TEST_URL}"
+            curl -fsSL --retry-all-errors --retry 60 --retry-max-time 120 -m 10 "${TEST_URL}" --output /dev/null || exitcode=$?
+            if [ ${exitcode} -ne 0 ]; then
+              echo "URL health check failed for ${TEST_URL}"
+              docker logs "${container_name}" || true
+            fi
+          else
+            echo "No test_url provided in VERSION.json, skipping URL check"
+          fi
+          
+          # Clean up container
+          echo "Cleaning up container..."
+          docker stop "${container_name}" || true
+          docker rm "${container_name}" || true
+          
+          # Set output and exit
+          if [ ${exitcode} -eq 0 ]; then
+            echo "result=ok" >> $GITHUB_OUTPUT
+          else
+            echo "result=nok" >> $GITHUB_OUTPUT
+          fi
+          exit ${exitcode}
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
+          path: ${{ needs.prepare-version.outputs.version }}-test.log
+          retention-days: 7
