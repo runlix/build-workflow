@@ -35,8 +35,8 @@ jobs:
           set -Eeo pipefail
 
           echo "🔍 Discovering repositories with docker-image topic..."
-          gh repo list "$OWNER" --limit 200 --json name,topics \
-            --jq '.[] | select(.topics | index("docker-image")) | .name' |
+          gh repo list "$OWNER" --limit 200 --json name,repositoryTopics \
+            --jq '.[] | select(.repositoryTopics[].topic.name=="docker-image") | .name' |
           while read -r REPO; do
             echo "📦 Processing $OWNER/$REPO"
 
