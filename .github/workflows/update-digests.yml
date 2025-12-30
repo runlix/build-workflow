@@ -6,8 +6,7 @@ on:
     - cron: "0 0 * * *"
 
 permissions:
-  contents: read
-  pull-requests: write
+  contents: write
 
 jobs:
   update:
@@ -18,24 +17,20 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Configure Git + Auth
-        env:
-          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      - name: Configure Git
         run: |
-          set -e
-          gh auth setup-git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Update digests across repositories
         env:
           OWNER: ${{ github.repository_owner }}
-          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeo pipefail
 
           echo "🔍 Discovering repositories with docker-image topic..."
-          REPOSITORIES=$(gh repo list runlix --limit 200 --json name,repositoryTopics --jq '.[] | select([.repositoryTopics[]?.name] | index("docker-image")) | .name')
+          REPOSITORIES=$(gh repo list "$OWNER" --limit 200 --json name,repositoryTopics --jq '.[] | select([.repositoryTopics[]?.name] | index("docker-image")) | .name')
           
           echo "🔍 Found repositories: $REPOSITORIES"
           for REPO in $REPOSITORIES; do
@@ -44,40 +39,27 @@ jobs:
             gh api "/repos/$OWNER/$REPO/branches" \
               --jq '.[] | select(.name!="main" and .name!="master") | .name' |
             while read -r BRANCH; do
-              [[ "$BRANCH" == update-digests-* ]] && { echo "⏭ Skipping branch $BRANCH (starts with update-digests-)"; continue; }
               echo "➡️ Branch $BRANCH"
               
               DIR=$(mktemp -d)
-              git clone --depth 1 -b "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$DIR"
+              git clone --depth 1 -b "$BRANCH" "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
               cd "$DIR"
 
               [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
               ./update-digests.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }
 
-              # Detect staged or unstaged changes
-              if git diff-index --quiet HEAD; then
+              git add .
+              # Check if there are changes to commit
+              if git diff --cached --quiet; then
                 echo "✔️ No changes"
                 cd ..; rm -rf "$DIR"; continue
               fi
 
-              PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
               COMMIT_MSG="Upstream image update"
+              [[ "$BRANCH" == "pr" ]] && COMMIT_MSG="Upstream image update [skip ci]"
               
-              git checkout -b "$PR_BRANCH"
-              git add .
-              # abort if nothing is staged
-              if git diff --cached --quiet; then
-                echo "✔️ No staged changes, skipping PR"
-                cd ..; rm -rf "$DIR"; continue
-              fi
               git commit -m "$COMMIT_MSG"
-              git push --set-upstream origin "$PR_BRANCH"
-
-              gh pr create \
-                --repo "$OWNER/$REPO" \
-                --title "$COMMIT_MSG" \
-                --body "Automated upstream image digest update for \`$BRANCH\`" \
-                --base "$BRANCH" --head "$PR_BRANCH" \
+              git push
 
               cd ..; rm -rf "$DIR"
             done
