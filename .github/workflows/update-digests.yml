@@ -72,7 +72,6 @@ jobs:
                 --title "$COMMIT_MSG" \
                 --body "Automated upstream image digest update for \`$BRANCH\`" \
                 --base "$BRANCH" --head "$PR_BRANCH" \
-                --label automated --label dependencies
 
               cd ..; rm -rf "$DIR"
             done
