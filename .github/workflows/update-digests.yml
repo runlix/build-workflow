@@ -1,186 +1,78 @@
 name: update-digests-automated
 
-description: Automated workflow that discovers and processes all repositories with docker-image topic, executing update-digests.sh scripts and creating pull requests when changes are detected.
-
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 * * * *'
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  do-work:
+  update:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions:
-      contents: read
-      pull-requests: write
     concurrency:
       group: update-digests-automated
       cancel-in-progress: false
-    
-    steps:
-      - name: Configure Git Authentication
-        env:
-          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          gh auth setup-git
 
-      - name: Do Work
+    steps:
+      - name: Configure Git + Auth
         env:
-          REPOSITORY_OWNER: ${{ github.repository_owner }}
           GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GIT_TERMINAL_PROMPT: 0
         run: |
           set -e
-          
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "ERROR: GHCR_TOKEN is not set"
-            exit 1
-          fi
-          
-          # Cleanup function for temporary directories
-          cleanup() {
-            if [ -n "${CLONE_DIR:-}" ] && [ -d "${CLONE_DIR}" ]; then
-              rm -rf "${CLONE_DIR}"
-            fi
-          }
-          trap cleanup EXIT
-          
-          echo "Discovering repositories with docker-image topic..."
-          REPOS=$(gh api "/users/${REPOSITORY_OWNER}/repos?per_page=100" --jq '.[] | select(.topics[]?=="docker-image") | .name' || echo "")
-          
-          if [ -z "$REPOS" ]; then
-            echo "WARNING: No repositories found with docker-image topic"
-            exit 0
-          fi
-          
-          echo "Found repositories:"
-          echo "$REPOS"
-          
-          # Initialize counters
-          PROCESSED=0
-          FAILED=0
-          PRS_CREATED=0
-          
-          while IFS= read -r REPOSITORY; do
-            [ -z "$REPOSITORY" ] && continue
-            
-            echo "Processing repository: ${REPOSITORY_OWNER}/${REPOSITORY}"
-            
-            echo "Fetching branches for ${REPOSITORY}..."
-            BRANCHES=$(gh api "/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" --jq '.[] | select(.name!="main" and .name!="master") | .name' || echo "")
-            
-            if [ -z "$BRANCHES" ]; then
-              echo "WARNING: No branches found (excluding main/master) for ${REPOSITORY}"
-              continue
-            fi
-            
-            echo "Found branches for ${REPOSITORY}:"
-            echo "$BRANCHES"
-            
-            while IFS= read -r BRANCH; do
-              [ -z "$BRANCH" ] && continue
+          echo "$GH_TOKEN" | gh auth login --with-token
+          gh auth setup-git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update digests across repositories
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -Eeo pipefail
+
+          echo "🔍 Discovering repositories with docker-image topic..."
+          gh repo list "$OWNER" --limit 200 --json name,topics \
+            --jq '.[] | select(.topics | index("docker-image")) | .name' |
+          while read -r REPO; do
+            echo "📦 Processing $OWNER/$REPO"
+
+            gh api "/repos/$OWNER/$REPO/branches" \
+              --jq '.[] | select(.name!="main" and .name!="master") | .name' |
+            while read -r BRANCH; do
+              echo "➡️ Branch $BRANCH"
               
-              echo "Processing branch: ${REPOSITORY_OWNER}/${REPOSITORY}:${BRANCH}"
-              
-              CLONE_DIR=$(mktemp -d)
-              
-              # Clone repository (credential helper handles auth if needed)
-              if ! git clone -b "${BRANCH}" "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
-                echo "Failed to clone ${REPOSITORY}:${BRANCH}"
-                FAILED=$((FAILED + 1))
-                rm -rf "${CLONE_DIR}"
-                continue
+              DIR=$(mktemp -d)
+              git clone --depth 1 -b "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$DIR"
+              cd "$DIR"
+
+              [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
+              ./update-digests.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }
+
+              # Detect staged or unstaged changes
+              if git diff-index --quiet HEAD; then
+                echo "✔️ No changes"
+                cd ..; rm -rf "$DIR"; continue
               fi
+
+              PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
+              COMMIT_MSG="Upstream image update"
               
-              if ! cd "${CLONE_DIR}"; then
-                echo "Failed to change directory for ${REPOSITORY}:${BRANCH}"
-                FAILED=$((FAILED + 1))
-                rm -rf "${CLONE_DIR}"
-                continue
-              fi
-              
-              # Configure remote (credential helper handles auth)
-              git remote set-url origin "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
-              
-              if [ ! -f update-digests.sh ]; then
-                echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
-                cd .. || true
-                rm -rf "${CLONE_DIR}"
-                continue
-              fi
-              
-              # Ensure script is executable
-              [ ! -x update-digests.sh ] && chmod +x update-digests.sh
-              
-              echo "Executing update-digests.sh for ${REPOSITORY}:${BRANCH}..."
-              if ! bash ./update-digests.sh; then
-                echo "Script failed for ${REPOSITORY}:${BRANCH}"
-                FAILED=$((FAILED + 1))
-                cd .. || true
-                rm -rf "${CLONE_DIR}"
-                continue
-              fi
-              
-              COMMIT_MESSAGE="Upstream image update"
-              [ "${BRANCH}" = "pr" ] && COMMIT_MESSAGE="Upstream image update [skip ci]"
-              
+              git checkout -b "$PR_BRANCH"
               git add .
-              
-              if ! git diff --quiet || ! git diff --cached --quiet; then
-                echo "Changes detected for ${REPOSITORY}:${BRANCH}"
-                PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
-                
-                if ! git checkout -b "${PR_BRANCH}"; then
-                  echo "Failed to create branch for ${REPOSITORY}:${BRANCH}"
-                  FAILED=$((FAILED + 1))
-                  cd .. || true
-                  rm -rf "${CLONE_DIR}"
-                  continue
-                fi
-                
-                if ! git commit -m "${COMMIT_MESSAGE}"; then
-                  echo "Failed to commit for ${REPOSITORY}:${BRANCH}"
-                  FAILED=$((FAILED + 1))
-                  cd .. || true
-                  rm -rf "${CLONE_DIR}"
-                  continue
-                fi
-                
-                git push -u origin "${PR_BRANCH}" || {
-                  echo "Failed to push for ${REPOSITORY}:${BRANCH}"
-                  FAILED=$((FAILED + 1))
-                  cd .. || true
-                  rm -rf "${CLONE_DIR}"
-                  continue
-                }
-                
-                if gh pr create \
-                  --repo "${REPOSITORY_OWNER}/${REPOSITORY}" \
-                  --title "Upstream image update" \
-                  --body "Automated upstream image digest update for branch \`${BRANCH}\`" \
-                  --base "${BRANCH}" \
-                  --head "${PR_BRANCH}" \
-                  --label automated \
-                  --label dependencies 2>/dev/null; then
-                  PRS_CREATED=$((PRS_CREATED + 1))
-                  echo "Created PR for ${REPOSITORY}:${BRANCH}"
-                else
-                  echo "Failed to create PR for ${REPOSITORY}:${BRANCH}"
-                  FAILED=$((FAILED + 1))
-                fi
-              else
-                echo "No changes detected for ${REPOSITORY}:${BRANCH}"
-              fi
-              
-              PROCESSED=$((PROCESSED + 1))
-              cd .. || true
-              rm -rf "${CLONE_DIR}"
-            done <<< "$BRANCHES"
-          done <<< "$REPOS"
-          
-          echo "Completed processing all repositories"
-          echo "Summary: Processed=${PROCESSED}, PRs Created=${PRS_CREATED}, Failed=${FAILED}"
-          [ $FAILED -gt 0 ] && exit 1
+              git commit -m "$COMMIT_MSG"
+              git push --set-upstream origin "$PR_BRANCH"
+
+              gh pr create \
+                --repo "$OWNER/$REPO" \
+                --title "$COMMIT_MSG" \
+                --body "Automated upstream image digest update for \`$BRANCH\`" \
+                --base "$BRANCH" --head "$PR_BRANCH" \
+                --label automated --label dependencies
+
+              cd ..; rm -rf "$DIR"
+            done
+          done
