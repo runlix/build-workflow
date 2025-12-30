@@ -45,6 +45,9 @@ jobs:
               git clone --depth 1 -b "$BRANCH" "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
               cd "$DIR"
 
+              # Update remote URL to include token for push
+              git remote set-url origin "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git"
+
               [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
               ./update-digests.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }
 
