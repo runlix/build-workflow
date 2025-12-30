@@ -27,28 +27,15 @@ jobs:
       - name: Do Work
         env:
           REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GIT_TERMINAL_PROMPT: 0
         run: |
           set -e
           
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "ERROR: GITHUB_TOKEN is not set"
+            echo "ERROR: GHCR_TOKEN is not set"
             exit 1
           fi
-          
-          # #region agent log
-          DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
-          echo "DEBUG: Testing credential helper vs URL token approach" | tee -a "$DEBUG_LOG"
-          # #endregion
-          
-          # Remove credential helper - use URL token approach like update-versions.yml
-          git config --global --unset credential.helper 2>/dev/null || true
-          
-          # #region agent log
-          echo "DEBUG: Credential helper removed - will use URL token only" | tee -a "$DEBUG_LOG"
-          echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:41\",\"message\":\"Credential helper removed\",\"data\":{\"hasToken\":\"${GH_TOKEN:+yes}\",\"tokenLength\":${#GH_TOKEN},\"credentialHelper\":\"$(git config --global credential.helper || echo 'none')\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"F\"}" | tee -a "$DEBUG_LOG"
-          # #endregion
           
           # Cleanup function for temporary directories
           cleanup() {
@@ -118,19 +105,6 @@ jobs:
               # Configure remote with token for push operations (set once)
               git remote set-url origin "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
               
-              # #region agent log
-              DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
-              REMOTE_URL=$(git remote get-url origin)
-              HAS_TOKEN=$(echo "$REMOTE_URL" | grep -q '@' && echo "yes" || echo "no")
-              # Test token permissions by checking repo access
-              TOKEN_TEST=$(gh api "/repos/${REPOSITORY_OWNER}/${REPOSITORY}" --jq '.permissions.push // false' 2>/dev/null || echo "unknown")
-              echo "DEBUG: Remote URL configured - repo=${REPOSITORY}, branch=${BRANCH}, remoteUrl=${REMOTE_URL}, hasTokenInUrl=${HAS_TOKEN}, tokenHasPushPermission=${TOKEN_TEST}" | tee -a "$DEBUG_LOG"
-              if [ "$TOKEN_TEST" = "false" ]; then
-                echo "WARNING: Token does not have push permission to ${REPOSITORY}. If push fails, configure a PAT secret or organization settings." | tee -a "$DEBUG_LOG"
-              fi
-              echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:110\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"hasTokenInUrl\":\"${HAS_TOKEN}\",\"tokenHasPushPermission\":\"${TOKEN_TEST}\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"G\"}" | tee -a "$DEBUG_LOG"
-              # #endregion
-              
               if [ ! -f update-digests.sh ]; then
                 echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
                 cd .. || true
@@ -175,41 +149,13 @@ jobs:
                   continue
                 fi
                 
-                # #region agent log
-                DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
-                REMOTE_URL=$(git remote get-url origin)
-                CRED_HELPER=$(git config --global credential.helper)
-                echo "DEBUG: Before push - repo=${REPOSITORY}, branch=${BRANCH}, prBranch=${PR_BRANCH}, remoteUrl=${REMOTE_URL}" | tee -a "$DEBUG_LOG"
-                echo "DEBUG: Credential helper: ${CRED_HELPER}" | tee -a "$DEBUG_LOG"
-                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:160\",\"message\":\"Before push attempt\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"prBranch\":\"${PR_BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"credentialHelper\":\"${CRED_HELPER}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" | tee -a "$DEBUG_LOG"
-                # #endregion
-                
-                PUSH_OUTPUT=$(mktemp)
-                # #region agent log
-                echo "DEBUG: Attempting push - repo=${REPOSITORY}, branch=${BRANCH}, prBranch=${PR_BRANCH}" | tee -a "$DEBUG_LOG"
-                # #endregion
-                if ! git push -u origin "${PR_BRANCH}" 2>&1 | tee "$PUSH_OUTPUT"; then
-                  # #region agent log
-                  PUSH_ERROR=$(cat "$PUSH_OUTPUT" | head -10 | tr '\n' '|')
-                  FULL_ERROR=$(cat "$PUSH_OUTPUT")
-                  echo "DEBUG: Push failed - repo=${REPOSITORY}, branch=${BRANCH}" | tee -a "$DEBUG_LOG"
-                  echo "DEBUG: Full push error output:" | tee -a "$DEBUG_LOG"
-                  echo "$FULL_ERROR" | tee -a "$DEBUG_LOG"
-                  echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:182\",\"message\":\"Push failed\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"error\":\"${PUSH_ERROR}\",\"fullError\":\"${FULL_ERROR}\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"H\"}" | tee -a "$DEBUG_LOG"
-                  # #endregion
+                git push -u origin "${PR_BRANCH}" || {
                   echo "Failed to push for ${REPOSITORY}:${BRANCH}"
                   FAILED=$((FAILED + 1))
-                  rm -f "$PUSH_OUTPUT"
                   cd .. || true
                   rm -rf "${CLONE_DIR}"
                   continue
-                fi
-                rm -f "$PUSH_OUTPUT"
-                
-                # #region agent log
-                echo "DEBUG: Push succeeded - repo=${REPOSITORY}, branch=${BRANCH}" | tee -a "$DEBUG_LOG"
-                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:164\",\"message\":\"Push succeeded\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\"}" | tee -a "$DEBUG_LOG"
-                # #endregion
+                }
                 
                 if gh pr create \
                   --repo "${REPOSITORY_OWNER}/${REPOSITORY}" \
