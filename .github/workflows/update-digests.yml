@@ -19,9 +19,6 @@ jobs:
       cancel-in-progress: false
     
     steps:
-      - name: Setup GitHub CLI
-        uses: actions/setup-cli@v1
-
       - name: Configure Git Authentication
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
