@@ -99,7 +99,8 @@ runs:
         } >> "$GITHUB_OUTPUT"
         {
           echo 'matrix<<EOF'
-          echo "$MATRIX"
+          # Use jq to compact the JSON and ensure it's valid
+          echo "$MATRIX" | jq -c '.'
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
 

@@ -38,6 +38,19 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.prepare-version.outputs.matrix) }}
     steps:
+      - name: Debug matrix output
+        run: |
+          echo "Matrix output value:"
+          echo "${{ needs.prepare-version.outputs.matrix }}"
+          echo ""
+          echo "Matrix output length:"
+          echo "${{ needs.prepare-version.outputs.matrix }}" | wc -c
+          echo ""
+          echo "Attempting to parse matrix:"
+          echo "${{ needs.prepare-version.outputs.matrix }}" | jq '.'
+          echo ""
+          echo "Matrix target:"
+          echo "${{ toJson(matrix.target) }}"
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
