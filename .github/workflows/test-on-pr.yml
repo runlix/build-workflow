@@ -16,12 +16,18 @@ jobs:
       matrix: ${{ steps.extract.outputs.matrix }}
       test_url: ${{ steps.extract.outputs.test_url }}
     steps:
-      - name: Checkout
+      - name: Checkout calling repository
         uses: actions/checkout@v6
+
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
 
       - name: Extract metadata from VERSION.json
         id: extract
-        uses: ./.github/actions/extract-version-metadata
+        uses: ./build-workflow/.github/actions/extract-version-metadata
         with:
           extract_test_url: 'true'
 
@@ -37,12 +43,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
+
       - name: Set up Docker
-        uses: ./.github/actions/setup-docker
+        uses: ./build-workflow/.github/actions/setup-docker
 
       - name: Generate metadata
         id: metadata
-        uses: ./.github/actions/generate-metadata
+        uses: ./build-workflow/.github/actions/generate-metadata
         with:
           arch: ${{ matrix.target.arch }}
           repository: ${{ github.repository }}
@@ -52,7 +64,7 @@ jobs:
 
       - name: Prepare build args
         id: prepare-build-args
-        uses: ./.github/actions/prepare-build-args
+        uses: ./build-workflow/.github/actions/prepare-build-args
         with:
           builder_tag: ${{ matrix.target.builder.tag }}
           builder_digest: ${{ matrix.target.builder.digest }}
