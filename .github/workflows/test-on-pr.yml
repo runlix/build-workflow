@@ -31,6 +31,24 @@ jobs:
         with:
           extract_test_url: 'true'
 
+      - name: Validate matrix output
+        run: |
+          echo "Validating matrix output..."
+          echo "Matrix output value:"
+          echo "${{ steps.extract.outputs.matrix }}"
+          echo ""
+          echo "Matrix output (first 200 chars):"
+          echo "${{ steps.extract.outputs.matrix }}" | head -c 200
+          echo ""
+          echo "Validating JSON..."
+          echo "${{ steps.extract.outputs.matrix }}" | jq '.' > /dev/null && echo "✓ Matrix is valid JSON" || echo "✗ Matrix is NOT valid JSON"
+          echo ""
+          echo "Matrix length:"
+          echo "${{ steps.extract.outputs.matrix }}" | wc -c
+          echo ""
+          echo "Testing fromJson..."
+          echo "${{ fromJson(steps.extract.outputs.matrix) }}" | jq '. | length' && echo "✓ fromJson works" || echo "✗ fromJson FAILED"
+
   test:
     needs: prepare-version
     runs-on: ubuntu-latest
