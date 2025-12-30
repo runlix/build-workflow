@@ -25,7 +25,7 @@ jobs:
       - name: Update digests across repositories
         env:
           OWNER: ${{ github.repository_owner }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -Eeo pipefail
 
@@ -44,9 +44,6 @@ jobs:
               DIR=$(mktemp -d)
               git clone --depth 1 -b "$BRANCH" "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
               cd "$DIR"
-
-              # Update remote URL to include token for push
-              git remote set-url origin "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git"
 
               [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
               ./update-digests.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }
