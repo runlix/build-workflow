@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Configure Git Authentication
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -30,13 +30,13 @@ jobs:
       - name: Do Work
         env:
           REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GIT_TERMINAL_PROMPT: 0
         run: |
           set -e
           
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "ERROR: GITHUB_TOKEN is not set"
+            echo "ERROR: GHCR_TOKEN is not set"
             exit 1
           fi
           
