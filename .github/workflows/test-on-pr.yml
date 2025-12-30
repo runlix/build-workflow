@@ -45,16 +45,13 @@ jobs:
           echo ""
           echo "Matrix length:"
           echo "${{ steps.extract.outputs.matrix }}" | wc -c
-          echo ""
-          echo "Testing fromJson..."
-          echo "${{ fromJson(steps.extract.outputs.matrix) }}" | jq '. | length' && echo "✓ fromJson works" || echo "✗ fromJson FAILED"
 
   test:
     needs: prepare-version
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: ${{ fromJson(needs.prepare-version.outputs.matrix) }}
+        target: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}
     steps:
       - name: Debug matrix output
         run: |

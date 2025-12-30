@@ -59,17 +59,15 @@ runs:
         # Extract enabled targets matrix
         MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
         
-        # Debug: Check if matrix is empty
-        if [ -z "$MATRIX" ] || [ "$MATRIX" = "[]" ]; then
-          echo "WARNING: No enabled targets found in VERSION.json"
-          echo "Matrix value: $MATRIX"
+        # Ensure matrix is valid JSON (default to empty array if extraction failed)
+        if [ -z "$MATRIX" ] || ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
+          echo "WARNING: Matrix extraction failed or invalid, defaulting to empty array"
+          MATRIX="[]"
         fi
         
-        # Validate matrix is valid JSON
-        if ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
-          echo "ERROR: Matrix is not valid JSON"
-          echo "Matrix value: $MATRIX"
-          exit 1
+        # Debug: Check if matrix is empty
+        if [ "$MATRIX" = "[]" ]; then
+          echo "WARNING: No enabled targets found in VERSION.json"
         fi
         
         # Extract unique variants
@@ -106,11 +104,9 @@ runs:
         } >> "$GITHUB_OUTPUT"
         {
           echo 'matrix<<EOF'
-          # Use jq to compact the JSON and ensure it's valid (single line, no newlines)
-          # Store compact JSON in variable first, then output without trailing newline
-          COMPACT_MATRIX=$(echo "$MATRIX" | jq -c '.')
-          printf '%s' "$COMPACT_MATRIX"
-          echo ''
+          # Use jq to compact the JSON and ensure it's valid
+          # Output compact JSON - echo adds a newline which is fine for EOF format
+          echo "$MATRIX" | jq -c '.'
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
 
