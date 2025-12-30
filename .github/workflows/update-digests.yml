@@ -19,11 +19,6 @@ jobs:
       cancel-in-progress: false
     
     steps:
-      - name: Install GitHub CLI
-        uses: actions/setup-gh@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Git Config
         run: |
           git config --global user.name "github-actions[bot]"
