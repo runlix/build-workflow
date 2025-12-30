@@ -44,6 +44,7 @@ jobs:
             gh api "/repos/$OWNER/$REPO/branches" \
               --jq '.[] | select(.name!="main" and .name!="master") | .name' |
             while read -r BRANCH; do
+              [[ "$BRANCH" == update-digests-* ]] && { echo "⏭ Skipping branch $BRANCH (starts with update-digests-)"; continue; }
               echo "➡️ Branch $BRANCH"
               
               DIR=$(mktemp -d)
