@@ -18,18 +18,53 @@ jobs:
     steps:
       - name: Checkout calling repository
         uses: actions/checkout@v6
-
-      - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
         with:
-          repository: runlix/build-workflow
-          path: build-workflow
+          fetch-depth: 0
 
       - name: Extract metadata from VERSION.json
         id: extract
-        uses: ./build-workflow/.github/actions/extract-version-metadata
-        with:
-          extract_test_url: 'true'
+        run: |
+          # Extract version and build_date
+          VERSION=$(jq -r '.version // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+          BUILD_DATE=$(jq -r '.build_date // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+          
+          # Extract test_url
+          TEST_URL=$(jq -r '.test_url // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
+          
+          # Extract enabled targets matrix
+          MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
+          
+          # Ensure matrix is valid JSON (default to empty array if extraction failed)
+          if [ -z "$MATRIX" ] || ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
+            echo "WARNING: Matrix extraction failed or invalid, defaulting to empty array"
+            MATRIX="[]"
+          fi
+          
+          # Extract unique variants
+          VARIANTS=$(jq -r '.targets[] | select(.enabled == true) | .variant' VERSION.json | sort -u)
+          
+          # GitHub context values
+          BRANCH="${{ github.ref_name }}"
+          SHA="${{ github.sha }}"
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          
+          # Output all values
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "default_branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
+          echo "test_url=${TEST_URL}" >> $GITHUB_OUTPUT
+          {
+            echo 'variants<<EOF'
+            echo "$VARIANTS"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo 'matrix<<EOF'
+            echo "$MATRIX"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Validate matrix output
         run: |
