@@ -32,6 +32,20 @@ runs:
       id: extract
       shell: bash
       run: |
+        # Debug: Check if VERSION.json exists
+        if [ ! -f VERSION.json ]; then
+          echo "ERROR: VERSION.json not found in current directory"
+          echo "Current directory: $(pwd)"
+          echo "Files in directory: $(ls -la)"
+          exit 1
+        fi
+        
+        # Debug: Check if jq is available
+        if ! command -v jq &> /dev/null; then
+          echo "ERROR: jq is not installed"
+          exit 1
+        fi
+        
         # Extract version and build_date
         VERSION=$(jq -r '.version // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
         BUILD_DATE=$(jq -r '.build_date // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
@@ -45,6 +59,12 @@ runs:
         # Extract enabled targets matrix
         MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
         
+        # Debug: Check if matrix is empty
+        if [ -z "$MATRIX" ] || [ "$MATRIX" = "[]" ]; then
+          echo "WARNING: No enabled targets found in VERSION.json"
+          echo "Matrix value: $MATRIX"
+        fi
+        
         # Extract unique variants
         VARIANTS=$(jq -r '.targets[] | select(.enabled == true) | .variant' VERSION.json | sort -u)
         
@@ -52,6 +72,16 @@ runs:
         BRANCH="${{ github.ref_name }}"
         SHA="${{ github.sha }}"
         DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+        
+        # Debug: Print extracted values
+        echo "Extracted values:"
+        echo "  version: ${VERSION}"
+        echo "  build_date: ${BUILD_DATE}"
+        echo "  branch: ${BRANCH}"
+        echo "  sha: ${SHA}"
+        echo "  test_url: ${TEST_URL}"
+        echo "  matrix: ${MATRIX}"
+        echo "  variants: ${VARIANTS}"
         
         # Output all values
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
