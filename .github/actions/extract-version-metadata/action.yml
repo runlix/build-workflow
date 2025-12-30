@@ -102,18 +102,17 @@ runs:
           echo "$VARIANTS"
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
-        # Compact the JSON and set as output
-        # Use jq to compact the JSON and ensure it's valid
-        COMPACT_MATRIX=$(echo "$MATRIX" | jq -c '.')
+        # Set matrix output using EOF multiline format (required for large JSON outputs)
+        # Write to temp file first to ensure proper formatting, then append to GITHUB_OUTPUT
+        {
+          echo 'matrix<<EOF'
+          # Output the matrix JSON directly (jq already validated it's valid JSON)
+          # Use printf to avoid any shell interpretation issues
+          printf '%s\n' "$MATRIX"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
         
-        # Debug: Verify compact matrix
-        echo "DEBUG: Compact matrix length: ${#COMPACT_MATRIX}"
-        echo "DEBUG: Compact matrix (first 200 chars): $(echo "$COMPACT_MATRIX" | head -c 200)"
-        
-        # Set output directly as single-line JSON (avoid EOF format issues with composite actions)
-        # Escape any special characters that might break the output format
-        echo "matrix=${COMPACT_MATRIX}" >> "$GITHUB_OUTPUT"
-        
-        # Debug: Verify output was written
-        echo "DEBUG: Output written to GITHUB_OUTPUT"
+        # Debug: Verify the output format
+        echo "DEBUG: Matrix output written to GITHUB_OUTPUT"
+        echo "DEBUG: Matrix JSON length: $(echo "$MATRIX" | wc -c) chars"
 

@@ -34,17 +34,29 @@ jobs:
       - name: Validate matrix output
         run: |
           echo "Validating matrix output..."
+          echo "All extract step outputs:"
+          echo "  version: ${{ steps.extract.outputs.version }}"
+          echo "  matrix: ${{ steps.extract.outputs.matrix }}"
+          echo ""
           echo "Matrix output value:"
-          echo "${{ steps.extract.outputs.matrix }}"
+          MATRIX_OUTPUT="${{ steps.extract.outputs.matrix }}"
+          echo "${MATRIX_OUTPUT}"
           echo ""
-          echo "Matrix output (first 200 chars):"
-          echo "${{ steps.extract.outputs.matrix }}" | head -c 200
+          echo "Matrix output length:"
+          echo "${MATRIX_OUTPUT}" | wc -c
           echo ""
-          echo "Validating JSON..."
-          echo "${{ steps.extract.outputs.matrix }}" | jq '.' > /dev/null && echo "✓ Matrix is valid JSON" || echo "✗ Matrix is NOT valid JSON"
-          echo ""
-          echo "Matrix length:"
-          echo "${{ steps.extract.outputs.matrix }}" | wc -c
+          echo "Checking if matrix is empty:"
+          if [ -z "${MATRIX_OUTPUT}" ] || [ "${MATRIX_OUTPUT}" = "" ]; then
+            echo "ERROR: Matrix output is empty!"
+            echo "Checking GITHUB_OUTPUT file directly..."
+            if [ -f "$GITHUB_OUTPUT" ]; then
+              echo "GITHUB_OUTPUT exists, checking for matrix:"
+              grep -A 5 "matrix" "$GITHUB_OUTPUT" || echo "No matrix found in GITHUB_OUTPUT"
+            fi
+          else
+            echo "Matrix output is not empty, validating JSON..."
+            echo "${MATRIX_OUTPUT}" | jq '.' > /dev/null && echo "✓ Matrix is valid JSON" || echo "✗ Matrix is NOT valid JSON"
+          fi
 
   test:
     needs: prepare-version
