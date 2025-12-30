@@ -64,6 +64,11 @@ jobs:
               
               git checkout -b "$PR_BRANCH"
               git add .
+              # abort if nothing is staged
+              if git diff --cached --quiet; then
+                echo "✔️ No staged changes, skipping PR"
+                cd ..; rm -rf "$DIR"; continue
+              fi
               git commit -m "$COMMIT_MSG"
               git push --set-upstream origin "$PR_BRANCH"
 
