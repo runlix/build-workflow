@@ -1,5 +1,7 @@
 name: update-digests-automated
 
+description: Automated workflow that discovers and processes all repositories with docker-image topic, executing update-digests.sh scripts and creating pull requests when changes are detected.
+
 on:
   workflow_dispatch:
   schedule:
@@ -8,6 +10,7 @@ on:
 jobs:
   do-work:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
@@ -16,6 +19,11 @@ jobs:
       cancel-in-progress: false
     
     steps:
+      - name: Install GitHub CLI
+        uses: actions/setup-gh@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Git Config
         run: |
           git config --global user.name "github-actions[bot]"
@@ -23,29 +31,43 @@ jobs:
 
       - name: Do Work
         env:
-          REPOSITORY_OWNER: runlix
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ACTOR: ${{ github.actor }}
+          GIT_TERMINAL_PROMPT: 0
         run: |
-          set -e
+          set -euo pipefail
           
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "ERROR: GITHUB_TOKEN is not set"
             exit 1
           fi
           
+          # Configure git credential helper to use token from environment variable
+          git config --global credential.helper '!f() { echo "username=x"; echo "password=$GH_TOKEN"; }; f'
+          
+          # Cleanup function for temporary directories
+          cleanup() {
+            if [ -n "${CLONE_DIR:-}" ] && [ -d "${CLONE_DIR}" ]; then
+              rm -rf "${CLONE_DIR}"
+            fi
+          }
+          trap cleanup EXIT
+          
           echo "Discovering repositories with docker-image topic..."
-          REPOS=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | select(.topics[]?=="docker-image") | .name' || echo "")
+          REPOS=$(gh api "/users/${REPOSITORY_OWNER}/repos?per_page=100" --jq '.[] | select(.topics[]?=="docker-image") | .name' || echo "")
           
           if [ -z "$REPOS" ]; then
             echo "WARNING: No repositories found with docker-image topic"
-            echo "Debug: Listing all repos to verify API call works..."
-            curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | "\(.name) - topics: \(.topics | join(", "))"' || echo "API call failed"
             exit 0
           fi
           
           echo "Found repositories:"
           echo "$REPOS"
+          
+          # Initialize counters
+          PROCESSED=0
+          FAILED=0
+          PRS_CREATED=0
           
           while IFS= read -r REPOSITORY; do
             [ -z "$REPOSITORY" ] && continue
@@ -53,12 +75,10 @@ jobs:
             echo "Processing repository: ${REPOSITORY_OWNER}/${REPOSITORY}"
             
             echo "Fetching branches for ${REPOSITORY}..."
-            BRANCHES=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | select(.name!="main" and .name!="master") | .name' || echo "")
+            BRANCHES=$(gh api "/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" --jq '.[] | select(.name!="main" and .name!="master") | .name' || echo "")
             
             if [ -z "$BRANCHES" ]; then
               echo "WARNING: No branches found (excluding main/master) for ${REPOSITORY}"
-              echo "Debug: Listing all branches..."
-              curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | .name' || echo "Failed to fetch branches"
               continue
             fi
             
@@ -72,30 +92,42 @@ jobs:
               
               CLONE_DIR=$(mktemp -d)
               
-              # Clone without token first (for public repos), then configure remote with token for push
+              # Clone using credential helper (token handled via environment variable)
               if ! git clone -b "${BRANCH}" "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
-                # If public clone fails, try with token (for private repos)
-                if ! git clone -b "${BRANCH}" "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
-                  echo "Failed to clone ${REPOSITORY}:${BRANCH}"
-                  rm -rf "${CLONE_DIR}"
-                  continue
-                fi
-              fi
-              
-              cd "${CLONE_DIR}" || { rm -rf "${CLONE_DIR}"; continue; }
-              
-              # Configure remote with token for push operations (set once)
-              git remote set-url origin "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
-              
-              if [ ! -f update-digests.sh ]; then
-                echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
-                cd .. || exit 1
+                echo "Failed to clone ${REPOSITORY}:${BRANCH}"
+                FAILED=$((FAILED + 1))
                 rm -rf "${CLONE_DIR}"
                 continue
               fi
               
+              if ! cd "${CLONE_DIR}"; then
+                echo "Failed to change directory for ${REPOSITORY}:${BRANCH}"
+                FAILED=$((FAILED + 1))
+                rm -rf "${CLONE_DIR}"
+                continue
+              fi
+              
+              # Configure remote (token handled by credential helper)
+              git remote set-url origin "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git"
+              
+              if [ ! -f update-digests.sh ]; then
+                echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
+                cd .. || true
+                rm -rf "${CLONE_DIR}"
+                continue
+              fi
+              
+              # Ensure script is executable
+              [ ! -x update-digests.sh ] && chmod +x update-digests.sh
+              
               echo "Executing update-digests.sh for ${REPOSITORY}:${BRANCH}..."
-              bash ./update-digests.sh || { echo "Script failed or no changes for ${REPOSITORY}:${BRANCH}"; cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
+              if ! bash ./update-digests.sh; then
+                echo "Script failed for ${REPOSITORY}:${BRANCH}"
+                FAILED=$((FAILED + 1))
+                cd .. || true
+                rm -rf "${CLONE_DIR}"
+                continue
+              fi
               
               COMMIT_MESSAGE="Upstream image update"
               [ "${BRANCH}" = "pr" ] && COMMIT_MESSAGE="Upstream image update [skip ci]"
@@ -105,24 +137,55 @@ jobs:
               if ! git diff --quiet || ! git diff --cached --quiet; then
                 echo "Changes detected for ${REPOSITORY}:${BRANCH}"
                 PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
-                git checkout -b "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
-                git commit -m "${COMMIT_MESSAGE}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
-                git push -u origin "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
                 
-                gh pr create \
+                if ! git checkout -b "${PR_BRANCH}"; then
+                  echo "Failed to create branch for ${REPOSITORY}:${BRANCH}"
+                  FAILED=$((FAILED + 1))
+                  cd .. || true
+                  rm -rf "${CLONE_DIR}"
+                  continue
+                fi
+                
+                if ! git commit -m "${COMMIT_MESSAGE}"; then
+                  echo "Failed to commit for ${REPOSITORY}:${BRANCH}"
+                  FAILED=$((FAILED + 1))
+                  cd .. || true
+                  rm -rf "${CLONE_DIR}"
+                  continue
+                fi
+                
+                if ! git push -u origin "${PR_BRANCH}"; then
+                  echo "Failed to push for ${REPOSITORY}:${BRANCH}"
+                  FAILED=$((FAILED + 1))
+                  cd .. || true
+                  rm -rf "${CLONE_DIR}"
+                  continue
+                fi
+                
+                if gh pr create \
                   --repo "${REPOSITORY_OWNER}/${REPOSITORY}" \
                   --title "Upstream image update" \
                   --body "Automated upstream image digest update for branch \`${BRANCH}\`" \
                   --base "${BRANCH}" \
                   --head "${PR_BRANCH}" \
-                  --label "automated,dependencies" || true
+                  --label automated \
+                  --label dependencies 2>/dev/null; then
+                  PRS_CREATED=$((PRS_CREATED + 1))
+                  echo "Created PR for ${REPOSITORY}:${BRANCH}"
+                else
+                  echo "Failed to create PR for ${REPOSITORY}:${BRANCH}"
+                  FAILED=$((FAILED + 1))
+                fi
               else
                 echo "No changes detected for ${REPOSITORY}:${BRANCH}"
               fi
               
-              cd .. || exit 1
+              PROCESSED=$((PROCESSED + 1))
+              cd .. || true
               rm -rf "${CLONE_DIR}"
             done <<< "$BRANCHES"
           done <<< "$REPOS"
           
           echo "Completed processing all repositories"
+          echo "Summary: Processed=${PROCESSED}, PRs Created=${PRS_CREATED}, Failed=${FAILED}"
+          [ $FAILED -gt 0 ] && exit 1
