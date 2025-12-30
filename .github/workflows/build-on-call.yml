@@ -16,7 +16,7 @@ jobs:
       matrix: ${{ steps.extract.outputs.matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Extract metadata from VERSION.json
         id: extract
