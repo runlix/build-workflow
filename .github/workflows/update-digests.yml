@@ -40,6 +40,10 @@ jobs:
           # Configure git credential helper to use token from environment variable
           git config --global credential.helper '!f() { echo "username=x"; echo "password=$GH_TOKEN"; }; f'
           
+          # #region agent log
+          echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:41\",\"message\":\"Credential helper configured\",\"data\":{\"hasToken\":\"${GH_TOKEN:+yes}\",\"tokenLength\":${#GH_TOKEN}},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          # #endregion
+          
           # Cleanup function for temporary directories
           cleanup() {
             if [ -n "${CLONE_DIR:-}" ] && [ -d "${CLONE_DIR}" ]; then
@@ -105,6 +109,10 @@ jobs:
               # Configure remote (token handled by credential helper)
               git remote set-url origin "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git"
               
+              # #region agent log
+              echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:106\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"$(git remote get-url origin)\",\"hasTokenInUrl\":\"$(git remote get-url origin | grep -q '@' && echo yes || echo no)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+              # #endregion
+              
               if [ ! -f update-digests.sh ]; then
                 echo "No update-digests.sh found in ${REPOSITORY}:${BRANCH}, skipping"
                 cd .. || true
@@ -149,13 +157,24 @@ jobs:
                   continue
                 fi
                 
-                if ! git push -u origin "${PR_BRANCH}"; then
+                # #region agent log
+                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:152\",\"message\":\"Before push attempt\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"prBranch\":\"${PR_BRANCH}\",\"remoteUrl\":\"$(git remote get-url origin)\",\"credentialHelper\":\"$(git config --global credential.helper)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+                # #endregion
+                
+                if ! git push -u origin "${PR_BRANCH}" 2>&1 | tee /tmp/git-push-output.log; then
+                  # #region agent log
+                  echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:152\",\"message\":\"Push failed\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"error\":\"$(cat /tmp/git-push-output.log | head -5 | tr '\n' ' ')\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+                  # #endregion
                   echo "Failed to push for ${REPOSITORY}:${BRANCH}"
                   FAILED=$((FAILED + 1))
                   cd .. || true
                   rm -rf "${CLONE_DIR}"
                   continue
                 fi
+                
+                # #region agent log
+                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:152\",\"message\":\"Push succeeded\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+                # #endregion
                 
                 if gh pr create \
                   --repo "${REPOSITORY_OWNER}/${REPOSITORY}" \
