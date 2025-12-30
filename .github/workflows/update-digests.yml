@@ -41,7 +41,9 @@ jobs:
           git config --global credential.helper '!f() { echo "username=x"; echo "password=$GH_TOKEN"; }; f'
           
           # #region agent log
-          echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:41\",\"message\":\"Credential helper configured\",\"data\":{\"hasToken\":\"${GH_TOKEN:+yes}\",\"tokenLength\":${#GH_TOKEN}},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
+          echo "DEBUG: Credential helper configured - hasToken=${GH_TOKEN:+yes}, tokenLength=${#GH_TOKEN}" | tee -a "$DEBUG_LOG"
+          echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:41\",\"message\":\"Credential helper configured\",\"data\":{\"hasToken\":\"${GH_TOKEN:+yes}\",\"tokenLength\":${#GH_TOKEN}},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" | tee -a "$DEBUG_LOG"
           # #endregion
           
           # Cleanup function for temporary directories
@@ -106,11 +108,15 @@ jobs:
                 continue
               fi
               
-              # Configure remote (token handled by credential helper)
-              git remote set-url origin "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git"
+              # Configure remote with token for push operations (set once)
+              git remote set-url origin "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
               
               # #region agent log
-              echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:106\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"$(git remote get-url origin)\",\"hasTokenInUrl\":\"$(git remote get-url origin | grep -q '@' && echo yes || echo no)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+              DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
+              REMOTE_URL=$(git remote get-url origin)
+              HAS_TOKEN=$(echo "$REMOTE_URL" | grep -q '@' && echo "yes" || echo "no")
+              echo "DEBUG: Remote URL configured - repo=${REPOSITORY}, branch=${BRANCH}, remoteUrl=${REMOTE_URL}, hasTokenInUrl=${HAS_TOKEN}" | tee -a "$DEBUG_LOG"
+              echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:110\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"hasTokenInUrl\":\"${HAS_TOKEN}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" | tee -a "$DEBUG_LOG"
               # #endregion
               
               if [ ! -f update-digests.sh ]; then
@@ -158,22 +164,33 @@ jobs:
                 fi
                 
                 # #region agent log
-                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:152\",\"message\":\"Before push attempt\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"prBranch\":\"${PR_BRANCH}\",\"remoteUrl\":\"$(git remote get-url origin)\",\"credentialHelper\":\"$(git config --global credential.helper)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+                DEBUG_LOG="${GITHUB_WORKSPACE:-/tmp}/debug.log"
+                REMOTE_URL=$(git remote get-url origin)
+                CRED_HELPER=$(git config --global credential.helper)
+                echo "DEBUG: Before push - repo=${REPOSITORY}, branch=${BRANCH}, prBranch=${PR_BRANCH}, remoteUrl=${REMOTE_URL}" | tee -a "$DEBUG_LOG"
+                echo "DEBUG: Credential helper: ${CRED_HELPER}" | tee -a "$DEBUG_LOG"
+                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:160\",\"message\":\"Before push attempt\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"prBranch\":\"${PR_BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"credentialHelper\":\"${CRED_HELPER}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" | tee -a "$DEBUG_LOG"
                 # #endregion
                 
-                if ! git push -u origin "${PR_BRANCH}" 2>&1 | tee /tmp/git-push-output.log; then
+                PUSH_OUTPUT=$(mktemp)
+                if ! git push -u origin "${PR_BRANCH}" 2>&1 | tee "$PUSH_OUTPUT"; then
                   # #region agent log
-                  echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:152\",\"message\":\"Push failed\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"error\":\"$(cat /tmp/git-push-output.log | head -5 | tr '\n' ' ')\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+                  PUSH_ERROR=$(head -5 "$PUSH_OUTPUT" | tr '\n' ' ')
+                  echo "DEBUG: Push failed - repo=${REPOSITORY}, branch=${BRANCH}, error=${PUSH_ERROR}" | tee -a "$DEBUG_LOG"
+                  echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:164\",\"message\":\"Push failed\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"error\":\"${PUSH_ERROR}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" | tee -a "$DEBUG_LOG"
                   # #endregion
                   echo "Failed to push for ${REPOSITORY}:${BRANCH}"
                   FAILED=$((FAILED + 1))
+                  rm -f "$PUSH_OUTPUT"
                   cd .. || true
                   rm -rf "${CLONE_DIR}"
                   continue
                 fi
+                rm -f "$PUSH_OUTPUT"
                 
                 # #region agent log
-                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:152\",\"message\":\"Push succeeded\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\"}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+                echo "DEBUG: Push succeeded - repo=${REPOSITORY}, branch=${BRANCH}" | tee -a "$DEBUG_LOG"
+                echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:164\",\"message\":\"Push succeeded\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\"}" | tee -a "$DEBUG_LOG"
                 # #endregion
                 
                 if gh pr create \
