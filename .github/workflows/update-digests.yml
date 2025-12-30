@@ -30,7 +30,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GIT_TERMINAL_PROMPT: 0
         run: |
-          set -euo pipefail
+          set -e
           
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "ERROR: GITHUB_TOKEN is not set"
@@ -97,12 +97,15 @@ jobs:
               
               CLONE_DIR=$(mktemp -d)
               
-              # Clone using credential helper (token handled via environment variable)
+              # Clone without token first (for public repos), then configure remote with token for push
               if ! git clone -b "${BRANCH}" "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
-                echo "Failed to clone ${REPOSITORY}:${BRANCH}"
-                FAILED=$((FAILED + 1))
-                rm -rf "${CLONE_DIR}"
-                continue
+                # If public clone fails, try with token (for private repos)
+                if ! git clone -b "${BRANCH}" "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
+                  echo "Failed to clone ${REPOSITORY}:${BRANCH}"
+                  FAILED=$((FAILED + 1))
+                  rm -rf "${CLONE_DIR}"
+                  continue
+                fi
               fi
               
               if ! cd "${CLONE_DIR}"; then
@@ -122,6 +125,9 @@ jobs:
               # Test token permissions by checking repo access
               TOKEN_TEST=$(gh api "/repos/${REPOSITORY_OWNER}/${REPOSITORY}" --jq '.permissions.push // false' 2>/dev/null || echo "unknown")
               echo "DEBUG: Remote URL configured - repo=${REPOSITORY}, branch=${BRANCH}, remoteUrl=${REMOTE_URL}, hasTokenInUrl=${HAS_TOKEN}, tokenHasPushPermission=${TOKEN_TEST}" | tee -a "$DEBUG_LOG"
+              if [ "$TOKEN_TEST" = "false" ]; then
+                echo "WARNING: Token does not have push permission to ${REPOSITORY}. If push fails, configure a PAT secret or organization settings." | tee -a "$DEBUG_LOG"
+              fi
               echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:110\",\"message\":\"Remote URL configured\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"remoteUrl\":\"${REMOTE_URL}\",\"hasTokenInUrl\":\"${HAS_TOKEN}\",\"tokenHasPushPermission\":\"${TOKEN_TEST}\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"G\"}" | tee -a "$DEBUG_LOG"
               # #endregion
               
@@ -179,11 +185,17 @@ jobs:
                 # #endregion
                 
                 PUSH_OUTPUT=$(mktemp)
+                # #region agent log
+                echo "DEBUG: Attempting push - repo=${REPOSITORY}, branch=${BRANCH}, prBranch=${PR_BRANCH}" | tee -a "$DEBUG_LOG"
+                # #endregion
                 if ! git push -u origin "${PR_BRANCH}" 2>&1 | tee "$PUSH_OUTPUT"; then
                   # #region agent log
-                  PUSH_ERROR=$(head -5 "$PUSH_OUTPUT" | tr '\n' ' ')
-                  echo "DEBUG: Push failed - repo=${REPOSITORY}, branch=${BRANCH}, error=${PUSH_ERROR}" | tee -a "$DEBUG_LOG"
-                  echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:164\",\"message\":\"Push failed\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"error\":\"${PUSH_ERROR}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" | tee -a "$DEBUG_LOG"
+                  PUSH_ERROR=$(cat "$PUSH_OUTPUT" | head -10 | tr '\n' '|')
+                  FULL_ERROR=$(cat "$PUSH_OUTPUT")
+                  echo "DEBUG: Push failed - repo=${REPOSITORY}, branch=${BRANCH}" | tee -a "$DEBUG_LOG"
+                  echo "DEBUG: Full push error output:" | tee -a "$DEBUG_LOG"
+                  echo "$FULL_ERROR" | tee -a "$DEBUG_LOG"
+                  echo "{\"timestamp\":$(date +%s000),\"location\":\"update-digests.yml:182\",\"message\":\"Push failed\",\"data\":{\"repo\":\"${REPOSITORY}\",\"branch\":\"${BRANCH}\",\"error\":\"${PUSH_ERROR}\",\"fullError\":\"${FULL_ERROR}\"},\"sessionId\":\"debug-session\",\"runId\":\"run2\",\"hypothesisId\":\"H\"}" | tee -a "$DEBUG_LOG"
                   # #endregion
                   echo "Failed to push for ${REPOSITORY}:${BRANCH}"
                   FAILED=$((FAILED + 1))
