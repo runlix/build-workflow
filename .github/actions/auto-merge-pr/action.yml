@@ -86,7 +86,7 @@ runs:
         echo "✓ All PR conditions met"
         
         # Check if PR is still open
-        PR_STATE=$(gh pr view "${PR_NUMBER}" --json state --jq -r '.state' || echo "ERROR")
+        PR_STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json state --jq -r '.state' || echo "ERROR")
         if [ "${PR_STATE}" = "ERROR" ]; then
           echo "Failed to check PR state. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
@@ -100,14 +100,14 @@ runs:
         
         # Merge the PR
         echo "Merging PR #${PR_NUMBER}..."
-        if gh pr merge "${PR_NUMBER}" --merge --auto; then
+        if gh pr merge "${PR_NUMBER}" --repo "${REPOSITORY}" --merge --auto; then
           echo "merged=true" >> $GITHUB_OUTPUT
           echo "✓ Successfully merged PR #${PR_NUMBER}"
         else
           EXIT_CODE=$?
           echo "Failed to merge PR (exit code: ${EXIT_CODE})"
           # Check if PR was already merged
-          CURRENT_STATE=$(gh pr view "${PR_NUMBER}" --json state --jq -r '.state' || echo "ERROR")
+          CURRENT_STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json state --jq -r '.state' || echo "ERROR")
           if [ "${CURRENT_STATE}" = "MERGED" ]; then
             echo "PR was already merged. This is not an error."
             echo "merged=true" >> $GITHUB_OUTPUT
