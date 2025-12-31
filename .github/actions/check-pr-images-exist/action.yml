@@ -46,6 +46,9 @@ runs:
         
         # Parse matrix JSON and check first target's PR image
         # The matrix is now passed as a proper JSON string from the workflow using toJson()
+        echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-"
+        echo "${echo ${{inputs.matrix}} | jq .[0]}"
+        echo "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-"
         FIRST_TARGET=$(echo "$MATRIX" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
         
         if [ -n "${FIRST_TARGET}" ]; then
