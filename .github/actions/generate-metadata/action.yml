@@ -21,8 +21,10 @@ inputs:
 outputs:
   platform:
     description: 'Platform string (e.g., linux/amd64)'
+    value: ${{ steps.metadata.outputs.platform }}
   image-tag:
     description: 'Full image tag'
+    value: ${{ steps.metadata.outputs.image-tag }}
 
 runs:
   using: 'composite'

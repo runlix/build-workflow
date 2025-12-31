@@ -77,22 +77,10 @@ runs:
           fi
         } > /tmp/build_args.txt
         
-        # #region agent log
-        echo "DEBUG: Build args file contents:" >> /dev/stderr
-        cat /tmp/build_args.txt >> /dev/stderr
-        echo "DEBUG: BUILDER_DIGEST_VALUE=${BUILDER_DIGEST_VALUE}" >> /dev/stderr
-        echo "DEBUG: BASE_DIGEST_VALUE=${BASE_DIGEST_VALUE}" >> /dev/stderr
-        # #endregion
-        
         # Output build args using multiline format (required for GitHub Actions multiline outputs)
         {
           echo 'build_args<<EOF'
           cat /tmp/build_args.txt
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
-        
-        # #region agent log
-        echo "DEBUG: GITHUB_OUTPUT build_args entry:" >> /dev/stderr
-        grep -A 20 "^build_args" "$GITHUB_OUTPUT" | head -25 >> /dev/stderr || echo "DEBUG: build_args not found in GITHUB_OUTPUT" >> /dev/stderr
-        # #endregion
 
