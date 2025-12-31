@@ -35,22 +35,17 @@ jobs:
       
       - name: Debug - Verify extract outputs
         run: |
-          # #region agent log
-          MATRIX_OUTPUT='${{ steps.extract.outputs.matrix }}'
-          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_verify","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:36","message":"Checking step extract outputs","data":{"version":"'${{ steps.extract.outputs.version }}'","matrixLength":'$(echo -n "${MATRIX_OUTPUT}" | wc -c)',"matrixPreview":"'$(echo -n "${MATRIX_OUTPUT}" | head -c 100)'","matrixEmpty":'$(test -z "${MATRIX_OUTPUT}" && echo "true" || echo "false")'},"sessionId":"debug-session","runId":"run2","hypothesisId":"C,D"}'
-          # #endregion
           echo "DEBUG: Step extract outputs:"
           echo "  version: ${{ steps.extract.outputs.version }}"
-          echo "  All outputs (JSON): ${{ toJson(steps.extract.outputs) }}"
+          echo "  build_date: ${{ steps.extract.outputs.build_date }}"
+          echo "  branch: ${{ steps.extract.outputs.branch }}"
+          echo "  sha: ${{ steps.extract.outputs.sha }}"
           MATRIX_RAW='${{ steps.extract.outputs.matrix }}'
-          echo "  matrix raw length: $(echo -n "${MATRIX_RAW}" | wc -c) chars"
+          echo "  matrix length: $(echo -n "${MATRIX_RAW}" | wc -c) chars"
           echo "  matrix empty: $(test -z "${MATRIX_RAW}" && echo 'yes' || echo 'no')"
-          echo "  matrix preview: $(echo -n "${MATRIX_RAW}" | head -c 200)"
-          echo "  matrix valid JSON: $(echo "${MATRIX_RAW}" | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
-          if [ -z "${MATRIX_RAW}" ]; then
-            echo "ERROR: Matrix output is empty!"
-            echo "Available output keys:"
-            echo "${{ toJson(steps.extract.outputs) }}" | jq 'keys' 2>/dev/null || echo "Failed to parse outputs"
+          if [ -n "${MATRIX_RAW}" ]; then
+            echo "  matrix preview: $(echo -n "${MATRIX_RAW}" | head -c 200)"
+            echo "  matrix valid JSON: $(echo "${MATRIX_RAW}" | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
           fi
 
   test:
