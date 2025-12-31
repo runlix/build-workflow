@@ -157,10 +157,21 @@ jobs:
           path: build-workflow
 
       - name: Auto merge PR
+        id: auto-merge
         uses: ./build-workflow/.github/actions/auto-merge-pr
         with:
           repository: ${{ github.repository }}
           pr_number: ${{ github.event.pull_request.number }}
+          app_id: ${{ secrets.RUNLIX_APP_ID }}
+          private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Delete branch after merge
+        if: steps.auto-merge.outputs.merged == 'true'
+        uses: ./build-workflow/.github/actions/delete-branch
+        with:
+          repository: ${{ github.repository }}
+          branch_name: ${{ github.event.pull_request.head.ref }}
           app_id: ${{ secrets.RUNLIX_APP_ID }}
           private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}

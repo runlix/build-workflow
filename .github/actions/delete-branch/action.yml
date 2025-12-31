@@ -1,0 +1,71 @@
+name: 'Delete Branch'
+description: 'Delete a branch after PR merge'
+
+inputs:
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+  branch_name:
+    description: 'Branch name to delete'
+    required: true
+  app_id:
+    description: 'GitHub App ID'
+    required: true
+  private_key:
+    description: 'GitHub App private key'
+    required: true
+  owner:
+    description: 'Repository owner (organization or user)'
+    required: true
+
+outputs:
+  deleted:
+    description: 'Whether the branch was deleted (true/false)'
+    value: ${{ steps.delete-branch.outputs.deleted }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+        owner: ${{ inputs.owner }}
+
+    - name: Delete branch
+      id: delete-branch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        BRANCH_NAME: ${{ inputs.branch_name }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -e
+        
+        if [ -z "${BRANCH_NAME}" ]; then
+          echo "Branch name not available, skipping deletion"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "Deleting branch: ${BRANCH_NAME}"
+        # Use gh CLI to delete the branch
+        if gh api repos/${REPOSITORY}/git/refs/heads/${BRANCH_NAME} --method DELETE 2>&1; then
+          echo "deleted=true" >> $GITHUB_OUTPUT
+          echo "✓ Successfully deleted branch ${BRANCH_NAME}"
+        else
+          EXIT_CODE=$?
+          # Check if branch still exists (might have been deleted already or doesn't exist)
+          BRANCH_CHECK=$(gh api repos/${REPOSITORY}/git/refs/heads/${BRANCH_NAME} 2>&1 || echo "NOT_FOUND")
+          if echo "${BRANCH_CHECK}" | grep -q "Not Found\|404"; then
+            echo "Branch ${BRANCH_NAME} was already deleted or doesn't exist"
+            echo "deleted=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "Failed to delete branch (exit code: ${EXIT_CODE})"
+          echo "deleted=false" >> $GITHUB_OUTPUT
+          exit ${EXIT_CODE}
+        fi
+
