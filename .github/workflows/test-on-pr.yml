@@ -32,6 +32,18 @@ jobs:
         uses: ./build-workflow/.github/actions/extract-version-metadata
         with:
           extract_test_url: 'true'
+      
+      - name: Debug - Verify extract outputs
+        run: |
+          # #region agent log
+          echo '{"id":"log_'$(date +%s)'_verify","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:35","message":"Checking step extract outputs","data":{"version":"'${{ steps.extract.outputs.version }}'","matrixLength":'$(echo "${{ steps.extract.outputs.matrix }}" | wc -c)',"matrixPreview":"'$(echo "${{ steps.extract.outputs.matrix }}" | head -c 100)'","matrixEmpty":'$(test -z "${{ steps.extract.outputs.matrix }}" && echo "true" || echo "false")'},"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D"}' >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          # #endregion
+          echo "DEBUG: Step extract outputs:"
+          echo "  version: ${{ steps.extract.outputs.version }}"
+          echo "  matrix length: $(echo '${{ steps.extract.outputs.matrix }}' | wc -c) chars"
+          echo "  matrix empty: $(test -z '${{ steps.extract.outputs.matrix }}' && echo 'yes' || echo 'no')"
+          echo "  matrix preview: $(echo '${{ steps.extract.outputs.matrix }}' | head -c 200)"
+          echo "  matrix valid JSON: $(echo '${{ steps.extract.outputs.matrix }}' | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
 
   test:
     needs: prepare-version
@@ -40,6 +52,19 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}
     steps:
+      - name: Debug - Verify job outputs
+        run: |
+          # #region agent log
+          echo '{"id":"log_'$(date +%s)'_testjob","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:52","message":"Checking prepare-version job outputs in test job","data":{"matrixLength":'$(echo "${{ needs.prepare-version.outputs.matrix }}" | wc -c)',"matrixEmpty":'$(test -z "${{ needs.prepare-version.outputs.matrix }}" && echo "true" || echo "false")',"matrixPreview":"'$(echo "${{ needs.prepare-version.outputs.matrix }}" | head -c 100)'"},"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D"}' >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          # #endregion
+          echo "DEBUG: prepare-version job outputs:"
+          echo "  matrix length: $(echo '${{ needs.prepare-version.outputs.matrix }}' | wc -c) chars"
+          echo "  matrix empty: $(test -z '${{ needs.prepare-version.outputs.matrix }}' && echo 'yes' || echo 'no')"
+          echo "  matrix preview: $(echo '${{ needs.prepare-version.outputs.matrix }}' | head -c 200)"
+          echo "  matrix valid JSON: $(echo '${{ needs.prepare-version.outputs.matrix }}' | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
+          MATRIX_JSON='${{ needs.prepare-version.outputs.matrix || "[]" }}'
+          echo "  matrix JSON (full): ${MATRIX_JSON}"
+          echo "  fromJson result: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}"
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
