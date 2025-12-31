@@ -235,7 +235,6 @@ jobs:
           echo "Cleaning up container..."
           docker stop "${container_name}" || true
           docker rm "${container_name}" || true
-          rm -rf "${config_dir}" || true
           
           # Set output and exit
           if [ ${exitcode} -eq 0 ]; then
