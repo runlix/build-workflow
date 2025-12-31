@@ -1,0 +1,50 @@
+name: Cleanup PR Images
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+permissions:
+  packages: delete
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: cleanup-pr-images
+      cancel-in-progress: false
+
+    steps:
+      - name: Discover repositories with docker-image topic
+        env:
+          OWNER: ${{ github.repository_owner }}
+          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          echo "🔍 Discovering repositories with docker-image topic..."
+          REPOSITORIES=$(gh repo list "$OWNER" --limit 200 --json name,repositoryTopics --jq '.[] | select([.repositoryTopics[]?.name] | index("docker-image")) | .name' 2>/dev/null || echo "")
+          
+          if [ -z "$REPOSITORIES" ]; then
+            echo "⚠️ No repositories found with docker-image topic"
+          else
+            echo "🔍 Found repositories:"
+            echo "$REPOSITORIES" | while read -r REPO; do
+              echo "  - $REPO"
+            done
+          fi
+          echo "🧹 Proceeding with cleanup of PR-prefixed images older than 1 day..."
+
+      - name: Cleanup old PR Docker images
+        uses: snok/container-retention-policy@v3.0.0
+        with:
+          account: ${{ github.repository_owner }}
+          token: ${{ secrets.GHCR_TOKEN }}
+          image-names: '*'
+          image-tags: 'pr-*'
+          cut-off: '1d'
+          keep-at-least: 0
+          dry-run: false
+        continue-on-error: true
+
