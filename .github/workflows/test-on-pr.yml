@@ -32,21 +32,6 @@ jobs:
         uses: ./build-workflow/.github/actions/extract-version-metadata
         with:
           extract_test_url: 'true'
-      
-      - name: Debug - Verify extract outputs
-        run: |
-          echo "DEBUG: Step extract outputs:"
-          echo "  version: ${{ steps.extract.outputs.version }}"
-          echo "  build_date: ${{ steps.extract.outputs.build_date }}"
-          echo "  branch: ${{ steps.extract.outputs.branch }}"
-          echo "  sha: ${{ steps.extract.outputs.sha }}"
-          MATRIX_RAW='${{ steps.extract.outputs.matrix }}'
-          echo "  matrix length: $(echo -n "${MATRIX_RAW}" | wc -c) chars"
-          echo "  matrix empty: $(test -z "${MATRIX_RAW}" && echo 'yes' || echo 'no')"
-          if [ -n "${MATRIX_RAW}" ]; then
-            echo "  matrix preview: $(echo -n "${MATRIX_RAW}" | head -c 200)"
-            echo "  matrix valid JSON: $(echo "${MATRIX_RAW}" | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
-          fi
 
   test:
     needs: prepare-version
@@ -55,23 +40,6 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}
     steps:
-      - name: Debug - Verify job outputs
-        run: |
-          # #region agent log
-          MATRIX_OUTPUT='${{ needs.prepare-version.outputs.matrix }}'
-          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_testjob","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:55","message":"Checking prepare-version job outputs in test job","data":{"matrixLength":'$(echo -n "${MATRIX_OUTPUT}" | wc -c)',"matrixEmpty":'$(test -z "${MATRIX_OUTPUT}" && echo "true" || echo "false")',"matrixPreview":"'$(echo -n "${MATRIX_OUTPUT}" | head -c 100)'"},"sessionId":"debug-session","runId":"run2","hypothesisId":"C,D"}'
-          # #endregion
-          echo "DEBUG: prepare-version job outputs:"
-          echo "  matrix length: $(echo '${{ needs.prepare-version.outputs.matrix }}' | wc -c) chars"
-          echo "  matrix empty: $(test -z '${{ needs.prepare-version.outputs.matrix }}' && echo 'yes' || echo 'no')"
-          echo "  matrix preview: $(echo '${{ needs.prepare-version.outputs.matrix }}' | head -c 200)"
-          echo "  matrix valid JSON: $(echo '${{ needs.prepare-version.outputs.matrix }}' | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
-          MATRIX_JSON="${{ needs.prepare-version.outputs.matrix }}"
-          if [ -z "${MATRIX_JSON}" ]; then
-            MATRIX_JSON="[]"
-          fi
-          echo "  matrix JSON (full): ${MATRIX_JSON}"
-          echo "  fromJson result: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}"
       - name: Checkout repository
         uses: actions/checkout@v6
         with:

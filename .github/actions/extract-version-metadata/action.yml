@@ -40,15 +40,11 @@ runs:
       id: extract
       shell: bash
       run: |
-        # Debug: Check if VERSION.json exists
         if [ ! -f VERSION.json ]; then
           echo "ERROR: VERSION.json not found in current directory"
-          echo "Current directory: $(pwd)"
-          echo "Files in directory: $(ls -la)"
           exit 1
         fi
         
-        # Debug: Check if jq is available
         if ! command -v jq &> /dev/null; then
           echo "ERROR: jq is not installed"
           exit 1
@@ -64,18 +60,13 @@ runs:
           TEST_URL=$(jq -r '.test_url // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
         fi
         
-        # Extract enabled targets matrix (compact JSON to avoid multiline issues)
+        # Extract enabled targets matrix (compact JSON)
         MATRIX=$(jq -c '[ .targets[] | select(.enabled == true) ]' VERSION.json)
         
         # Ensure matrix is valid JSON (default to empty array if extraction failed)
         if [ -z "$MATRIX" ] || ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
           echo "WARNING: Matrix extraction failed or invalid, defaulting to empty array"
           MATRIX="[]"
-        fi
-        
-        # Debug: Check if matrix is empty
-        if [ "$MATRIX" = "[]" ]; then
-          echo "WARNING: No enabled targets found in VERSION.json"
         fi
         
         # Extract unique variants
@@ -86,17 +77,7 @@ runs:
         SHA="${{ github.sha }}"
         DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
         
-        # Debug: Print extracted values
-        echo "Extracted values:"
-        echo "  version: ${VERSION}"
-        echo "  build_date: ${BUILD_DATE}"
-        echo "  branch: ${BRANCH}"
-        echo "  sha: ${SHA}"
-        echo "  test_url: ${TEST_URL}"
-        echo "  matrix: ${MATRIX}"
-        echo "  variants: ${VARIANTS}"
-        
-        # Output all values - use quoted GITHUB_OUTPUT for consistency
+        # Output all values
         echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
         echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
         echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
@@ -110,35 +91,10 @@ runs:
           echo "$VARIANTS"
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
-        # Set matrix output - use multiline EOF format for large JSON outputs
-        # Even with compact JSON, multiline format is more reliable for composite actions
-        # Ensure EOF delimiter is on its own line by using printf with newline
+        # Set matrix output using multiline EOF format for large JSON outputs
         {
           echo 'matrix<<EOF'
           printf '%s\n' "$MATRIX"
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
-        
-        # Debug: Verify the output format
-        echo "DEBUG: Matrix output written to GITHUB_OUTPUT"
-        echo "DEBUG: Matrix JSON length: $(echo -n "$MATRIX" | wc -c) chars"
-        echo "DEBUG: Matrix is compact: $(echo "$MATRIX" | jq -e . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
-        
-        # #region agent log
-        echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_extract","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:117","message":"Matrix output written to GITHUB_OUTPUT","data":{"matrixLength":'$(echo -n "$MATRIX" | wc -c)',"matrixPreview":"'$(echo -n "$MATRIX" | head -c 100)'","isCompact":true},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
-        # #endregion
-        
-        # Verify output was written correctly by reading it back
-        if [ -f "$GITHUB_OUTPUT" ]; then
-          # #region agent log
-          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_extract2","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:122","message":"Reading GITHUB_OUTPUT to verify matrix","data":{"fileExists":true,"hasMatrix":'$(grep -q "^matrix" "$GITHUB_OUTPUT" && echo "true" || echo "false")',"matrixLineCount":'$(grep -A 100 "^matrix" "$GITHUB_OUTPUT" | grep -c "^EOF" || echo "0")'},"sessionId":"debug-session","runId":"run3","hypothesisId":"A,B"}'
-          # #endregion
-          echo "DEBUG: GITHUB_OUTPUT file exists, checking matrix entry"
-          grep -A 5 "^matrix" "$GITHUB_OUTPUT" | head -10 || echo "DEBUG: Matrix not found in GITHUB_OUTPUT"
-        else
-          # #region agent log
-          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_extract3","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:128","message":"GITHUB_OUTPUT file not found","data":{"fileExists":false},"sessionId":"debug-session","runId":"run3","hypothesisId":"A,B"}'
-          # #endregion
-          echo "ERROR: GITHUB_OUTPUT file not found"
-        fi
 
