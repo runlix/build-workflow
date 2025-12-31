@@ -1,5 +1,5 @@
 name: 'Auto Merge PR'
-description: 'Automatically merge PRs created by github-actions[bot] with titles starting with "update-digests" or "update-version-"'
+description: 'Automatically merge PRs created by the GitHub App bot with titles starting with "update-digests" or "update-version-"'
 
 inputs:
   repository:
@@ -17,11 +17,28 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ secrets.RUNLIX_APP_ID }}
+        private-key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+
+    - name: Get GitHub App Bot User ID
+      id: get-user-id
+      run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
     - name: Check PR conditions and merge
       id: auto-merge
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        APP_BOT_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
+        APP_BOT_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
       run: |
         set -e
         
@@ -46,10 +63,11 @@ runs:
         echo "  Author: ${PR_AUTHOR}"
         echo "  Title: ${PR_TITLE}"
         echo "  Number: ${PR_NUMBER}"
+        echo "  Expected bot: ${APP_BOT_NAME}"
         
-        # Check if PR author is github-actions[bot]
-        if [ "${PR_AUTHOR}" != "github-actions[bot]" ]; then
-          echo "PR author is '${PR_AUTHOR}', not 'github-actions[bot]'. Skipping auto-merge."
+        # Check if PR author is the GitHub App bot
+        if [ "${PR_AUTHOR}" != "${APP_BOT_NAME}" ]; then
+          echo "PR author is '${PR_AUTHOR}', not '${APP_BOT_NAME}'. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
           exit 0
         fi
@@ -68,10 +86,11 @@ runs:
         fi
         
         echo "  Author Email: ${PR_AUTHOR_EMAIL}"
+        echo "  Expected email: ${APP_BOT_EMAIL}"
         
         # Check if PR author email matches expected email
-        if [ "${PR_AUTHOR_EMAIL}" != "github-actions[bot]@users.noreply.github.com" ]; then
-          echo "PR author email is '${PR_AUTHOR_EMAIL}', not 'github-actions[bot]@users.noreply.github.com'. Skipping auto-merge."
+        if [ "${PR_AUTHOR_EMAIL}" != "${APP_BOT_EMAIL}" ]; then
+          echo "PR author email is '${PR_AUTHOR_EMAIL}', not '${APP_BOT_EMAIL}'. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
           exit 0
         fi
