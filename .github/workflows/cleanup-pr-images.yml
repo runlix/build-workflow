@@ -51,6 +51,7 @@ jobs:
           token: ${{ secrets.GHCR_DELETE_PACKAGE }}
           image-names: '*'
           image-tags: 'update-digests-*'
+          cut-off: '0s'
           keep-n-most-recent: 0
           dry-run: false
         continue-on-error: true
@@ -62,6 +63,7 @@ jobs:
           token: ${{ secrets.GHCR_DELETE_PACKAGE }}
           image-names: '*'
           tag-selection: untagged
+          cut-off: '0s'
           keep-n-most-recent: 0
           dry-run: false
         continue-on-error: true
