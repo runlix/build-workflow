@@ -38,10 +38,6 @@ runs:
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         MATRIX="${{ inputs.matrix }}"
         
-        # #region agent log
-        echo "{\"id\":\"log_$(date +%s)_check1\",\"timestamp\":$(date +%s)000,\"location\":\"check-pr-images-exist:39\",\"message\":\"Raw matrix input received\",\"data\":{\"matrixLength\":${#MATRIX},\"matrixPreview\":\"${MATRIX:0:200}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}"
-        # #endregion
-        
         # Sanitize branch name
         BRANCH_SANITIZED="${BRANCH//\//-}"
         
@@ -49,34 +45,8 @@ runs:
         PR_IMAGES_FOUND="false"
         
         # Parse matrix JSON and check first target's PR image
-        # The matrix might be passed with quotes, so we need to handle that
-        # First, try to parse it directly
-        # #region agent log
-        JQ_ERROR=$(echo "$MATRIX" | jq . 2>&1 || true)
-        echo "{\"id\":\"log_$(date +%s)_check2\",\"timestamp\":$(date +%s)000,\"location\":\"check-pr-images-exist:50\",\"message\":\"Initial jq parse attempt\",\"data\":{\"jqError\":\"$JQ_ERROR\",\"parseSuccess\":\"$([ -z \"$JQ_ERROR\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}"
-        # #endregion
-        
-        if ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
-          # If that fails, try removing surrounding quotes
-          MATRIX_BEFORE="$MATRIX"
-          MATRIX=$(echo "$MATRIX" | sed 's/^"//;s/"$//')
-          # #region agent log
-          echo "{\"id\":\"log_$(date +%s)_check3\",\"timestamp\":$(date +%s)000,\"location\":\"check-pr-images-exist:52\",\"message\":\"After quote removal\",\"data\":{\"beforeLength\":${#MATRIX_BEFORE},\"afterLength\":${#MATRIX},\"changed\":\"$([ \"$MATRIX_BEFORE\" != \"$MATRIX\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}"
-          # #endregion
-          
-          # Try parsing again after quote removal
-          # #region agent log
-          JQ_ERROR2=$(echo "$MATRIX" | jq . 2>&1 || true)
-          echo "{\"id\":\"log_$(date +%s)_check4\",\"timestamp\":$(date +%s)000,\"location\":\"check-pr-images-exist:54\",\"message\":\"jq parse after quote removal\",\"data\":{\"jqError\":\"$JQ_ERROR2\",\"parseSuccess\":\"$([ -z \"$JQ_ERROR2\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}"
-          # #endregion
-        fi
-        
-        # Extract first target name
-        # #region agent log
+        # The matrix is now passed as a proper JSON string from the workflow using toJson()
         FIRST_TARGET=$(echo "$MATRIX" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
-        JQ_ERROR=$(echo "$MATRIX" | jq -r '.[0].name // empty' 2>&1 >/dev/null || echo "")
-        echo "{\"id\":\"log_$(date +%s)_check5\",\"timestamp\":$(date +%s)000,\"location\":\"check-pr-images-exist:55\",\"message\":\"Extracting first target name\",\"data\":{\"firstTarget\":\"$FIRST_TARGET\",\"jqError\":\"${JQ_ERROR:0:200}\",\"hasError\":\"$([ -n \"$JQ_ERROR\" ] && echo true || echo false)\",\"isEmpty\":\"$([ -z \"$FIRST_TARGET\" ] && echo true || echo false)\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}"
-        # #endregion
         
         if [ -n "${FIRST_TARGET}" ]; then
           PR_IMAGE_TAG="ghcr.io/${REPOSITORY}:pr-${BRANCH_SANITIZED}-${VERSION}-${FIRST_TARGET}-${PR_HEAD_SHA_SHORT}"
