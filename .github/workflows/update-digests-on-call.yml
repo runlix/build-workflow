@@ -31,7 +31,7 @@ jobs:
         env:
           TARGET_REPO: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ inputs.branch || github.ref_name }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -Eeo pipefail
 
