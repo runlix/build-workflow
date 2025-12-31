@@ -55,7 +55,7 @@ runs:
               echo "ERROR: sha_short is required when pr_mode is true"
               exit 1
             fi
-            IMAGE_TAG="ghcr.io/${{ inputs.repository }}:pr-${BRANCH_SANITIZED}-${{ inputs.version }}-${SHA_SHORT}"
+            IMAGE_TAG="ghcr.io/${{ inputs.repository }}:pr-${BRANCH_SANITIZED}-${{ inputs.version }}-${{ inputs.target_name }}-${SHA_SHORT}"
           else
             # Standard format: <branch>-<version>-<target_name>
             IMAGE_TAG="ghcr.io/${{ inputs.repository }}:${BRANCH_SANITIZED}-${{ inputs.version }}-${{ inputs.target_name }}"
