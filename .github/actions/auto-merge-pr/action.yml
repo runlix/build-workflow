@@ -86,13 +86,7 @@ runs:
         echo "✓ All PR conditions met"
         
         # Check if PR is still open
-        # #region agent log
-        echo "DEBUG: Command args before execution - pr_number=${PR_NUMBER}, repository=${REPOSITORY}, command=gh pr view ${PR_NUMBER} --repo ${REPOSITORY} --json state -q .state"
-        # #endregion
         PR_STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json state -q '.state' 2>&1 || echo "ERROR")
-        # #region agent log
-        echo "DEBUG: Command result - pr_state=${PR_STATE}, exit_code=$?"
-        # #endregion
         if [ "${PR_STATE}" = "ERROR" ]; then
           echo "Failed to check PR state. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
@@ -113,13 +107,7 @@ runs:
           EXIT_CODE=$?
           echo "Failed to merge PR (exit code: ${EXIT_CODE})"
           # Check if PR was already merged
-          # #region agent log
-          echo "DEBUG: Second gh pr view command - pr_number=${PR_NUMBER}, repository=${REPOSITORY}"
-          # #endregion
           CURRENT_STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json state -q '.state' 2>&1 || echo "ERROR")
-          # #region agent log
-          echo "DEBUG: Second command result - current_state=${CURRENT_STATE}"
-          # #endregion
           if [ "${CURRENT_STATE}" = "MERGED" ]; then
             echo "PR was already merged. This is not an error."
             echo "merged=true" >> $GITHUB_OUTPUT
