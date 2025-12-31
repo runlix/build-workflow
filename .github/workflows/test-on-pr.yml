@@ -206,17 +206,25 @@ jobs:
           docker logs "${container_name}" > "${PACKAGE_VERSION}-test.log" 2>&1 || true
           
           # Check logs for errors (basic check)
-          if docker logs "${container_name}" 2>&1 | grep -i "error\|fatal\|panic" | head -5; then
-            echo "Warning: Found errors in container logs"
+          echo "Checking container logs for errors..."
+          ERROR_LINES=$(docker logs "${container_name}" 2>&1 | grep -i "error\|fatal\|panic" | head -5 || true)
+          if [ -n "${ERROR_LINES}" ]; then
+            echo "Warning: Found errors in container logs:"
+            echo "${ERROR_LINES}"
             # Don't fail on warnings, but log them
+          else
+            echo "✓ No critical errors found in container logs"
           fi
           
           # Test URL endpoint if test_url is provided
           if [ -n "${TEST_URL}" ] && [ "${TEST_URL}" != "null" ] && [ "${TEST_URL}" != "" ]; then
             echo "Testing endpoint: ${TEST_URL}"
-            curl -fsSL --retry-all-errors --retry 60 --retry-max-time 120 -m 10 "${TEST_URL}" --output /dev/null || exitcode=$?
-            if [ ${exitcode} -ne 0 ]; then
-              echo "URL health check failed for ${TEST_URL}"
+            if curl -fsSL --retry-all-errors --retry 60 --retry-max-time 120 -m 10 "${TEST_URL}" --output /dev/null; then
+              echo "✓ Endpoint health check PASSED for ${TEST_URL}"
+            else
+              exitcode=$?
+              echo "✗ Endpoint health check FAILED for ${TEST_URL} (exit code: ${exitcode})"
+              echo "Container logs:"
               docker logs "${container_name}" || true
             fi
           else
@@ -232,8 +240,10 @@ jobs:
           # Set output and exit
           if [ ${exitcode} -eq 0 ]; then
             echo "result=ok" >> $GITHUB_OUTPUT
+            echo "✓✓✓ Smoke test PASSED ✓✓✓"
           else
             echo "result=nok" >> $GITHUB_OUTPUT
+            echo "✗✗✗ Smoke test FAILED (exit code: ${exitcode}) ✗✗✗"
           fi
           exit ${exitcode}
 
