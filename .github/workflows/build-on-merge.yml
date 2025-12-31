@@ -244,7 +244,7 @@ jobs:
           branch: ${{ needs.prepare-version.outputs.branch }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           repository: ${{ github.repository }}
-          matrix: ${{ needs.prepare-version.outputs.matrix }}
+          matrix: ${{ toJson(needs.prepare-version.outputs.matrix) }}
       
       - name: Checkout default branch for tags.json
         uses: actions/checkout@v6
