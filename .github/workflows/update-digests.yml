@@ -5,9 +5,6 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
-permissions:
-  contents: write
-
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -58,8 +55,18 @@ jobs:
               COMMIT_MSG="Upstream image update"
               [[ "$BRANCH" == "pr" ]] && COMMIT_MSG="Upstream image update [skip ci]"
               
-              git commit -m "$COMMIT_MSG"
-              git push
+              PR_BRANCH="update-digests-${GITHUB_RUN_ID}-$(date +%s)"
+              git checkout -b "${PR_BRANCH}" || { echo "❌ Failed to create branch"; cd ..; rm -rf "$DIR"; continue; }
+              git commit -m "$COMMIT_MSG" || { echo "❌ Failed to commit"; cd ..; rm -rf "$DIR"; continue; }
+              git push -u origin "${PR_BRANCH}" || { echo "❌ Failed to push"; cd ..; rm -rf "$DIR"; continue; }
+              
+              gh pr create \
+                --repo "$OWNER/$REPO" \
+                --title "update-digests" \
+                --body "Automated digest update for branch \`${BRANCH}\`" \
+                --base "${BRANCH}" \
+                --head "${PR_BRANCH}" \
+                --label "automated,dependencies" || true
 
               cd ..; rm -rf "$DIR"
             done
