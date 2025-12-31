@@ -137,3 +137,28 @@ jobs:
         run: |
           docker push ${{ steps.metadata.outputs.image-tag }}
 
+  auto-merge:
+    needs: test
+    runs-on: ubuntu-latest
+    if: needs.prepare-version.outputs.target_branch != '' && success()
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
+
+      - name: Auto merge PR
+        uses: ./build-workflow/.github/actions/auto-merge-pr
+        with:
+          repository: ${{ github.repository }}
+          pr_number: ${{ github.event.pull_request.number }}
+

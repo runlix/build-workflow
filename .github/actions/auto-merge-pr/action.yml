@@ -1,12 +1,9 @@
 name: 'Auto Merge PR'
-description: 'Automatically merge PRs created by github-actions[bot] with titles starting with "update-digest-"'
+description: 'Automatically merge PRs created by github-actions[bot] with titles starting with "update-digest" or "update-version-"'
 
 inputs:
-  pr_author:
-    description: 'PR author login'
-    required: true
-  pr_title:
-    description: 'PR title'
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
     required: true
   pr_number:
     description: 'PR number'
@@ -23,12 +20,32 @@ runs:
     - name: Check PR conditions and merge
       id: auto-merge
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -e
         
-        PR_AUTHOR="${{ inputs.pr_author }}"
-        PR_TITLE="${{ inputs.pr_title }}"
+        REPOSITORY="${{ inputs.repository }}"
         PR_NUMBER="${{ inputs.pr_number }}"
+        
+        # Get PR details from GitHub API
+        echo "Fetching PR #${PR_NUMBER} details from ${REPOSITORY}..."
+        PR_DATA=$(gh api repos/${REPOSITORY}/pulls/${PR_NUMBER} || echo "")
+        
+        if [ -z "${PR_DATA}" ]; then
+          echo "Failed to fetch PR data. Skipping auto-merge."
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Extract PR author and title
+        PR_AUTHOR=$(echo "${PR_DATA}" | jq -r '.user.login // ""')
+        PR_TITLE=$(echo "${PR_DATA}" | jq -r '.title // ""')
+        
+        echo "PR details:"
+        echo "  Author: ${PR_AUTHOR}"
+        echo "  Title: ${PR_TITLE}"
+        echo "  Number: ${PR_NUMBER}"
         
         # Check if PR author is github-actions[bot]
         if [ "${PR_AUTHOR}" != "github-actions[bot]" ]; then
@@ -37,17 +54,36 @@ runs:
           exit 0
         fi
         
-        # Check if PR title starts with "update-digest-"
-        if [[ ! "${PR_TITLE}" =~ ^update-digest- ]]; then
-          echo "PR title '${PR_TITLE}' does not start with 'update-digest-'. Skipping auto-merge."
+        # Get PR author email from commits (most reliable for bot PRs)
+        PR_AUTHOR_EMAIL=$(gh api repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits --jq '.[0].commit.author.email // ""' | head -1 || echo "")
+        
+        # Fallback: try PR user object email
+        if [ -z "${PR_AUTHOR_EMAIL}" ]; then
+          PR_AUTHOR_EMAIL=$(echo "${PR_DATA}" | jq -r '.user.email // ""')
+        fi
+        
+        # Fallback: try user profile email
+        if [ -z "${PR_AUTHOR_EMAIL}" ]; then
+          PR_AUTHOR_EMAIL=$(gh api users/${PR_AUTHOR} --jq '.email // ""' || echo "")
+        fi
+        
+        echo "  Author Email: ${PR_AUTHOR_EMAIL}"
+        
+        # Check if PR author email matches expected email
+        if [ "${PR_AUTHOR_EMAIL}" != "github-actions[bot]@users.noreply.github.com" ]; then
+          echo "PR author email is '${PR_AUTHOR_EMAIL}', not 'github-actions[bot]@users.noreply.github.com'. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
           exit 0
         fi
         
-        echo "PR conditions met:"
-        echo "  Author: ${PR_AUTHOR}"
-        echo "  Title: ${PR_TITLE}"
-        echo "  Number: ${PR_NUMBER}"
+        # Check if PR title starts with "update-digest" or "update-version-"
+        if [[ ! "${PR_TITLE}" =~ ^update-digest ]] && [[ ! "${PR_TITLE}" =~ ^update-version- ]]; then
+          echo "PR title '${PR_TITLE}' does not start with 'update-digest' or 'update-version-'. Skipping auto-merge."
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "✓ All PR conditions met"
         
         # Check if PR is still open
         PR_STATE=$(gh pr view "${PR_NUMBER}" --json state --jq -r '.state' || echo "ERROR")
