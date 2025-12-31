@@ -21,77 +21,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
+
       - name: Extract metadata from VERSION.json
         id: extract
-        run: |
-          # Extract version and build_date
-          VERSION=$(jq -r '.version // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
-          BUILD_DATE=$(jq -r '.build_date // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
-          
-          # Extract test_url
-          TEST_URL=$(jq -r '.test_url // empty' VERSION.json 2>/dev/null | grep -v "^null$" || echo "")
-          
-          # Extract enabled targets matrix
-          MATRIX=$(jq '[ .targets[] | select(.enabled == true) ]' VERSION.json)
-          
-          # Ensure matrix is valid JSON (default to empty array if extraction failed)
-          if [ -z "$MATRIX" ] || ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
-            echo "WARNING: Matrix extraction failed or invalid, defaulting to empty array"
-            MATRIX="[]"
-          fi
-          
-          # Extract unique variants
-          VARIANTS=$(jq -r '.targets[] | select(.enabled == true) | .variant' VERSION.json | sort -u)
-          
-          # GitHub context values
-          BRANCH="${{ github.ref_name }}"
-          SHA="${{ github.sha }}"
-          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
-          
-          # Output all values
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
-          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
-          echo "sha=${SHA}" >> $GITHUB_OUTPUT
-          echo "default_branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT
-          echo "test_url=${TEST_URL}" >> $GITHUB_OUTPUT
-          {
-            echo 'variants<<EOF'
-            echo "$VARIANTS"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo 'matrix<<EOF'
-            echo "$MATRIX"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Validate matrix output
-        run: |
-          echo "Validating matrix output..."
-          echo "All extract step outputs:"
-          echo "  version: ${{ steps.extract.outputs.version }}"
-          echo "  matrix: ${{ steps.extract.outputs.matrix }}"
-          echo ""
-          echo "Matrix output value:"
-          MATRIX_OUTPUT="${{ steps.extract.outputs.matrix }}"
-          echo "${MATRIX_OUTPUT}"
-          echo ""
-          echo "Matrix output length:"
-          echo "${MATRIX_OUTPUT}" | wc -c
-          echo ""
-          echo "Checking if matrix is empty:"
-          if [ -z "${MATRIX_OUTPUT}" ] || [ "${MATRIX_OUTPUT}" = "" ]; then
-            echo "ERROR: Matrix output is empty!"
-            echo "Checking GITHUB_OUTPUT file directly..."
-            if [ -f "$GITHUB_OUTPUT" ]; then
-              echo "GITHUB_OUTPUT exists, checking for matrix:"
-              grep -A 5 "matrix" "$GITHUB_OUTPUT" || echo "No matrix found in GITHUB_OUTPUT"
-            fi
-          else
-            echo "Matrix output is not empty, validating JSON..."
-            echo "${MATRIX_OUTPUT}" | jq '.' > /dev/null && echo "✓ Matrix is valid JSON" || echo "✗ Matrix is NOT valid JSON"
-          fi
+        uses: ./build-workflow/.github/actions/extract-version-metadata
+        with:
+          extract_test_url: 'true'
 
   test:
     needs: prepare-version
@@ -116,42 +56,26 @@ jobs:
 
       - name: Generate metadata
         id: metadata
-        run: |
-          ARCH="${{ matrix.target.arch }}"
-          PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
-          # Sanitize branch name: replace '/' with '-' for valid Docker tag
-          BRANCH="${{ needs.prepare-version.outputs.branch }}"
-          BRANCH_SANITIZED="${BRANCH//\//-}"
-          IMAGE_TAG="ghcr.io/${{ github.repository }}:${BRANCH_SANITIZED}-${{ needs.prepare-version.outputs.version }}-${{ matrix.target.name }}"
-          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
-          echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+        uses: ./build-workflow/.github/actions/generate-metadata
+        with:
+          arch: ${{ matrix.target.arch }}
+          repository: ${{ github.repository }}
+          branch: ${{ needs.prepare-version.outputs.branch }}
+          version: ${{ needs.prepare-version.outputs.version }}
+          target_name: ${{ matrix.target.name }}
 
       - name: Prepare build args
         id: prepare-build-args
-        run: |
-          # Build the build-args multiline string line by line to avoid indentation issues
-          {
-            echo "BUILDER_TAG=${{ matrix.target.builder.tag }}"
-            echo "BUILDER_DIGEST=${{ matrix.target.builder.digest }}"
-            echo "BASE_TAG=${{ matrix.target.base.tag }}"
-            echo "BASE_DIGEST=${{ matrix.target.base.digest }}"
-            echo "VERSION=${{ needs.prepare-version.outputs.version }}"
-            echo "BUILD_DATE=${{ needs.prepare-version.outputs.build_date }}"
-            echo "GIT_COMMIT=${{ needs.prepare-version.outputs.sha }}"
-            
-            # Conditionally add PACKAGE_URL if it exists in the target
-            PACKAGE_URL="${{ matrix.target.package_url }}"
-            if [ -n "$PACKAGE_URL" ] && [ "$PACKAGE_URL" != "null" ]; then
-              echo "PACKAGE_URL=${PACKAGE_URL}"
-            fi
-          } > /tmp/build_args.txt
-          
-          # Output build args using multiline format (required for GitHub Actions multiline outputs)
-          {
-            echo 'build_args<<EOF'
-            cat /tmp/build_args.txt
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+        uses: ./build-workflow/.github/actions/prepare-build-args
+        with:
+          builder_tag: ${{ matrix.target.builder.tag }}
+          builder_digest: ${{ matrix.target.builder.digest }}
+          base_tag: ${{ matrix.target.base.tag }}
+          base_digest: ${{ matrix.target.base.digest }}
+          version: ${{ needs.prepare-version.outputs.version }}
+          build_date: ${{ needs.prepare-version.outputs.build_date }}
+          git_commit: ${{ needs.prepare-version.outputs.sha }}
+          package_url: ${{ matrix.target.package_url }}
 
       - name: Build image
         uses: docker/build-push-action@v6
@@ -169,82 +93,12 @@ jobs:
 
       - name: Smoke Test
         id: smoketest
-        env:
-          IMAGE: ${{ steps.metadata.outputs.image-tag }}
-          PLATFORM: ${{ steps.metadata.outputs.platform }}
-          PACKAGE_VERSION: ${{ needs.prepare-version.outputs.version }}
-          TEST_URL: ${{ needs.prepare-version.outputs.test_url }}
-        run: |
-          set -e
-          exitcode=0
-          container_name="service-test-${PACKAGE_VERSION}-${RANDOM}"
-          
-          # Create temporary config directory with proper permissions
-          config_dir=$(mktemp -d)
-          chmod 777 "${config_dir}"
-          
-          echo "Starting container: ${IMAGE} on platform ${PLATFORM}"
-          docker run --platform="${PLATFORM}" --network host -v "${config_dir}:/config" -d --name "${container_name}" "${IMAGE}" || {
-            echo "Failed to start container"
-            rm -rf "${config_dir}"
-            exit 1
-          }
-          
-          # Wait a moment for container to initialize
-          echo "Waiting for container to initialize..."
-          sleep 5
-          
-          # Check if container is still running
-          if ! docker ps | grep -q "${container_name}"; then
-            echo "Container exited unexpectedly"
-            docker logs "${container_name}" || true
-            exit 1
-          fi
-          
-          # Capture logs
-          echo "Capturing container logs..."
-          docker logs "${container_name}" > "${PACKAGE_VERSION}-test.log" 2>&1 || true
-          
-          # Check logs for errors (basic check)
-          echo "Checking container logs for errors..."
-          ERROR_LINES=$(docker logs "${container_name}" 2>&1 | grep -i "error\|fatal\|panic" | head -5 || true)
-          if [ -n "${ERROR_LINES}" ]; then
-            echo "Warning: Found errors in container logs:"
-            echo "${ERROR_LINES}"
-            # Don't fail on warnings, but log them
-          else
-            echo "✓ No critical errors found in container logs"
-          fi
-          
-          # Test URL endpoint if test_url is provided
-          if [ -n "${TEST_URL}" ] && [ "${TEST_URL}" != "null" ] && [ "${TEST_URL}" != "" ]; then
-            echo "Testing endpoint: ${TEST_URL}"
-            if curl -fsSL --retry-all-errors --retry 60 --retry-max-time 120 -m 10 "${TEST_URL}" --output /dev/null; then
-              echo "✓ Endpoint health check PASSED for ${TEST_URL}"
-            else
-              exitcode=$?
-              echo "✗ Endpoint health check FAILED for ${TEST_URL} (exit code: ${exitcode})"
-              echo "Container logs:"
-              docker logs "${container_name}" || true
-            fi
-          else
-            echo "No test_url provided in VERSION.json, skipping URL check"
-          fi
-          
-          # Clean up container and temporary config directory
-          echo "Cleaning up container..."
-          docker stop "${container_name}" || true
-          docker rm "${container_name}" || true
-          
-          # Set output and exit
-          if [ ${exitcode} -eq 0 ]; then
-            echo "result=ok" >> $GITHUB_OUTPUT
-            echo "✓✓✓ Smoke test PASSED ✓✓✓"
-          else
-            echo "result=nok" >> $GITHUB_OUTPUT
-            echo "✗✗✗ Smoke test FAILED (exit code: ${exitcode}) ✗✗✗"
-          fi
-          exit ${exitcode}
+        uses: ./build-workflow/.github/actions/smoke-test
+        with:
+          image: ${{ steps.metadata.outputs.image-tag }}
+          platform: ${{ steps.metadata.outputs.platform }}
+          package_version: ${{ needs.prepare-version.outputs.version }}
+          test_url: ${{ needs.prepare-version.outputs.test_url }}
 
       - name: Upload test logs
         if: always()

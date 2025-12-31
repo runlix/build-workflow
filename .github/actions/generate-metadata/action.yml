@@ -33,7 +33,10 @@ runs:
       run: |
         ARCH="${{ inputs.arch }}"
         PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
-        IMAGE_TAG="ghcr.io/${{ inputs.repository }}:${{ inputs.branch }}-${{ inputs.version }}-${{ inputs.target_name }}"
+        # Sanitize branch name: replace '/' with '-' for valid Docker tag
+        BRANCH="${{ inputs.branch }}"
+        BRANCH_SANITIZED="${BRANCH//\//-}"
+        IMAGE_TAG="ghcr.io/${{ inputs.repository }}:${BRANCH_SANITIZED}-${{ inputs.version }}-${{ inputs.target_name }}"
         echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
         echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
