@@ -41,10 +41,17 @@ jobs:
           # #endregion
           echo "DEBUG: Step extract outputs:"
           echo "  version: ${{ steps.extract.outputs.version }}"
-          echo "  matrix length: $(echo '${{ steps.extract.outputs.matrix }}' | wc -c) chars"
-          echo "  matrix empty: $(test -z '${{ steps.extract.outputs.matrix }}' && echo 'yes' || echo 'no')"
-          echo "  matrix preview: $(echo '${{ steps.extract.outputs.matrix }}' | head -c 200)"
-          echo "  matrix valid JSON: $(echo '${{ steps.extract.outputs.matrix }}' | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
+          echo "  All outputs (JSON): ${{ toJson(steps.extract.outputs) }}"
+          MATRIX_RAW='${{ steps.extract.outputs.matrix }}'
+          echo "  matrix raw length: $(echo -n "${MATRIX_RAW}" | wc -c) chars"
+          echo "  matrix empty: $(test -z "${MATRIX_RAW}" && echo 'yes' || echo 'no')"
+          echo "  matrix preview: $(echo -n "${MATRIX_RAW}" | head -c 200)"
+          echo "  matrix valid JSON: $(echo "${MATRIX_RAW}" | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
+          if [ -z "${MATRIX_RAW}" ]; then
+            echo "ERROR: Matrix output is empty!"
+            echo "Available output keys:"
+            echo "${{ toJson(steps.extract.outputs) }}" | jq 'keys' 2>/dev/null || echo "Failed to parse outputs"
+          fi
 
   test:
     needs: prepare-version
