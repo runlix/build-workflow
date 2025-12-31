@@ -104,9 +104,10 @@ runs:
         } >> "$GITHUB_OUTPUT"
         # Set matrix output - use compact JSON and multiline EOF format for large outputs
         # Compact JSON avoids newline issues in composite actions
+        # Note: EOF delimiter must be on its own line, so we use printf to add newline after JSON
         {
           echo 'matrix<<EOF'
-          echo -n "$MATRIX"
+          printf '%s\n' "$MATRIX"
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
         
@@ -116,19 +117,19 @@ runs:
         echo "DEBUG: Matrix is compact: $(echo "$MATRIX" | jq -e . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
         
         # #region agent log
-        echo '{"id":"log_'$(date +%s)'_extract","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:117","message":"Matrix output written to GITHUB_OUTPUT","data":{"matrixLength":'$(echo -n "$MATRIX" | wc -c)',"matrixPreview":"'$(echo -n "$MATRIX" | head -c 100)'","isCompact":true},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
+        echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_extract","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:117","message":"Matrix output written to GITHUB_OUTPUT","data":{"matrixLength":'$(echo -n "$MATRIX" | wc -c)',"matrixPreview":"'$(echo -n "$MATRIX" | head -c 100)'","isCompact":true},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
         # #endregion
         
         # Verify output was written correctly by reading it back
         if [ -f "$GITHUB_OUTPUT" ]; then
           # #region agent log
-          echo '{"id":"log_'$(date +%s)'_extract2","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:122","message":"Reading GITHUB_OUTPUT to verify matrix","data":{"fileExists":true,"hasMatrix":'$(grep -q "^matrix" "$GITHUB_OUTPUT" && echo "true" || echo "false")',"matrixLineCount":'$(grep -A 100 "^matrix" "$GITHUB_OUTPUT" | grep -c "^EOF" || echo "0")'},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
+          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_extract2","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:122","message":"Reading GITHUB_OUTPUT to verify matrix","data":{"fileExists":true,"hasMatrix":'$(grep -q "^matrix" "$GITHUB_OUTPUT" && echo "true" || echo "false")',"matrixLineCount":'$(grep -A 100 "^matrix" "$GITHUB_OUTPUT" | grep -c "^EOF" || echo "0")'},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
           # #endregion
           echo "DEBUG: GITHUB_OUTPUT file exists, checking matrix entry"
           grep -A 5 "^matrix" "$GITHUB_OUTPUT" | head -10 || echo "DEBUG: Matrix not found in GITHUB_OUTPUT"
         else
           # #region agent log
-          echo '{"id":"log_'$(date +%s)'_extract3","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:128","message":"GITHUB_OUTPUT file not found","data":{"fileExists":false},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
+          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_extract3","timestamp":'$(date +%s000)',"location":"extract-version-metadata/action.yml:128","message":"GITHUB_OUTPUT file not found","data":{"fileExists":false},"sessionId":"debug-session","runId":"run2","hypothesisId":"A,B"}'
           # #endregion
           echo "ERROR: GITHUB_OUTPUT file not found"
         fi

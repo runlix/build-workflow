@@ -37,7 +37,7 @@ jobs:
         run: |
           # #region agent log
           MATRIX_OUTPUT='${{ steps.extract.outputs.matrix }}'
-          echo '{"id":"log_'$(date +%s)'_verify","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:36","message":"Checking step extract outputs","data":{"version":"'${{ steps.extract.outputs.version }}'","matrixLength":'$(echo -n "${MATRIX_OUTPUT}" | wc -c)',"matrixPreview":"'$(echo -n "${MATRIX_OUTPUT}" | head -c 100)'","matrixEmpty":'$(test -z "${MATRIX_OUTPUT}" && echo "true" || echo "false")'},"sessionId":"debug-session","runId":"run2","hypothesisId":"C,D"}'
+          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_verify","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:36","message":"Checking step extract outputs","data":{"version":"'${{ steps.extract.outputs.version }}'","matrixLength":'$(echo -n "${MATRIX_OUTPUT}" | wc -c)',"matrixPreview":"'$(echo -n "${MATRIX_OUTPUT}" | head -c 100)'","matrixEmpty":'$(test -z "${MATRIX_OUTPUT}" && echo "true" || echo "false")'},"sessionId":"debug-session","runId":"run2","hypothesisId":"C,D"}'
           # #endregion
           echo "DEBUG: Step extract outputs:"
           echo "  version: ${{ steps.extract.outputs.version }}"
@@ -57,7 +57,7 @@ jobs:
         run: |
           # #region agent log
           MATRIX_OUTPUT='${{ needs.prepare-version.outputs.matrix }}'
-          echo '{"id":"log_'$(date +%s)'_testjob","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:55","message":"Checking prepare-version job outputs in test job","data":{"matrixLength":'$(echo -n "${MATRIX_OUTPUT}" | wc -c)',"matrixEmpty":'$(test -z "${MATRIX_OUTPUT}" && echo "true" || echo "false")',"matrixPreview":"'$(echo -n "${MATRIX_OUTPUT}" | head -c 100)'"},"sessionId":"debug-session","runId":"run2","hypothesisId":"C,D"}'
+          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_testjob","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:55","message":"Checking prepare-version job outputs in test job","data":{"matrixLength":'$(echo -n "${MATRIX_OUTPUT}" | wc -c)',"matrixEmpty":'$(test -z "${MATRIX_OUTPUT}" && echo "true" || echo "false")',"matrixPreview":"'$(echo -n "${MATRIX_OUTPUT}" | head -c 100)'"},"sessionId":"debug-session","runId":"run2","hypothesisId":"C,D"}'
           # #endregion
           echo "DEBUG: prepare-version job outputs:"
           echo "  matrix length: $(echo '${{ needs.prepare-version.outputs.matrix }}' | wc -c) chars"
