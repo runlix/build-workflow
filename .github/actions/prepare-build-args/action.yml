@@ -30,6 +30,7 @@ inputs:
 outputs:
   build_args:
     description: 'Multiline build args string'
+    value: ${{ steps.prepare-build-args.outputs.build_args }}
 
 runs:
   using: 'composite'
