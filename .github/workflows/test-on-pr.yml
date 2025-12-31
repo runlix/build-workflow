@@ -36,7 +36,7 @@ jobs:
       - name: Debug - Verify extract outputs
         run: |
           # #region agent log
-          echo '{"id":"log_'$(date +%s)'_verify","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:35","message":"Checking step extract outputs","data":{"version":"'${{ steps.extract.outputs.version }}'","matrixLength":'$(echo "${{ steps.extract.outputs.matrix }}" | wc -c)',"matrixPreview":"'$(echo "${{ steps.extract.outputs.matrix }}" | head -c 100)'","matrixEmpty":'$(test -z "${{ steps.extract.outputs.matrix }}" && echo "true" || echo "false")'},"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D"}' >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_verify","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:35","message":"Checking step extract outputs","data":{"version":"'${{ steps.extract.outputs.version }}'","matrixLength":'$(echo "${{ steps.extract.outputs.matrix }}" | wc -c)',"matrixPreview":"'$(echo "${{ steps.extract.outputs.matrix }}" | head -c 100)'","matrixEmpty":'$(test -z "${{ steps.extract.outputs.matrix }}" && echo "true" || echo "false")'},"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D"}'
           # #endregion
           echo "DEBUG: Step extract outputs:"
           echo "  version: ${{ steps.extract.outputs.version }}"
@@ -55,7 +55,7 @@ jobs:
       - name: Debug - Verify job outputs
         run: |
           # #region agent log
-          echo '{"id":"log_'$(date +%s)'_testjob","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:52","message":"Checking prepare-version job outputs in test job","data":{"matrixLength":'$(echo "${{ needs.prepare-version.outputs.matrix }}" | wc -c)',"matrixEmpty":'$(test -z "${{ needs.prepare-version.outputs.matrix }}" && echo "true" || echo "false")',"matrixPreview":"'$(echo "${{ needs.prepare-version.outputs.matrix }}" | head -c 100)'"},"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D"}' >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          echo 'DEBUG_LOG: {"id":"log_'$(date +%s)'_testjob","timestamp":'$(date +%s000)',"location":"test-on-pr.yml:52","message":"Checking prepare-version job outputs in test job","data":{"matrixLength":'$(echo "${{ needs.prepare-version.outputs.matrix }}" | wc -c)',"matrixEmpty":'$(test -z "${{ needs.prepare-version.outputs.matrix }}" && echo "true" || echo "false")',"matrixPreview":"'$(echo "${{ needs.prepare-version.outputs.matrix }}" | head -c 100)'"},"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D"}'
           # #endregion
           echo "DEBUG: prepare-version job outputs:"
           echo "  matrix length: $(echo '${{ needs.prepare-version.outputs.matrix }}' | wc -c) chars"
