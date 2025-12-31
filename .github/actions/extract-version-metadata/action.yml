@@ -102,14 +102,10 @@ runs:
           echo "$VARIANTS"
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
-        # Set matrix output - use compact JSON and multiline EOF format for large outputs
-        # Compact JSON avoids newline issues in composite actions
-        # Note: EOF delimiter must be on its own line, so we use printf to add newline after JSON
-        {
-          echo 'matrix<<EOF'
-          printf '%s\n' "$MATRIX"
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
+        # Set matrix output - use compact JSON as single-line output
+        # Compact JSON allows us to use regular output format instead of multiline EOF
+        # This avoids issues with multiline outputs in composite actions
+        echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
         
         # Debug: Verify the output format
         echo "DEBUG: Matrix output written to GITHUB_OUTPUT"
