@@ -161,4 +161,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           pr_number: ${{ github.event.pull_request.number }}
+          app_id: ${{ secrets.RUNLIX_APP_ID }}
+          private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
