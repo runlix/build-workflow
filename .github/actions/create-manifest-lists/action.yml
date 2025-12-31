@@ -1,0 +1,111 @@
+name: 'Create Manifest Lists'
+description: 'Create and push Docker manifest lists for multi-platform images'
+
+inputs:
+  variants:
+    description: 'Multiline string of variants'
+    required: true
+  version:
+    description: 'Version string'
+    required: true
+  branch:
+    description: 'Branch name'
+    required: true
+  sha:
+    description: 'Git commit SHA'
+    required: true
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+  matrix:
+    description: 'JSON array of enabled targets'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create and push manifest lists
+      shell: bash
+      run: |
+        VARIANTS="${{ inputs.variants }}"
+        VERSION="${{ inputs.version }}"
+        BRANCH="${{ inputs.branch }}"
+        SHA="${{ inputs.sha }}"
+        REPOSITORY="${{ inputs.repository }}"
+        MATRIX="${{ inputs.matrix }}"
+        
+        # Sanitize branch name: replace '/' with '-' for valid Docker tag
+        BRANCH_SANITIZED="${BRANCH//\//-}"
+        
+        # Retry function for manifest operations
+        retry_manifest_operation() {
+          local max_attempts=3
+          local attempt=1
+          local wait_seconds=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            if [ $attempt -gt 1 ]; then
+              echo "Retry attempt $attempt of $max_attempts (waiting ${wait_seconds}s)..."
+              sleep $wait_seconds
+            fi
+            
+            if "$@"; then
+              return 0
+            fi
+            
+            attempt=$((attempt + 1))
+          done
+          
+          echo "Failed after $max_attempts attempts"
+          return 1
+        }
+        
+        # For each variant, collect platform images and create manifest list
+        echo "$VARIANTS" | while IFS= read -r variant; do
+          echo "Processing variant: $variant"
+          
+          # Get all enabled targets for this variant from matrix JSON
+          TARGETS=$(echo "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
+          
+          # Build image tag list and verify existence
+          PLATFORM_IMAGES=()
+          for target in $TARGETS; do
+            IMAGE_TAG="ghcr.io/${REPOSITORY}:${BRANCH_SANITIZED}-${VERSION}-${target}"
+            if docker buildx imagetools inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+              PLATFORM_IMAGES+=("$IMAGE_TAG")
+              echo "  ✓ Found: $IMAGE_TAG"
+            else
+              echo "  ✗ Missing: $IMAGE_TAG"
+            fi
+          done
+          
+          # Only create manifest if we have at least 2 platforms
+          if [ ${#PLATFORM_IMAGES[@]} -lt 2 ]; then
+            echo "Skipping manifest creation for $variant: only ${#PLATFORM_IMAGES[@]} platform(s) available"
+            continue
+          fi
+          
+          # Define primary tag (first tag becomes the manifest reference)
+          PRIMARY_TAG="ghcr.io/${REPOSITORY}:${BRANCH_SANITIZED}-${variant}"
+          
+          # Create manifest list once with primary tag (with retry)
+          echo "Creating manifest list: $PRIMARY_TAG"
+          retry_manifest_operation docker buildx imagetools create \
+            --tag "$PRIMARY_TAG" \
+            "${PLATFORM_IMAGES[@]}"
+          
+          # Create additional tags as aliases pointing to the same manifest
+          # This is more efficient than creating separate manifests (matches Hotio pattern)
+          echo "Creating tag alias: ${BRANCH_SANITIZED}-${VERSION}-${variant}"
+          retry_manifest_operation docker buildx imagetools create \
+            --tag "ghcr.io/${REPOSITORY}:${BRANCH_SANITIZED}-${VERSION}-${variant}" \
+            "$PRIMARY_TAG"
+          
+          echo "Creating tag alias: ${BRANCH_SANITIZED}-${SHA:0:7}-${variant}"
+          retry_manifest_operation docker buildx imagetools create \
+            --tag "ghcr.io/${REPOSITORY}:${BRANCH_SANITIZED}-${SHA:0:7}-${variant}" \
+            "$PRIMARY_TAG"
+          
+          echo "✓ Manifest list created for variant: $variant with all tag aliases"
+        done
+

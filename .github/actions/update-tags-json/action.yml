@@ -1,0 +1,116 @@
+name: 'Update Tags JSON'
+description: 'Update tags.json file with new build tags and commit changes'
+
+inputs:
+  run_id:
+    description: 'GitHub Actions run ID'
+    required: true
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+  server_url:
+    description: 'GitHub server URL'
+    required: true
+  branch:
+    description: 'Branch name'
+    required: true
+  version:
+    description: 'Version string'
+    required: true
+  sha:
+    description: 'Git commit SHA'
+    required: true
+  variants:
+    description: 'Multiline string of variants'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Update tags.json
+      shell: bash
+      run: |
+        set -e
+        
+        RUN_ID="${{ inputs.run_id }}"
+        REPOSITORY="${{ inputs.repository }}"
+        SERVER_URL="${{ inputs.server_url }}"
+        BRANCH="${{ inputs.branch }}"
+        VERSION="${{ inputs.version }}"
+        SHA="${{ inputs.sha }}"
+        VARIANTS="${{ inputs.variants }}"
+        
+        # Retry function for git operations
+        retry_git_operation() {
+          local max_attempts=3
+          local attempt=1
+          local wait_seconds=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            if [ $attempt -gt 1 ]; then
+              echo "Retry attempt $attempt of $max_attempts (waiting ${wait_seconds}s)..."
+              sleep $wait_seconds
+              git pull --rebase || true
+            fi
+            
+            if "$@"; then
+              return 0
+            fi
+            
+            attempt=$((attempt + 1))
+          done
+          
+          echo "Failed after $max_attempts attempts"
+          return 1
+        }
+        
+        # Pull latest changes to handle concurrent updates
+        git pull --rebase || true
+        
+        # Create tags.json if it doesn't exist
+        [ ! -f tags.json ] && echo '{}' > tags.json
+        
+        # Generate timestamp
+        TIMESTAMP=$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')
+        BUILD_URL="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
+        
+        # Sanitize branch name: replace '/' with '-' for valid Docker tag (matching publish job)
+        BRANCH_SANITIZED="${BRANCH//\//-}"
+        
+        # Update tags.json for each variant (matching publish job tag format)
+        echo "$VARIANTS" | while IFS= read -r variant; do
+          # Create tags matching publish job format: branch-variant, branch-version-variant, branch-sha-variant
+          TAG_BRANCH_VARIANT="${BRANCH_SANITIZED}-${variant}"
+          TAG_BRANCH_VERSION_VARIANT="${BRANCH_SANITIZED}-${VERSION}-${variant}"
+          TAG_BRANCH_SHA_VARIANT="${BRANCH_SANITIZED}-${SHA:0:7}-${variant}"
+          
+          # Update tags.json using jq (same structure as publish job creates)
+          jq --sort-keys \
+              --arg branch_variant "${TAG_BRANCH_VARIANT}" \
+              --arg tag_branch_variant "${TAG_BRANCH_VARIANT}" \
+              --arg tag_branch_version_variant "${TAG_BRANCH_VERSION_VARIANT}" \
+              --arg tag_branch_sha_variant "${TAG_BRANCH_SHA_VARIANT}" \
+              --arg last_updated "${TIMESTAMP}" \
+              --arg last_updated_url "${BUILD_URL}" \
+              --arg description "${TAG_BRANCH_VARIANT}" \
+              --argjson hide false \
+              '.[$branch_variant] = {
+                "description": $description,
+                "hide": $hide,
+                "last_updated": $last_updated,
+                "last_updated_url": $last_updated_url,
+                "tags": [$tag_branch_variant, $tag_branch_version_variant, $tag_branch_sha_variant]
+              }' tags.json > tags.json.tmp && mv tags.json.tmp tags.json
+        done
+        
+        # Only commit if tags.json actually changed
+        if ! git diff --quiet tags.json; then
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tags.json
+          git commit -m "Update tags.json for ${BRANCH} branch variants (version: ${VERSION}) [skip ci]" || exit 0
+          retry_git_operation git push || { echo "Error: Failed to push tags.json update"; exit 1; }
+        else
+          echo "No changes to tags.json, skipping commit"
+        fi
+

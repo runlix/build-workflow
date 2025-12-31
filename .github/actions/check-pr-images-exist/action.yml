@@ -1,0 +1,67 @@
+name: 'Check PR Images Exist'
+description: 'Check if PR images exist in GHCR'
+
+inputs:
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+  branch:
+    description: 'Branch name'
+    required: true
+  version:
+    description: 'Version string'
+    required: true
+  pr_head_sha_short:
+    description: 'PR head SHA (short, 7 characters)'
+    required: true
+  matrix:
+    description: 'JSON array of enabled targets'
+    required: true
+
+outputs:
+  pr_images_found:
+    description: 'Whether PR images exist (true/false)'
+    value: ${{ steps.check.outputs.pr_images_found }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check if PR images exist
+      id: check
+      shell: bash
+      run: |
+        set -e
+        
+        REPOSITORY="${{ inputs.repository }}"
+        BRANCH="${{ inputs.branch }}"
+        VERSION="${{ inputs.version }}"
+        PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
+        MATRIX="${{ inputs.matrix }}"
+        
+        # Sanitize branch name
+        BRANCH_SANITIZED="${BRANCH//\//-}"
+        
+        # Check if at least one PR image exists
+        PR_IMAGES_FOUND="false"
+        
+        # Parse matrix JSON and check first target's PR image
+        FIRST_TARGET=$(echo "$MATRIX" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
+        
+        if [ -n "${FIRST_TARGET}" ]; then
+          PR_IMAGE_TAG="ghcr.io/${REPOSITORY}:pr-${BRANCH_SANITIZED}-${VERSION}-${FIRST_TARGET}-${PR_HEAD_SHA_SHORT}"
+          echo "Checking for PR image: ${PR_IMAGE_TAG}"
+          
+          # Check if PR image exists (docker buildx imagetools inspect)
+          if docker buildx imagetools inspect "${PR_IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "✓ Found PR image: ${PR_IMAGE_TAG}"
+            PR_IMAGES_FOUND="true"
+          else
+            echo "✗ PR image not found: ${PR_IMAGE_TAG}"
+          fi
+        else
+          echo "No targets found in matrix, assuming PR images not found"
+        fi
+        
+        echo "pr_images_found=${PR_IMAGES_FOUND}" >> $GITHUB_OUTPUT
+        echo "PR images found: ${PR_IMAGES_FOUND}"
+

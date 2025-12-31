@@ -1,0 +1,68 @@
+name: 'Re-tag PR Images'
+description: 'Find PR images and re-tag them with production tags'
+
+inputs:
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+  branch:
+    description: 'Branch name'
+    required: true
+  version:
+    description: 'Version string'
+    required: true
+  target_name:
+    description: 'Target name'
+    required: true
+  pr_head_sha_short:
+    description: 'PR head SHA (short, 7 characters)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Re-tag PR images
+      shell: bash
+      run: |
+        set -e
+        
+        REPOSITORY="${{ inputs.repository }}"
+        BRANCH="${{ inputs.branch }}"
+        VERSION="${{ inputs.version }}"
+        TARGET_NAME="${{ inputs.target_name }}"
+        PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
+        
+        # Sanitize branch name: replace '/' with '-' for valid Docker tag
+        BRANCH_SANITIZED="${BRANCH//\//-}"
+        
+        # Construct PR image tag (format: pr-${BRANCH_SANITIZED}-${VERSION}-${TARGET_NAME}-${PR_HEAD_SHA_SHORT})
+        PR_IMAGE_TAG="ghcr.io/${REPOSITORY}:pr-${BRANCH_SANITIZED}-${VERSION}-${TARGET_NAME}-${PR_HEAD_SHA_SHORT}"
+        
+        # Construct production tags
+        PROD_TAG_WITH_SHA="ghcr.io/${REPOSITORY}:${BRANCH_SANITIZED}-${VERSION}-${TARGET_NAME}-${PR_HEAD_SHA_SHORT}"
+        PROD_TAG_WITHOUT_SHA="ghcr.io/${REPOSITORY}:${BRANCH_SANITIZED}-${VERSION}-${TARGET_NAME}"
+        
+        echo "Looking for PR image: ${PR_IMAGE_TAG}"
+        
+        # Check if PR image exists
+        if docker buildx imagetools inspect "${PR_IMAGE_TAG}" >/dev/null 2>&1; then
+          echo "✓ Found PR image: ${PR_IMAGE_TAG}"
+          
+          # Create production tags pointing to the PR image
+          echo "Creating tag: ${PROD_TAG_WITH_SHA}"
+          docker buildx imagetools create \
+            --tag "${PROD_TAG_WITH_SHA}" \
+            "${PR_IMAGE_TAG}"
+          
+          echo "Creating tag: ${PROD_TAG_WITHOUT_SHA}"
+          docker buildx imagetools create \
+            --tag "${PROD_TAG_WITHOUT_SHA}" \
+            "${PR_IMAGE_TAG}"
+          
+          echo "✓ Successfully re-tagged PR image to production tags"
+        else
+          echo "✗ PR image not found: ${PR_IMAGE_TAG}"
+          echo "This may happen if PR images were not built or have been cleaned up."
+          exit 1
+        fi
+

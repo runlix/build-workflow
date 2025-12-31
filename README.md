@@ -32,6 +32,75 @@ Reusable workflow called by image repositories when building Docker images.
 
 **Note**: The build workflow is read-only for version management. It reads `VERSION.json` but does not modify it. See [Version Management](#version-management) below for updating versions and digests.
 
+### Workflow: `test-on-pr.yml`
+
+Reusable workflow for testing Docker images on pull requests. This workflow builds images without pushing them and runs smoke tests to validate containers.
+
+**Inputs**: None (workflow reads all configuration from `VERSION.json`)
+
+**Secrets**: None required (images are built but not pushed)
+
+**How it works**:
+1. Called from individual repository PR workflows when a pull request is opened, reopened, or synchronized
+2. Workflow reads `VERSION.json` from the PR branch:
+   - Extracts version, build_date, and other metadata
+   - Extracts optional `test_url` field (at root level) for health endpoint testing
+   - Reads `targets` array and filters to enabled targets (`enabled: true`)
+   - Generates build matrix from enabled targets
+3. For each enabled target in the matrix:
+   - Builds Docker image using the target's specified Dockerfile (without pushing)
+   - Rebuilds image in test job (uses cache, so rebuild is fast)
+   - Runs smoke tests:
+     - Starts container and waits for initialization
+     - Captures container logs
+     - Checks if container is running (fails if container exits unexpectedly)
+     - Optionally tests health endpoint if `test_url` is provided in `VERSION.json`
+     - Uploads test logs as artifacts
+   - Cleans up containers after testing
+
+**Test URL Handling**:
+- If `test_url` exists in `VERSION.json` root: Performs curl check with retries (60 retries, 120s max time)
+- If `test_url` is missing or null: Skips URL check, test still passes if container starts successfully
+- Test fails if:
+  - Container fails to start
+  - Container exits unexpectedly
+  - `test_url` is provided but endpoint check fails
+
+**Usage in Repository**:
+Create a workflow file (e.g., `.github/workflows/pr-test.yml`) in your repository:
+
+```yaml
+name: Test on PR
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+jobs:
+  test:
+    uses: runlix/build-workflow/.github/workflows/test-on-pr.yml@main
+```
+
+**VERSION.json with test_url**:
+```json
+{
+  "version": "4.0.6",
+  "build_date": "2025-12-30T16:20:07Z",
+  "test_url": "http://localhost:9091/transmission/web/",
+  "targets": [
+    {
+      "arch": "linux-amd64",
+      "variant": "latest",
+      "enabled": true,
+      ...
+    }
+  ]
+}
+```
+
 ### Workflow: `update-digests.yml`
 
 Automated workflow that discovers and processes all repositories with the `docker-image` topic. This workflow runs hourly and automatically executes `update-digests.sh` scripts in each repository/branch combination, creating Pull Requests when changes are detected.
@@ -205,6 +274,7 @@ Manifest lists are created per variant, only including platforms that have that 
 ### Separated Concerns
 
 - **Build workflow** (`build-on-call.yml`): Reads `VERSION.json`, builds images, updates `tags.json`. Does NOT modify `VERSION.json`.
+- **Test workflow** (`test-on-pr.yml`): Builds images without pushing, runs smoke tests on pull requests. Validates containers start correctly and optionally checks health endpoints.
 - **Digest update workflow** (`update-digests.yml`): Executes `update-digests.sh` scripts in repositories, creates PRs for review when digests change.
 
 This separation:

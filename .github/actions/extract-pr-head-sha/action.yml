@@ -1,0 +1,69 @@
+name: 'Extract PR Head SHA'
+description: 'Extract PR head SHA from merge commit message using GitHub API'
+
+inputs:
+  commit_sha:
+    description: 'Commit SHA to check'
+    required: true
+
+outputs:
+  pr_head_sha:
+    description: 'PR head SHA (full)'
+    value: ${{ steps.extract.outputs.pr_head_sha }}
+  pr_head_sha_short:
+    description: 'PR head SHA (short, 7 characters)'
+    value: ${{ steps.extract.outputs.pr_head_sha_short }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Extract PR head SHA
+      id: extract
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        set -e
+        
+        COMMIT_SHA="${{ inputs.commit_sha }}"
+        
+        # Get commit message
+        COMMIT_MSG=$(git log -1 --format='%B' "${COMMIT_SHA}" 2>/dev/null || echo "")
+        
+        # Extract PR number from commit message (format: "Merge pull request #123")
+        PR_NUMBER=$(echo "${COMMIT_MSG}" | grep -oE 'Merge pull request #([0-9]+)' | grep -oE '[0-9]+' | head -1 || echo "")
+        
+        if [ -z "${PR_NUMBER}" ]; then
+          # Try alternative format: "Merge #123" or "#123"
+          PR_NUMBER=$(echo "${COMMIT_MSG}" | grep -oE '#([0-9]+)' | grep -oE '[0-9]+' | head -1 || echo "")
+        fi
+        
+        if [ -n "${PR_NUMBER}" ]; then
+          echo "Found PR number in commit message: ${PR_NUMBER}"
+          
+          # Get PR head SHA using GitHub CLI
+          if command -v gh &> /dev/null; then
+            PR_HEAD_SHA=$(gh pr view "${PR_NUMBER}" --json headShaOid --jq -r '.headShaOid' 2>/dev/null || echo "")
+            
+            if [ -n "${PR_HEAD_SHA}" ]; then
+              echo "PR head SHA: ${PR_HEAD_SHA}"
+              PR_HEAD_SHA_SHORT="${PR_HEAD_SHA:0:7}"
+              echo "PR head SHA (short): ${PR_HEAD_SHA_SHORT}"
+              echo "pr_head_sha=${PR_HEAD_SHA}" >> $GITHUB_OUTPUT
+              echo "pr_head_sha_short=${PR_HEAD_SHA_SHORT}" >> $GITHUB_OUTPUT
+            else
+              echo "Could not retrieve PR head SHA. Using merge commit SHA as fallback."
+              echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+              echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "GitHub CLI not available. Using merge commit SHA as fallback."
+            echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+            echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "No PR number found in commit message. Using merge commit SHA as fallback."
+          echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+          echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+        fi
+

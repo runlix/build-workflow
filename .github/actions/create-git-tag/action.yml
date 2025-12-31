@@ -1,0 +1,47 @@
+name: 'Create Git Tag'
+description: 'Create and push a git tag with the version'
+
+inputs:
+  version:
+    description: 'Version string for the tag'
+    required: true
+  sha:
+    description: 'Commit SHA to tag'
+    required: true
+  repository:
+    description: 'GitHub repository (e.g., owner/repo)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create and push git tag
+      shell: bash
+      run: |
+        set -e
+        
+        VERSION="${{ inputs.version }}"
+        SHA="${{ inputs.sha }}"
+        REPOSITORY="${{ inputs.repository }}"
+        
+        TAG_NAME="v${VERSION}"
+        
+        echo "Creating tag: ${TAG_NAME} at commit ${SHA}"
+        
+        # Check if tag already exists
+        if git rev-parse "${TAG_NAME}" >/dev/null 2>&1; then
+          echo "Tag ${TAG_NAME} already exists. Skipping tag creation."
+          exit 0
+        fi
+        
+        # Create the tag
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag -a "${TAG_NAME}" -m "Release version ${VERSION}" "${SHA}"
+        
+        # Push the tag
+        echo "Pushing tag ${TAG_NAME}..."
+        git push origin "${TAG_NAME}" || { echo "Error: Failed to push tag"; exit 1; }
+        
+        echo "✓ Successfully created and pushed tag ${TAG_NAME}"
+
