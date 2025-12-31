@@ -44,27 +44,3 @@ jobs:
           dry-run: false
         continue-on-error: true
 
-      - name: Cleanup all update-digest Docker images
-        uses: snok/container-retention-policy@v3.0.0
-        with:
-          account: ${{ github.repository_owner }}
-          token: ${{ secrets.GHCR_DELETE_PACKAGE }}
-          image-names: '*'
-          image-tags: 'update-digests-*'
-          cut-off: '0s'
-          keep-n-most-recent: 0
-          dry-run: false
-        continue-on-error: true
-
-      - name: Cleanup all untagged (orphan) Docker images
-        uses: snok/container-retention-policy@v3.0.0
-        with:
-          account: ${{ github.repository_owner }}
-          token: ${{ secrets.GHCR_DELETE_PACKAGE }}
-          image-names: '*'
-          tag-selection: untagged
-          cut-off: '0s'
-          keep-n-most-recent: 0
-          dry-run: false
-        continue-on-error: true
-
