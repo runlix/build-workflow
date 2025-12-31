@@ -45,6 +45,13 @@ runs:
         PR_IMAGES_FOUND="false"
         
         # Parse matrix JSON and check first target's PR image
+        # The matrix might be passed with quotes, so we need to handle that
+        # First, try to parse it directly
+        if ! echo "$MATRIX" | jq . >/dev/null 2>&1; then
+          # If that fails, try removing surrounding quotes
+          MATRIX=$(echo "$MATRIX" | sed 's/^"//;s/"$//')
+        fi
+        
         FIRST_TARGET=$(echo "$MATRIX" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
         
         if [ -n "${FIRST_TARGET}" ]; then
@@ -60,6 +67,8 @@ runs:
           fi
         else
           echo "No targets found in matrix, assuming PR images not found"
+          echo "Matrix value: ${MATRIX}"
+          echo "Matrix length: ${#MATRIX}"
         fi
         
         echo "pr_images_found=${PR_IMAGES_FOUND}" >> $GITHUB_OUTPUT

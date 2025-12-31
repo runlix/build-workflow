@@ -38,32 +38,54 @@ runs:
           PR_NUMBER=$(echo "${COMMIT_MSG}" | grep -oE '#([0-9]+)' | grep -oE '[0-9]+' | head -1 || echo "")
         fi
         
+        PR_HEAD_SHA=""
+        
         if [ -n "${PR_NUMBER}" ]; then
           echo "Found PR number in commit message: ${PR_NUMBER}"
           
-          # Get PR head SHA using GitHub CLI
+          # Try to get PR head SHA using GitHub CLI first
           if command -v gh &> /dev/null; then
             PR_HEAD_SHA=$(gh pr view "${PR_NUMBER}" --json headShaOid --jq -r '.headShaOid' 2>/dev/null || echo "")
-            
-            if [ -n "${PR_HEAD_SHA}" ]; then
-              echo "PR head SHA: ${PR_HEAD_SHA}"
-              PR_HEAD_SHA_SHORT="${PR_HEAD_SHA:0:7}"
-              echo "PR head SHA (short): ${PR_HEAD_SHA_SHORT}"
-              echo "pr_head_sha=${PR_HEAD_SHA}" >> $GITHUB_OUTPUT
-              echo "pr_head_sha_short=${PR_HEAD_SHA_SHORT}" >> $GITHUB_OUTPUT
-            else
-              echo "Could not retrieve PR head SHA. Using merge commit SHA as fallback."
-              echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
-              echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+          fi
+          
+          # If GitHub CLI failed, try to extract from merge commit's second parent
+          if [ -z "${PR_HEAD_SHA}" ]; then
+            # Check if this is a merge commit (has second parent)
+            if git rev-parse "${COMMIT_SHA}^2" >/dev/null 2>&1; then
+              PR_HEAD_SHA=$(git rev-parse "${COMMIT_SHA}^2" 2>/dev/null || echo "")
+              echo "Extracted PR head SHA from merge commit's second parent: ${PR_HEAD_SHA}"
             fi
+          fi
+          
+          if [ -n "${PR_HEAD_SHA}" ]; then
+            echo "PR head SHA: ${PR_HEAD_SHA}"
+            PR_HEAD_SHA_SHORT="${PR_HEAD_SHA:0:7}"
+            echo "PR head SHA (short): ${PR_HEAD_SHA_SHORT}"
+            echo "pr_head_sha=${PR_HEAD_SHA}" >> $GITHUB_OUTPUT
+            echo "pr_head_sha_short=${PR_HEAD_SHA_SHORT}" >> $GITHUB_OUTPUT
           else
-            echo "GitHub CLI not available. Using merge commit SHA as fallback."
+            echo "Could not retrieve PR head SHA. Using merge commit SHA as fallback."
             echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
             echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
           fi
         else
-          echo "No PR number found in commit message. Using merge commit SHA as fallback."
-          echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
-          echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+          # Even without PR number, try to get second parent if it's a merge commit
+          if git rev-parse "${COMMIT_SHA}^2" >/dev/null 2>&1; then
+            PR_HEAD_SHA=$(git rev-parse "${COMMIT_SHA}^2" 2>/dev/null || echo "")
+            if [ -n "${PR_HEAD_SHA}" ]; then
+              echo "Extracted SHA from merge commit's second parent: ${PR_HEAD_SHA}"
+              PR_HEAD_SHA_SHORT="${PR_HEAD_SHA:0:7}"
+              echo "pr_head_sha=${PR_HEAD_SHA}" >> $GITHUB_OUTPUT
+              echo "pr_head_sha_short=${PR_HEAD_SHA_SHORT}" >> $GITHUB_OUTPUT
+            else
+              echo "No PR number found and could not extract from merge commit. Using merge commit SHA as fallback."
+              echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+              echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No PR number found in commit message. Using merge commit SHA as fallback."
+            echo "pr_head_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+            echo "pr_head_sha_short=${COMMIT_SHA:0:7}" >> $GITHUB_OUTPUT
+          fi
         fi
 
