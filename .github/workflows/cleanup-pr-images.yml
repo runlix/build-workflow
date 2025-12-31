@@ -30,7 +30,7 @@ jobs:
               echo "  - $REPO"
             done
           fi
-          echo "🧹 Proceeding with cleanup of PR-prefixed images older than 1 day..."
+          echo "🧹 Proceeding with cleanup of PR-prefixed and update-digest-prefixed images older than 1 day..."
 
       - name: Cleanup old PR Docker images
         uses: snok/container-retention-policy@v3.0.0
@@ -40,7 +40,19 @@ jobs:
           image-names: '*'
           image-tags: 'pr-*'
           cut-off: '1d'
-          keep-at-least: 0
+          keep-n-most-recent: 0
+          dry-run: false
+        continue-on-error: true
+
+      - name: Cleanup old update-digest Docker images
+        uses: snok/container-retention-policy@v3.0.0
+        with:
+          account: ${{ github.repository_owner }}
+          token: ${{ secrets.GHCR_DELETE_PACKAGE }}
+          image-names: '*'
+          image-tags: 'update-digest-*'
+          cut-off: '1d'
+          keep-n-most-recent: 0
           dry-run: false
         continue-on-error: true
 
