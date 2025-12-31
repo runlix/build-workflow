@@ -22,7 +22,7 @@ jobs:
       - name: Update digests across repositories
         env:
           OWNER: ${{ github.repository_owner }}
-          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -Eeo pipefail
 
