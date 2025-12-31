@@ -123,3 +123,17 @@ jobs:
           name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
           path: ${{ needs.prepare-version.outputs.version }}-test.log
           retention-days: 7
+
+      - name: Log in to GitHub Container Registry
+        if: success()
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Push image
+        if: success()
+        run: |
+          docker push ${{ steps.metadata.outputs.image-tag }}
+
