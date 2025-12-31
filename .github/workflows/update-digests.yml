@@ -44,7 +44,8 @@ jobs:
               
               DIR=$(mktemp -d)
               # git clone --depth 1 -b "$BRANCH" "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
-              git clone --depth 1 -b "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
+              # git clone --depth 1 -b "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
+              gh repo clone "$OWNER/$REPO" "$DIR" -- --depth 1 -b "$BRANCH"
               cd "$DIR"
 
               [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
