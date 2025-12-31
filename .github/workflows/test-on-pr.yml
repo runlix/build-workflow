@@ -77,6 +77,15 @@ jobs:
           git_commit: ${{ needs.prepare-version.outputs.sha }}
           package_url: ${{ matrix.target.package_url }}
 
+      - name: Debug - Verify build args output
+        run: |
+          # #region agent log
+          echo "DEBUG: build_args output from prepare-build-args step:" >> /dev/stderr
+          echo '${{ steps.prepare-build-args.outputs.build_args }}' >> /dev/stderr
+          echo "DEBUG: build_args length: $(echo -n '${{ steps.prepare-build-args.outputs.build_args }}' | wc -c) chars" >> /dev/stderr
+          echo "DEBUG: build_args contains BUILDER_DIGEST: $(echo '${{ steps.prepare-build-args.outputs.build_args }}' | grep -q 'BUILDER_DIGEST' && echo 'yes' || echo 'no')" >> /dev/stderr
+          # #endregion
+      
       - name: Build image
         uses: docker/build-push-action@v6
         with:
