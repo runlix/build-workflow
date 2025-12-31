@@ -10,20 +10,28 @@ inputs:
 outputs:
   version:
     description: 'Version string from VERSION.json'
+    value: ${{ steps.extract.outputs.version }}
   build_date:
     description: 'Build date from VERSION.json'
+    value: ${{ steps.extract.outputs.build_date }}
   branch:
     description: 'Current branch name'
+    value: ${{ steps.extract.outputs.branch }}
   sha:
     description: 'Current commit SHA'
+    value: ${{ steps.extract.outputs.sha }}
   default_branch:
     description: 'Default branch name'
+    value: ${{ steps.extract.outputs.default_branch }}
   variants:
     description: 'Unique variants from enabled targets'
+    value: ${{ steps.extract.outputs.variants }}
   matrix:
     description: 'JSON array of enabled targets'
+    value: ${{ steps.extract.outputs.matrix }}
   test_url:
     description: 'Test URL from VERSION.json (if extract_test_url is true)'
+    value: ${{ steps.extract.outputs.test_url }}
 
 runs:
   using: 'composite'
