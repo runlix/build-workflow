@@ -38,20 +38,32 @@ runs:
       id: prepare-build-args
       shell: bash
       run: |
+        # Validate that digests are provided (required for Docker FROM statements)
+        # Docker FROM statements require digests to be non-empty to avoid invalid "tag@" format
+        BUILDER_DIGEST_VALUE="${{ inputs.builder_digest }}"
+        BASE_DIGEST_VALUE="${{ inputs.base_digest }}"
+        
+        if [ -z "${BUILDER_DIGEST_VALUE}" ] || [ "${BUILDER_DIGEST_VALUE}" = "null" ] || [ "${BUILDER_DIGEST_VALUE}" = "" ]; then
+          echo "ERROR: BUILDER_DIGEST is required but was not provided or is empty"
+          echo "  Received value: '${BUILDER_DIGEST_VALUE}'"
+          exit 1
+        fi
+        if [ -z "${BASE_DIGEST_VALUE}" ] || [ "${BASE_DIGEST_VALUE}" = "null" ] || [ "${BASE_DIGEST_VALUE}" = "" ]; then
+          echo "ERROR: BASE_DIGEST is required but was not provided or is empty"
+          echo "  Received value: '${BASE_DIGEST_VALUE}'"
+          exit 1
+        fi
+        
         # Build the build-args multiline string line by line to avoid indentation issues
         {
           if [ -n "${{ inputs.builder_tag }}" ] && [ "${{ inputs.builder_tag }}" != "null" ]; then
             echo "BUILDER_TAG=${{ inputs.builder_tag }}"
           fi
-          if [ -n "${{ inputs.builder_digest }}" ] && [ "${{ inputs.builder_digest }}" != "null" ]; then
-            echo "BUILDER_DIGEST=${{ inputs.builder_digest }}"
-          fi
+          echo "BUILDER_DIGEST=${BUILDER_DIGEST_VALUE}"
           if [ -n "${{ inputs.base_tag }}" ] && [ "${{ inputs.base_tag }}" != "null" ]; then
             echo "BASE_TAG=${{ inputs.base_tag }}"
           fi
-          if [ -n "${{ inputs.base_digest }}" ] && [ "${{ inputs.base_digest }}" != "null" ]; then
-            echo "BASE_DIGEST=${{ inputs.base_digest }}"
-          fi
+          echo "BASE_DIGEST=${BASE_DIGEST_VALUE}"
           echo "VERSION=${{ inputs.version }}"
           if [ -n "${{ inputs.build_date }}" ] && [ "${{ inputs.build_date }}" != "null" ]; then
             echo "BUILD_DATE=${{ inputs.build_date }}"
