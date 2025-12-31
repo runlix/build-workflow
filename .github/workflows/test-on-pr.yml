@@ -116,13 +116,12 @@ jobs:
 
       - name: Generate metadata
         id: metadata
-        uses: ./build-workflow/.github/actions/generate-metadata
-        with:
-          arch: ${{ matrix.target.arch }}
-          repository: ${{ github.repository }}
-          branch: ${{ needs.prepare-version.outputs.branch }}
-          version: ${{ needs.prepare-version.outputs.version }}
-          target_name: ${{ matrix.target.name }}
+        run: |
+          ARCH="${{ matrix.target.arch }}"
+          PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
+          IMAGE_TAG="ghcr.io/${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}-${{ needs.prepare-version.outputs.version }}-${{ matrix.target.name }}"
+          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
+          echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
       - name: Prepare build args
         id: prepare-build-args
