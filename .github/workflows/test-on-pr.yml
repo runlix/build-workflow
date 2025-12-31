@@ -107,3 +107,29 @@ jobs:
           name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
           path: ${{ needs.prepare-version.outputs.version }}-test.log
           retention-days: 7
+
+  auto-merge:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
+
+      - name: Auto merge PR
+        uses: ./build-workflow/.github/actions/auto-merge-pr
+        with:
+          pr_author: ${{ github.event.pull_request.user.login }}
+          pr_title: ${{ github.event.pull_request.title }}
+          pr_number: ${{ github.event.pull_request.number }}

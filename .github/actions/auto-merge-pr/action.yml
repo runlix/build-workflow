@@ -1,0 +1,83 @@
+name: 'Auto Merge PR'
+description: 'Automatically merge PRs created by github-actions[bot] with titles starting with "update-digest-"'
+
+inputs:
+  pr_author:
+    description: 'PR author login'
+    required: true
+  pr_title:
+    description: 'PR title'
+    required: true
+  pr_number:
+    description: 'PR number'
+    required: true
+
+outputs:
+  merged:
+    description: 'Whether the PR was merged (true/false)'
+    value: ${{ steps.auto-merge.outputs.merged }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check PR conditions and merge
+      id: auto-merge
+      shell: bash
+      run: |
+        set -e
+        
+        PR_AUTHOR="${{ inputs.pr_author }}"
+        PR_TITLE="${{ inputs.pr_title }}"
+        PR_NUMBER="${{ inputs.pr_number }}"
+        
+        # Check if PR author is github-actions[bot]
+        if [ "${PR_AUTHOR}" != "github-actions[bot]" ]; then
+          echo "PR author is '${PR_AUTHOR}', not 'github-actions[bot]'. Skipping auto-merge."
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check if PR title starts with "update-digest-"
+        if [[ ! "${PR_TITLE}" =~ ^update-digest- ]]; then
+          echo "PR title '${PR_TITLE}' does not start with 'update-digest-'. Skipping auto-merge."
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "PR conditions met:"
+        echo "  Author: ${PR_AUTHOR}"
+        echo "  Title: ${PR_TITLE}"
+        echo "  Number: ${PR_NUMBER}"
+        
+        # Check if PR is still open
+        PR_STATE=$(gh pr view "${PR_NUMBER}" --json state --jq -r '.state' || echo "ERROR")
+        if [ "${PR_STATE}" = "ERROR" ]; then
+          echo "Failed to check PR state. Skipping auto-merge."
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        if [ "${PR_STATE}" != "OPEN" ]; then
+          echo "PR is not open (state: ${PR_STATE}). Skipping auto-merge."
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Merge the PR
+        echo "Merging PR #${PR_NUMBER}..."
+        if gh pr merge "${PR_NUMBER}" --merge --auto; then
+          echo "merged=true" >> $GITHUB_OUTPUT
+          echo "✓ Successfully merged PR #${PR_NUMBER}"
+        else
+          EXIT_CODE=$?
+          echo "Failed to merge PR (exit code: ${EXIT_CODE})"
+          # Check if PR was already merged
+          CURRENT_STATE=$(gh pr view "${PR_NUMBER}" --json state --jq -r '.state' || echo "ERROR")
+          if [ "${CURRENT_STATE}" = "MERGED" ]; then
+            echo "PR was already merged. This is not an error."
+            echo "merged=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "merged=false" >> $GITHUB_OUTPUT
+          exit ${EXIT_CODE}
+        fi
+
