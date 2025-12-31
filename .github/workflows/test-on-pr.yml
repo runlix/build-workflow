@@ -62,7 +62,10 @@ jobs:
           echo "  matrix empty: $(test -z '${{ needs.prepare-version.outputs.matrix }}' && echo 'yes' || echo 'no')"
           echo "  matrix preview: $(echo '${{ needs.prepare-version.outputs.matrix }}' | head -c 200)"
           echo "  matrix valid JSON: $(echo '${{ needs.prepare-version.outputs.matrix }}' | jq . >/dev/null 2>&1 && echo 'yes' || echo 'no')"
-          MATRIX_JSON='${{ needs.prepare-version.outputs.matrix || "[]" }}'
+          MATRIX_JSON="${{ needs.prepare-version.outputs.matrix }}"
+          if [ -z "${MATRIX_JSON}" ]; then
+            MATRIX_JSON="[]"
+          fi
           echo "  matrix JSON (full): ${MATRIX_JSON}"
           echo "  fromJson result: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}"
       - name: Checkout repository
