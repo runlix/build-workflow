@@ -179,9 +179,14 @@ jobs:
           exitcode=0
           container_name="service-test-${PACKAGE_VERSION}-${RANDOM}"
           
+          # Create temporary config directory with proper permissions
+          config_dir=$(mktemp -d)
+          chmod 777 "${config_dir}"
+          
           echo "Starting container: ${IMAGE} on platform ${PLATFORM}"
-          docker run --platform="${PLATFORM}" --network host -d --name "${container_name}" "${IMAGE}" || {
+          docker run --platform="${PLATFORM}" --network host -v "${config_dir}:/config" -d --name "${container_name}" "${IMAGE}" || {
             echo "Failed to start container"
+            rm -rf "${config_dir}"
             exit 1
           }
           
@@ -218,10 +223,11 @@ jobs:
             echo "No test_url provided in VERSION.json, skipping URL check"
           fi
           
-          # Clean up container
+          # Clean up container and temporary config directory
           echo "Cleaning up container..."
           docker stop "${container_name}" || true
           docker rm "${container_name}" || true
+          rm -rf "${config_dir}" || true
           
           # Set output and exit
           if [ ${exitcode} -eq 0 ]; then
