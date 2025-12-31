@@ -11,6 +11,8 @@ jobs:
       build_date: ${{ steps.extract.outputs.build_date }}
       branch: ${{ steps.extract.outputs.branch }}
       sha: ${{ steps.extract.outputs.sha }}
+      sha_short: ${{ steps.extract.outputs.sha_short }}
+      target_branch: ${{ steps.get-pr-info.outputs.target_branch }}
       default_branch: ${{ steps.extract.outputs.default_branch }}
       variants: ${{ steps.extract.outputs.variants }}
       matrix: ${{ steps.extract.outputs.matrix }}
@@ -26,6 +28,18 @@ jobs:
         with:
           repository: runlix/build-workflow
           path: build-workflow
+
+      - name: Get PR target branch
+        id: get-pr-info
+        run: |
+          if [ -n "${{ github.event.pull_request.base.ref }}" ]; then
+            TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+            echo "target_branch=${TARGET_BRANCH}" >> $GITHUB_OUTPUT
+            echo "Target branch: ${TARGET_BRANCH}"
+          else
+            echo "target_branch=" >> $GITHUB_OUTPUT
+            echo "Not a PR context, target_branch will be empty"
+          fi
 
       - name: Extract metadata from VERSION.json
         id: extract
@@ -60,9 +74,11 @@ jobs:
         with:
           arch: ${{ matrix.target.arch }}
           repository: ${{ github.repository }}
-          branch: ${{ needs.prepare-version.outputs.branch }}
+          branch: ${{ needs.prepare-version.outputs.target_branch || needs.prepare-version.outputs.branch }}
           version: ${{ needs.prepare-version.outputs.version }}
           target_name: ${{ matrix.target.name }}
+          sha_short: ${{ needs.prepare-version.outputs.sha_short }}
+          pr_mode: ${{ needs.prepare-version.outputs.target_branch != '' && 'true' || 'false' }}
 
       - name: Prepare build args
         id: prepare-build-args
@@ -107,29 +123,3 @@ jobs:
           name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
           path: ${{ needs.prepare-version.outputs.version }}-test.log
           retention-days: 7
-
-  auto-merge:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: write
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
-        with:
-          repository: runlix/build-workflow
-          path: build-workflow
-
-      - name: Auto merge PR
-        uses: ./build-workflow/.github/actions/auto-merge-pr
-        with:
-          pr_author: ${{ github.event.pull_request.user.login }}
-          pr_title: ${{ github.event.pull_request.title }}
-          pr_number: ${{ github.event.pull_request.number }}

@@ -17,6 +17,13 @@ inputs:
   target_name:
     description: 'Target name'
     required: true
+  sha_short:
+    description: 'Short commit SHA (7 characters)'
+    required: false
+  pr_mode:
+    description: 'Whether to use PR tag format (pr-<branch>-<version>-<sha>)'
+    required: false
+    default: 'false'
 
 outputs:
   platform:
@@ -29,16 +36,31 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Generate metadata
-      id: metadata
-      shell: bash
-      run: |
-        ARCH="${{ inputs.arch }}"
-        PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
-        # Sanitize branch name: replace '/' with '-' for valid Docker tag
-        BRANCH="${{ inputs.branch }}"
-        BRANCH_SANITIZED="${BRANCH//\//-}"
-        IMAGE_TAG="ghcr.io/${{ inputs.repository }}:${BRANCH_SANITIZED}-${{ inputs.version }}-${{ inputs.target_name }}"
-        echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
-        echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+      - name: Generate metadata
+        id: metadata
+        shell: bash
+        run: |
+          ARCH="${{ inputs.arch }}"
+          PLATFORM="${ARCH//linux-/linux/}"  # Replaces 'linux-' with 'linux/'
+          
+          # Sanitize branch name: replace '/' with '-' for valid Docker tag
+          BRANCH="${{ inputs.branch }}"
+          BRANCH_SANITIZED="${BRANCH//\//-}"
+          
+          # Determine tag format based on PR mode
+          if [ "${{ inputs.pr_mode }}" = "true" ]; then
+            # PR format: pr-<target_branch>-<version>-<sha_short>
+            SHA_SHORT="${{ inputs.sha_short }}"
+            if [ -z "$SHA_SHORT" ]; then
+              echo "ERROR: sha_short is required when pr_mode is true"
+              exit 1
+            fi
+            IMAGE_TAG="ghcr.io/${{ inputs.repository }}:pr-${BRANCH_SANITIZED}-${{ inputs.version }}-${SHA_SHORT}"
+          else
+            # Standard format: <branch>-<version>-<target_name>
+            IMAGE_TAG="ghcr.io/${{ inputs.repository }}:${BRANCH_SANITIZED}-${{ inputs.version }}-${{ inputs.target_name }}"
+          fi
+          
+          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
+          echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
