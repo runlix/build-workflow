@@ -273,6 +273,7 @@ jobs:
           repository: ${{ github.repository }}
           server_url: ${{ github.server_url }}
           branch: ${{ needs.prepare-version.outputs.branch }}
+          pr_base_branch: ${{ needs.prepare-version.outputs.default_branch }}
           version: ${{ needs.prepare-version.outputs.version }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           variants: ${{ needs.prepare-version.outputs.variants }}
