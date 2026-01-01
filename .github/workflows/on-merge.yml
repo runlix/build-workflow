@@ -276,6 +276,9 @@ jobs:
           version: ${{ needs.prepare-version.outputs.version }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           variants: ${{ needs.prepare-version.outputs.variants }}
+          app_id: ${{ secrets.RUNLIX_APP_ID }}
+          private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
   create-tag:
     needs: [publish, prepare-version]

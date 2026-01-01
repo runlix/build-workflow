@@ -23,12 +23,41 @@ inputs:
   variants:
     description: 'Multiline string of variants'
     required: true
+  app_id:
+    description: 'GitHub App ID'
+    required: true
+  private_key:
+    description: 'GitHub App private key'
+    required: true
+  owner:
+    description: 'Repository owner (organization or user)'
+    required: true
 
 runs:
   using: 'composite'
   steps:
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+        owner: ${{ inputs.owner }}
+
+    - name: Get GitHub App Bot User ID
+      id: get-user-id
+      shell: bash
+      run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
     - name: Update tags.json
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        APP_BOT_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
+        APP_BOT_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
       run: |
         set -e
         
@@ -39,6 +68,10 @@ runs:
         VERSION="${{ inputs.version }}"
         SHA="${{ inputs.sha }}"
         VARIANTS="${{ inputs.variants }}"
+        
+        # Configure git to use GitHub App token for authentication
+        git config --global credential.helper store
+        echo "https://${APP_BOT_NAME}:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
         
         # Retry function for git operations
         retry_git_operation() {
@@ -105,8 +138,8 @@ runs:
         
         # Only commit if tags.json actually changed
         if ! git diff --quiet tags.json; then
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "${APP_BOT_NAME}"
+          git config user.email "${APP_BOT_EMAIL}"
           git add tags.json
           git commit -m "Update tags.json for ${BRANCH} branch variants (version: ${VERSION}) [skip ci]" || exit 0
           retry_git_operation git push || { echo "Error: Failed to push tags.json update"; exit 1; }

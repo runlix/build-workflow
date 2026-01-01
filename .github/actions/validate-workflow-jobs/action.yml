@@ -35,6 +35,17 @@ runs:
           TOTAL_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate")] | length')
           COMPLETED_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate" and .conclusion != null)] | length')
           
+          # Check for failed jobs (not success and not skipped)
+          FAILED_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped")]')
+          FAILED_COUNT=$(echo "${FAILED_JOBS}" | jq 'length')
+          
+          # Exit immediately if any job has failed
+          if [ "${FAILED_COUNT}" -gt 0 ]; then
+            echo "❌ Detected ${FAILED_COUNT} failed job(s) - stopping wait"
+            echo "${FAILED_JOBS}" | jq -r '.[] | "  - \(.name): \(.conclusion)"'
+            exit 1
+          fi
+          
           if [ "${COMPLETED_JOBS}" = "${TOTAL_JOBS}" ] && [ "${TOTAL_JOBS}" -gt 0 ]; then
             echo "All ${TOTAL_JOBS} jobs have completed"
             break
