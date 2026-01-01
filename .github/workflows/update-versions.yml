@@ -3,127 +3,90 @@ name: update-versions-automated
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
-  do-work:
+  update:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    timeout-minutes: 60
     concurrency:
       group: update-versions-automated
       cancel-in-progress: false
-    
-    steps:
-      - name: Git Config
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Do Work
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RUNLIX_APP_ID }}
+          private-key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Get GitHub App Bot User ID
+        id: get-user-id
+        run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
         env:
-          REPOSITORY_OWNER: runlix
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git
         run: |
-          set -e
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
+
+      - name: Update versions across repositories
+        env:
+          OWNER: ${{ github.repository_owner }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -Eeo pipefail
+
+          echo "🔍 Discovering repositories with docker-image topic..."
+          REPOSITORIES=$(gh repo list "$OWNER" --limit 200 --json name,repositoryTopics --jq '.[] | select([.repositoryTopics[]?.name] | index("docker-image")) | .name')
           
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "ERROR: GITHUB_TOKEN is not set"
-            exit 1
-          fi
-          
-          echo "Discovering repositories with docker-image topic..."
-          REPOS=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | select(.topics[]?=="docker-image") | .name' || echo "")
-          
-          if [ -z "$REPOS" ]; then
-            echo "WARNING: No repositories found with docker-image topic"
-            echo "Debug: Listing all repos to verify API call works..."
-            curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/users/${REPOSITORY_OWNER}/repos?per_page=1000" 2>&1 | jq -r '.[] | "\(.name) - topics: \(.topics | join(", "))"' || echo "API call failed"
-            exit 0
-          fi
-          
-          echo "Found repositories:"
-          echo "$REPOS"
-          
-          while IFS= read -r REPOSITORY; do
-            [ -z "$REPOSITORY" ] && continue
-            
-            echo "Processing repository: ${REPOSITORY_OWNER}/${REPOSITORY}"
-            
-            echo "Fetching branches for ${REPOSITORY}..."
-            BRANCHES=$(curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | select(.name!="main" and .name!="master") | .name' || echo "")
-            
-            if [ -z "$BRANCHES" ]; then
-              echo "WARNING: No branches found (excluding main/master) for ${REPOSITORY}"
-              echo "Debug: Listing all branches..."
-              curl -u "${GH_ACTOR}:${GH_TOKEN}" -fsSL "https://api.github.com/repos/${REPOSITORY_OWNER}/${REPOSITORY}/branches" 2>&1 | jq -r '.[] | .name' || echo "Failed to fetch branches"
-              continue
-            fi
-            
-            echo "Found branches for ${REPOSITORY}:"
-            echo "$BRANCHES"
-            
-            while IFS= read -r BRANCH; do
-              [ -z "$BRANCH" ] && continue
+          echo "🔍 Found repositories: $REPOSITORIES"
+          for REPO in $REPOSITORIES; do
+            echo "📦 Processing $OWNER/$REPO"
+
+            gh api "/repos/$OWNER/$REPO/branches" \
+              --jq '.[] | select(.name!="main" and .name!="master") | .name' |
+            while read -r BRANCH; do
+              echo "➡️ Branch $BRANCH"
               
-              echo "Processing branch: ${REPOSITORY_OWNER}/${REPOSITORY}:${BRANCH}"
-              
-              CLONE_DIR=$(mktemp -d)
-              
-              # Clone without token first (for public repos), then configure remote with token for push
-              if ! git clone -b "${BRANCH}" "https://github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
-                # If public clone fails, try with token (for private repos)
-                if ! git clone -b "${BRANCH}" "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" "${CLONE_DIR}" 2>/dev/null; then
-                  echo "Failed to clone ${REPOSITORY}:${BRANCH}"
-                  rm -rf "${CLONE_DIR}"
-                  continue
-                fi
-              fi
-              
-              cd "${CLONE_DIR}" || { rm -rf "${CLONE_DIR}"; continue; }
-              
-              # Configure remote with token for push operations (set once)
-              git remote set-url origin "https://${GH_TOKEN}@github.com/${REPOSITORY_OWNER}/${REPOSITORY}.git" 2>/dev/null || true
-              
-              if [ ! -f update-versions.sh ]; then
-                echo "No update-versions.sh found in ${REPOSITORY}:${BRANCH}, skipping"
-                cd .. || exit 1
-                rm -rf "${CLONE_DIR}"
-                continue
-              fi
-              
-              echo "Executing update-versions.sh for ${REPOSITORY}:${BRANCH}..."
-              bash ./update-versions.sh || { echo "Script failed or no changes for ${REPOSITORY}:${BRANCH}"; cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
-              
-              COMMIT_MESSAGE="Version update"
-              [ "${BRANCH}" = "pr" ] && COMMIT_MESSAGE="Version update [skip ci]"
-              
+              DIR=$(mktemp -d)
+              git clone --depth 1 -b "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
+              cd "$DIR"
+
+              [[ -x update-versions.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
+              ./update-versions.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }
+
               git add .
-              
-              if ! git diff --quiet || ! git diff --cached --quiet; then
-                echo "Changes detected for ${REPOSITORY}:${BRANCH}"
-                PR_BRANCH="update-versions-${GITHUB_RUN_ID}-$(date +%s)"
-                git checkout -b "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
-                git commit -m "${COMMIT_MESSAGE}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
-                git push -u origin "${PR_BRANCH}" || { cd .. || exit 1; rm -rf "${CLONE_DIR}"; continue; }
-                
-                gh pr create \
-                  --repo "${REPOSITORY_OWNER}/${REPOSITORY}" \
-                  --title "Version update" \
-                  --body "Automated version update for branch \`${BRANCH}\`" \
-                  --base "${BRANCH}" \
-                  --head "${PR_BRANCH}" \
-                  --label "automated,dependencies" || true
-              else
-                echo "No changes detected for ${REPOSITORY}:${BRANCH}"
+              # Check if there are changes to commit
+              if git diff --cached --quiet; then
+                echo "✔️ No changes"
+                cd ..; rm -rf "$DIR"; continue
               fi
+
+              COMMIT_MSG="Version update"
+              [[ "$BRANCH" == "pr" ]] && COMMIT_MSG="Version update [skip ci]"
               
-              cd .. || exit 1
-              rm -rf "${CLONE_DIR}"
-            done <<< "$BRANCHES"
-          done <<< "$REPOS"
-          
-          echo "Completed processing all repositories"
+              PR_BRANCH="update-versions-${GITHUB_RUN_ID}-$(date +%s)"
+              git checkout -b "${PR_BRANCH}" || { echo "❌ Failed to create branch"; cd ..; rm -rf "$DIR"; continue; }
+              git commit -m "$COMMIT_MSG" || { echo "❌ Failed to commit"; cd ..; rm -rf "$DIR"; continue; }
+              git push -u origin "${PR_BRANCH}" || { echo "❌ Failed to push"; cd ..; rm -rf "$DIR"; continue; }
+              
+              gh pr create \
+                --repo "$OWNER/$REPO" \
+                --title "Version update" \
+                --body "Automated version update for branch \`${BRANCH}\`" \
+                --base "${BRANCH}" \
+                --head "${PR_BRANCH}" \
+                --label "automated,dependencies" || true
+
+              cd ..; rm -rf "$DIR"
+            done
+          done
 
