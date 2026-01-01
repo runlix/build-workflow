@@ -1,0 +1,91 @@
+name: 'Validate Workflow Jobs'
+description: 'Validate that all workflow jobs completed successfully, treating skipped jobs as passed'
+
+outputs:
+  all_passed:
+    description: 'Whether all jobs passed validation (true/false)'
+    value: ${{ steps.validate.outputs.all_passed }}
+  failed_jobs:
+    description: 'JSON array of failed job names and results'
+    value: ${{ steps.validate.outputs.failed_jobs }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate all job results
+      id: validate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+      run: |
+        set -e
+        
+        # Fetch all jobs for the current workflow run
+        echo "Fetching jobs for workflow run ${GITHUB_RUN_ID}..."
+        JOBS_RESPONSE=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs)
+        
+        # Extract jobs array (keep as JSON)
+        JOBS_COUNT=$(echo "${JOBS_RESPONSE}" | jq '.jobs | length')
+        
+        if [ -z "${JOBS_COUNT}" ] || [ "${JOBS_COUNT}" = "0" ]; then
+          echo "No jobs found or error fetching jobs"
+          echo "all_passed=false" >> $GITHUB_OUTPUT
+          echo "failed_jobs=[]" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        # Process jobs and build arrays
+        failed_jobs_json="[]"
+        job_results_list=""
+        
+        # Process each job using jq to iterate
+        for i in $(seq 0 $((JOBS_COUNT - 1))); do
+          job=$(echo "${JOBS_RESPONSE}" | jq -c ".jobs[${i}]")
+          job_name=$(echo "${job}" | jq -r '.name // ""')
+          job_result=$(echo "${job}" | jq -r '.conclusion // .status // "unknown"')
+          
+          # Skip the validate job itself
+          if [ "${job_name}" = "validate" ]; then
+            continue
+          fi
+          
+          # Store job result for summary
+          if [ -n "${job_results_list}" ]; then
+            job_results_list="${job_results_list}\n"
+          fi
+          job_results_list="${job_results_list}${job_name}: ${job_result}"
+          
+          # Check if job failed (not success and not skipped)
+          if [ "${job_result}" != "success" ] && [ "${job_result}" != "skipped" ]; then
+            failed_job_json=$(echo "${job}" | jq -c '{name: .name, result: (.conclusion // .status)}')
+            failed_jobs_json=$(echo "${failed_jobs_json}" | jq -c ". + [${failed_job_json}]")
+          fi
+        done
+        
+        # Output summary
+        echo "Job Results Summary:"
+        echo -e "${job_results_list}" | sort | sed 's/^/  /'
+        
+        # Set outputs
+        failed_count=$(echo "${failed_jobs_json}" | jq 'length')
+        if [ "${failed_count}" -eq 0 ]; then
+          all_passed="true"
+        else
+          all_passed="false"
+        fi
+        
+        echo "all_passed=${all_passed}" >> $GITHUB_OUTPUT
+        echo "failed_jobs=${failed_jobs_json}" >> $GITHUB_OUTPUT
+        
+        # Fail if any jobs failed
+        if [ "${all_passed}" = "false" ]; then
+          echo ""
+          echo "❌ Validation failed - The following jobs did not complete successfully:"
+          echo "${failed_jobs_json}" | jq -r '.[] | "  - \(.name): \(.result)"'
+          exit 1
+        else
+          echo ""
+          echo "✅ Validation passed - All executed jobs completed successfully"
+        fi

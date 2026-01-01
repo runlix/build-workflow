@@ -183,3 +183,17 @@ jobs:
           private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
+  validate:
+    needs: []
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
+
+      - name: Validate all job results
+        uses: ./build-workflow/.github/actions/validate-workflow-jobs
+

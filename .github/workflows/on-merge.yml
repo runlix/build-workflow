@@ -304,3 +304,17 @@ jobs:
           sha: ${{ needs.prepare-version.outputs.sha }}
           repository: ${{ github.repository }}
 
+  validate:
+    needs: []
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build-workflow for actions
+        uses: actions/checkout@v6
+        with:
+          repository: runlix/build-workflow
+          path: build-workflow
+
+      - name: Validate all job results
+        uses: ./build-workflow/.github/actions/validate-workflow-jobs
+
