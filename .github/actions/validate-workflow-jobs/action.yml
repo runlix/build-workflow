@@ -19,6 +19,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_WORKFLOW: ${{ github.workflow }}
       run: |
         set +e
         
@@ -28,15 +29,19 @@ runs:
         ELAPSED=0
         
         while [ ${ELAPSED} -lt ${MAX_WAIT_TIME} ]; do
-          # Fetch all jobs and check if all (except validate) have conclusions
+          # Fetch all jobs and filter to current workflow only
           JOBS_RESPONSE=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs)
           
+          # Filter jobs to only include those from the current workflow
+          # This excludes parent workflow jobs when this is a reusable workflow
+          CURRENT_WORKFLOW_JOBS=$(echo "${JOBS_RESPONSE}" | jq --arg wf "${GITHUB_WORKFLOW}" '[.jobs[] | select(.workflow_name == $wf)]')
+          
           # Count jobs that need to complete (exclude validate)
-          TOTAL_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate")] | length')
-          COMPLETED_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate" and .conclusion != null)] | length')
+          TOTAL_JOBS=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq '[.[] | select(.name != "validate")] | length')
+          COMPLETED_JOBS=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq '[.[] | select(.name != "validate" and .conclusion != null)] | length')
           
           # Check for failed jobs (not success and not skipped)
-          FAILED_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped")]')
+          FAILED_JOBS=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq '[.[] | select(.name != "validate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped")]')
           FAILED_COUNT=$(echo "${FAILED_JOBS}" | jq 'length')
           
           # Exit immediately if any job has failed
@@ -68,6 +73,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_WORKFLOW: ${{ github.workflow }}
       run: |
         set -e
         
@@ -75,8 +81,12 @@ runs:
         echo "Fetching jobs for workflow run ${GITHUB_RUN_ID}..."
         JOBS_RESPONSE=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs)
         
+        # Filter jobs to only include those from the current workflow
+        # This excludes parent workflow jobs when this is a reusable workflow
+        CURRENT_WORKFLOW_JOBS=$(echo "${JOBS_RESPONSE}" | jq --arg wf "${GITHUB_WORKFLOW}" '[.jobs[] | select(.workflow_name == $wf)]')
+        
         # Extract jobs array (keep as JSON)
-        JOBS_COUNT=$(echo "${JOBS_RESPONSE}" | jq '.jobs | length')
+        JOBS_COUNT=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq 'length')
         
         if [ -z "${JOBS_COUNT}" ] || [ "${JOBS_COUNT}" = "0" ]; then
           echo "No jobs found or error fetching jobs"
@@ -91,7 +101,7 @@ runs:
         
         # Process each job using jq to iterate
         for i in $(seq 0 $((JOBS_COUNT - 1))); do
-          job=$(echo "${JOBS_RESPONSE}" | jq -c ".jobs[${i}]")
+          job=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq -c ".[${i}]")
           job_name=$(echo "${job}" | jq -r '.name // ""')
           job_result=$(echo "${job}" | jq -r '.conclusion // .status // "unknown"')
           
