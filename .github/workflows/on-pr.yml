@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload test logs
         if: ${{ always() && inputs.run_smoke_test }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
           path: ${{ needs.prepare-version.outputs.version }}-test.log
