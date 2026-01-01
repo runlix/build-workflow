@@ -33,6 +33,23 @@ inputs:
     description: 'Repository owner (organization or user)'
     required: true
 
+outputs:
+  pr_created:
+    description: 'Whether a PR was created (true/false)'
+    value: ${{ steps.create-pr.outputs.pr_created }}
+  pr_number:
+    description: 'PR number if created, empty otherwise'
+    value: ${{ steps.create-pr.outputs.pr_number }}
+  pr_branch:
+    description: 'Branch name used for PR, empty if no PR created'
+    value: ${{ steps.create-pr.outputs.pr_branch }}
+  merged:
+    description: 'Whether the PR was merged (true/false)'
+    value: ${{ steps.auto-merge.outputs.merged }}
+  branch_deleted:
+    description: 'Whether the PR branch was deleted (true/false)'
+    value: ${{ steps.delete-branch.outputs.deleted }}
+
 runs:
   using: 'composite'
   steps:
@@ -51,7 +68,8 @@ runs:
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
-    - name: Update tags.json
+    - name: Update tags.json and create PR
+      id: create-pr
       shell: bash
       env:
         GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -136,14 +154,79 @@ runs:
               }' tags.json > tags.json.tmp && mv tags.json.tmp tags.json
         done
         
+        # Initialize outputs to defaults
+        echo "pr_created=false" >> $GITHUB_OUTPUT
+        echo "pr_number=" >> $GITHUB_OUTPUT
+        echo "pr_branch=" >> $GITHUB_OUTPUT
+        
         # Only commit if tags.json actually changed
         if ! git diff --quiet tags.json; then
           git config user.name "${APP_BOT_NAME}"
           git config user.email "${APP_BOT_EMAIL}"
           git add tags.json
           git commit -m "Update tags.json for ${BRANCH} branch variants (version: ${VERSION}) [skip ci]" || exit 0
-          retry_git_operation git push || { echo "Error: Failed to push tags.json update"; exit 1; }
+          
+          # Create a unique branch for the PR
+          BRANCH_TIMESTAMP=$(date +%s)
+          PR_BRANCH="update-tags-json-${VERSION}-${BRANCH_TIMESTAMP}"
+          
+          echo "Creating branch: ${PR_BRANCH}"
+          git checkout -b "${PR_BRANCH}" || { echo "Error: Failed to create branch"; exit 1; }
+          
+          # Push to the new branch
+          echo "Pushing to branch: ${PR_BRANCH}"
+          retry_git_operation git push -u origin "${PR_BRANCH}" || { echo "Error: Failed to push branch"; exit 1; }
+          
+          # Create PR
+          PR_TITLE="update-tags-json-${BRANCH}-${VERSION}"
+          PR_BODY="Automatically update tags.json for ${BRANCH} branch variants (version: ${VERSION})"
+          
+          echo "Creating PR: ${PR_TITLE}"
+          PR_NUMBER=$(gh pr create \
+            --repo "${REPOSITORY}" \
+            --title "${PR_TITLE}" \
+            --body "${PR_BODY}" \
+            --base "${BRANCH}" \
+            --head "${PR_BRANCH}" \
+            --json number -q '.number' 2>&1 || echo "")
+          
+          if [ -z "${PR_NUMBER}" ] || [[ "${PR_NUMBER}" =~ ^[^0-9] ]]; then
+            echo "Failed to create PR: ${PR_NUMBER}"
+            echo "pr_created=false" >> $GITHUB_OUTPUT
+            echo "pr_number=" >> $GITHUB_OUTPUT
+            echo "pr_branch=" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "Created PR #${PR_NUMBER}"
+          echo "pr_created=true" >> $GITHUB_OUTPUT
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+          echo "pr_branch=${PR_BRANCH}" >> $GITHUB_OUTPUT
         else
           echo "No changes to tags.json, skipping commit"
+          echo "pr_created=false" >> $GITHUB_OUTPUT
+          echo "pr_number=" >> $GITHUB_OUTPUT
+          echo "pr_branch=" >> $GITHUB_OUTPUT
         fi
 
+    - name: Auto merge PR
+      id: auto-merge
+      if: steps.create-pr.outputs.pr_created == 'true'
+      uses: ./build-workflow/.github/actions/auto-merge-pr
+      with:
+        repository: ${{ inputs.repository }}
+        pr_number: ${{ steps.create-pr.outputs.pr_number }}
+        app_id: ${{ inputs.app_id }}
+        private_key: ${{ inputs.private_key }}
+        owner: ${{ inputs.owner }}
+
+    - name: Delete branch after merge
+      id: delete-branch
+      if: steps.auto-merge.outputs.merged == 'true'
+      uses: ./build-workflow/.github/actions/delete-branch
+      with:
+        repository: ${{ inputs.repository }}
+        branch_name: ${{ steps.create-pr.outputs.pr_branch }}
+        app_id: ${{ inputs.app_id }}
+        private_key: ${{ inputs.private_key }}
+        owner: ${{ inputs.owner }}

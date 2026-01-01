@@ -1,5 +1,5 @@
 name: 'Auto Merge PR'
-description: 'Automatically merge PRs created by the GitHub App bot with titles starting with "update-digests" or "update-version-"'
+description: 'Automatically merge PRs created by the GitHub App bot with titles starting with "update-digests", "update-version-", or "update-tags-json-"'
 
 inputs:
   repository:
@@ -105,9 +105,11 @@ runs:
           exit 0
         fi
         
-        # Check if PR title starts with "update-digests" or "update-version-"
-        if [[ ! "${PR_TITLE}" =~ ^update-digests ]] && [[ ! "${PR_TITLE}" =~ ^update-version- ]]; then
-          echo "PR title '${PR_TITLE}' does not start with 'update-digests' or 'update-version-'. Skipping auto-merge."
+        # Check if PR title starts with "update-digests", "update-version-", or "update-tags-json-"
+        if [[ ! "${PR_TITLE}" =~ ^update-digests ]] && \
+           [[ ! "${PR_TITLE}" =~ ^update-version- ]] && \
+           [[ ! "${PR_TITLE}" =~ ^update-tags-json- ]]; then
+          echo "PR title '${PR_TITLE}' does not start with 'update-digests', 'update-version-', or 'update-tags-json-'. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
           exit 0
         fi
