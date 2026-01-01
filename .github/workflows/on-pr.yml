@@ -2,6 +2,12 @@ name: On PR Flow
 
 on:
   workflow_call:
+    inputs:
+      run_smoke_test:
+        description: 'Whether to run the smoke test (set false for base images)'
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   prepare-version:
@@ -109,6 +115,7 @@ jobs:
 
       - name: Smoke Test
         id: smoketest
+        if: ${{ inputs.run_smoke_test }}
         uses: ./build-workflow/.github/actions/smoke-test
         with:
           image: ${{ steps.metadata.outputs.image-tag }}
@@ -117,7 +124,7 @@ jobs:
           test_url: ${{ needs.prepare-version.outputs.test_url }}
 
       - name: Upload test logs
-        if: always()
+        if: ${{ always() && inputs.run_smoke_test }}
         uses: actions/upload-artifact@v4
         with:
           name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
