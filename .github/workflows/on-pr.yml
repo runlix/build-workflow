@@ -1,4 +1,4 @@
-name: Test on PR
+name: On PR Flow
 
 on:
   workflow_call:
