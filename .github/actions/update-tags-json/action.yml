@@ -183,7 +183,7 @@ runs:
           
           echo "Creating PR: ${PR_TITLE}"
           # #region agent log
-          echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"update-tags-json/action.yml:184\",\"message\":\"Before PR creation\",\"data\":{\"title\":\"${PR_TITLE}\",\"base\":\"${BRANCH}\",\"head\":\"${PR_BRANCH}\"},\"timestamp\":$(date +%s)000}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"update-tags-json/action.yml:184\",\"message\":\"Before PR creation\",\"data\":{\"title\":\"${PR_TITLE}\",\"base\":\"${BRANCH}\",\"head\":\"${PR_BRANCH}\"},\"timestamp\":$(date +%s)000}"
           # #endregion
           
           # Use gh api to create PR and get number from JSON response
@@ -196,20 +196,20 @@ runs:
             2>&1)
           
           # #region agent log
-          echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\",\"location\":\"update-tags-json/action.yml:195\",\"message\":\"PR creation response\",\"data\":{\"response\":\"${PR_RESPONSE}\"},\"timestamp\":$(date +%s)000}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\",\"location\":\"update-tags-json/action.yml:195\",\"message\":\"PR creation response\",\"data\":{\"response\":\"${PR_RESPONSE}\"},\"timestamp\":$(date +%s)000}"
           # #endregion
           
           # Extract PR number from JSON response
           PR_NUMBER=$(echo "${PR_RESPONSE}" | jq -r '.number // empty' 2>/dev/null || echo "")
           
           # #region agent log
-          echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\",\"location\":\"update-tags-json/action.yml:200\",\"message\":\"Extracted PR number\",\"data\":{\"pr_number\":\"${PR_NUMBER}\"},\"timestamp\":$(date +%s)000}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+          echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\",\"location\":\"update-tags-json/action.yml:200\",\"message\":\"Extracted PR number\",\"data\":{\"pr_number\":\"${PR_NUMBER}\"},\"timestamp\":$(date +%s)000}"
           # #endregion
           
           if [ -z "${PR_NUMBER}" ] || [[ "${PR_NUMBER}" =~ ^[^0-9] ]] || [ "${PR_NUMBER}" = "null" ]; then
             echo "Failed to create PR. Response: ${PR_RESPONSE}"
             # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"update-tags-json/action.yml:205\",\"message\":\"PR creation failed\",\"data\":{\"pr_number\":\"${PR_NUMBER}\",\"response\":\"${PR_RESPONSE}\"},\"timestamp\":$(date +%s)000}" >> /Users/ohayoun/personal/runlix/.cursor/debug.log
+            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"update-tags-json/action.yml:205\",\"message\":\"PR creation failed\",\"data\":{\"pr_number\":\"${PR_NUMBER}\",\"response\":\"${PR_RESPONSE}\"},\"timestamp\":$(date +%s)000}"
             # #endregion
             echo "pr_created=false" >> $GITHUB_OUTPUT
             echo "pr_number=" >> $GITHUB_OUTPUT
