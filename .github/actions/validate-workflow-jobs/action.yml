@@ -12,6 +12,44 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Wait for all jobs to complete
+      id: wait
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+      run: |
+        set +e
+        
+        echo "Waiting for all jobs to complete..."
+        MAX_WAIT_TIME=3600  # 1 hour max wait
+        WAIT_INTERVAL=10   # Check every 10 seconds
+        ELAPSED=0
+        
+        while [ ${ELAPSED} -lt ${MAX_WAIT_TIME} ]; do
+          # Fetch all jobs and check if all (except validate) have conclusions
+          JOBS_RESPONSE=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs)
+          
+          # Count jobs that need to complete (exclude validate)
+          TOTAL_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate")] | length')
+          COMPLETED_JOBS=$(echo "${JOBS_RESPONSE}" | jq '[.jobs[] | select(.name != "validate" and .conclusion != null)] | length')
+          
+          if [ "${COMPLETED_JOBS}" = "${TOTAL_JOBS}" ] && [ "${TOTAL_JOBS}" -gt 0 ]; then
+            echo "All ${TOTAL_JOBS} jobs have completed"
+            break
+          fi
+          
+          echo "Jobs completed: ${COMPLETED_JOBS}/${TOTAL_JOBS}, waiting ${WAIT_INTERVAL}s... (${ELAPSED}s elapsed)"
+          sleep ${WAIT_INTERVAL}
+          ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+        done
+        
+        if [ ${ELAPSED} -ge ${MAX_WAIT_TIME} ]; then
+          echo "Timeout waiting for jobs to complete"
+          exit 1
+        fi
+
     - name: Validate all job results
       id: validate
       shell: bash
