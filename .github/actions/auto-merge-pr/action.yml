@@ -34,13 +34,6 @@ runs:
         private-key: ${{ inputs.private_key }}
         owner: ${{ inputs.owner }}
 
-    - name: Get GitHub App Bot User ID
-      id: get-user-id
-      shell: bash
-      run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
-      env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
-
     - name: Check PR conditions and merge
       id: auto-merge
       shell: bash
@@ -48,7 +41,6 @@ runs:
         GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         APP_BOT_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
-        APP_BOT_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
       run: |
         set -e
         
@@ -65,12 +57,14 @@ runs:
           exit 0
         fi
         
-        # Extract PR author and title
+        # Extract PR author, type, and title
         PR_AUTHOR=$(echo "${PR_DATA}" | jq -r '.user.login // ""')
+        PR_AUTHOR_TYPE=$(echo "${PR_DATA}" | jq -r '.user.type // ""')
         PR_TITLE=$(echo "${PR_DATA}" | jq -r '.title // ""')
         
         echo "PR details:"
         echo "  Author: ${PR_AUTHOR}"
+        echo "  Author Type: ${PR_AUTHOR_TYPE}"
         echo "  Title: ${PR_TITLE}"
         echo "  Number: ${PR_NUMBER}"
         echo "  Expected bot: ${APP_BOT_NAME}"
@@ -82,25 +76,9 @@ runs:
           exit 0
         fi
         
-        # Get PR author email from commits (most reliable for bot PRs)
-        PR_AUTHOR_EMAIL=$(gh api repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits --jq '.[0].commit.author.email // ""' | head -1 || echo "")
-        
-        # Fallback: try PR user object email
-        if [ -z "${PR_AUTHOR_EMAIL}" ]; then
-          PR_AUTHOR_EMAIL=$(echo "${PR_DATA}" | jq -r '.user.email // ""')
-        fi
-        
-        # Fallback: try user profile email
-        if [ -z "${PR_AUTHOR_EMAIL}" ]; then
-          PR_AUTHOR_EMAIL=$(gh api users/${PR_AUTHOR} --jq '.email // ""' || echo "")
-        fi
-        
-        echo "  Author Email: ${PR_AUTHOR_EMAIL}"
-        echo "  Expected email: ${APP_BOT_EMAIL}"
-        
-        # Check if PR author email matches expected email
-        if [ "${PR_AUTHOR_EMAIL}" != "${APP_BOT_EMAIL}" ]; then
-          echo "PR author email is '${PR_AUTHOR_EMAIL}', not '${APP_BOT_EMAIL}'. Skipping auto-merge."
+        # Check if PR author type is Bot
+        if [ "${PR_AUTHOR_TYPE}" != "Bot" ]; then
+          echo "PR author type is '${PR_AUTHOR_TYPE}', not 'Bot'. Skipping auto-merge."
           echo "merged=false" >> $GITHUB_OUTPUT
           exit 0
         fi
@@ -139,7 +117,7 @@ runs:
         
         # Merge the PR directly using merge commits (checks have already passed)
         echo "Merging PR #${PR_NUMBER}..."
-        if gh pr merge "${PR_NUMBER}" --repo "${REPOSITORY}" --merge; then
+        if gh pr merge "${PR_NUMBER}" --repo "${REPOSITORY}" --auto --merge --delete-branch=true; then
           echo "merged=true" >> $GITHUB_OUTPUT
           echo "✓ Successfully merged PR #${PR_NUMBER}"
         else
