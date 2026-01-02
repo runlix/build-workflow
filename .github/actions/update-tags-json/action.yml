@@ -123,8 +123,10 @@ runs:
           return 1
         }
         
-        # Pull latest changes to handle concurrent updates
-        git pull --rebase || true
+        # Ensure we're on the base branch before creating new branch
+        echo "Ensuring we're on base branch: ${PR_BASE_BRANCH}"
+        git checkout "${PR_BASE_BRANCH}" || { echo "Error: Failed to checkout ${PR_BASE_BRANCH}"; exit 1; }
+        git pull origin "${PR_BASE_BRANCH}" --rebase || { echo "Error: Failed to pull ${PR_BASE_BRANCH}"; exit 1; }
         
         # Create tags.json if it doesn't exist
         [ ! -f tags.json ] && echo '{}' > tags.json
@@ -220,9 +222,20 @@ runs:
           echo "pr_branch=" >> $GITHUB_OUTPUT
         fi
 
+    - name: Wait for PR checks to complete
+      id: wait-checks
+      if: steps.create-pr.outputs.pr_created == 'true'
+      uses: ./build-workflow/.github/actions/wait-for-pr-checks
+      with:
+        repository: ${{ inputs.repository }}
+        pr_number: ${{ steps.create-pr.outputs.pr_number }}
+        app_id: ${{ inputs.app_id }}
+        private_key: ${{ inputs.private_key }}
+        owner: ${{ inputs.owner }}
+
     - name: Auto merge PR
       id: auto-merge
-      if: steps.create-pr.outputs.pr_created == 'true'
+      if: steps.create-pr.outputs.pr_created == 'true' && steps.wait-checks.outputs.checks_passed == 'true'
       uses: ./build-workflow/.github/actions/auto-merge-pr
       with:
         repository: ${{ inputs.repository }}
