@@ -130,8 +130,8 @@ runs:
         fi
         
         # Check if PR is mergeable before attempting merge
-        MERGEABLE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json mergeable -q '.mergeable // false' 2>&1 || echo "false")
-        if [ "${MERGEABLE}" != "true" ]; then
+        MERGEABLE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json mergeable -q '.mergeable // "UNKNOWN"' 2>&1 || echo "UNKNOWN")
+        if [ "${MERGEABLE}" != "MERGEABLE" ]; then
           echo "PR is not mergeable (mergeable: ${MERGEABLE}). Skipping merge."
           echo "merged=false" >> $GITHUB_OUTPUT
           exit 0
