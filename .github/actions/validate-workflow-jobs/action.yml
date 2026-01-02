@@ -1,6 +1,11 @@
 name: 'Validate Workflow Jobs'
 description: 'Validate that all workflow jobs completed successfully, treating skipped jobs as passed'
 
+inputs:
+  job_results:
+    description: 'JSON object mapping job names to their results (from needs context)'
+    required: true
+
 outputs:
   all_passed:
     description: 'Whether all jobs passed validation (true/false)'
@@ -12,84 +17,17 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Wait for all jobs to complete
-      id: wait
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_RUN_ID: ${{ github.run_id }}
-        GITHUB_WORKFLOW: ${{ github.workflow }}
-      run: |
-        set +e
-        
-        echo "Waiting for all jobs to complete..."
-        MAX_WAIT_TIME=3600  # 1 hour max wait
-        WAIT_INTERVAL=10   # Check every 10 seconds
-        ELAPSED=0
-        
-        while [ ${ELAPSED} -lt ${MAX_WAIT_TIME} ]; do
-          # Fetch all jobs and filter to current workflow only
-          JOBS_RESPONSE=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs)
-          
-          # Filter jobs to only include those from the current workflow
-          # This excludes parent workflow jobs when this is a reusable workflow
-          CURRENT_WORKFLOW_JOBS=$(echo "${JOBS_RESPONSE}" | jq --arg wf "${GITHUB_WORKFLOW}" '[.jobs[] | select(.workflow_name == $wf)]')
-          
-          # Count jobs that need to complete (exclude validate)
-          TOTAL_JOBS=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq '[.[] | select(.name != "validate")] | length')
-          COMPLETED_JOBS=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq '[.[] | select(.name != "validate" and .conclusion != null)] | length')
-          
-          # Check for failed jobs (not success and not skipped)
-          FAILED_JOBS=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq '[.[] | select(.name != "validate" and .conclusion != null and .conclusion != "success" and .conclusion != "skipped")]')
-          FAILED_COUNT=$(echo "${FAILED_JOBS}" | jq 'length')
-          
-          # Exit immediately if any job has failed
-          if [ "${FAILED_COUNT}" -gt 0 ]; then
-            echo "❌ Detected ${FAILED_COUNT} failed job(s) - stopping wait"
-            echo "${FAILED_JOBS}" | jq -r '.[] | "  - \(.name): \(.conclusion)"'
-            exit 1
-          fi
-          
-          if [ "${COMPLETED_JOBS}" = "${TOTAL_JOBS}" ] && [ "${TOTAL_JOBS}" -gt 0 ]; then
-            echo "All ${TOTAL_JOBS} jobs have completed"
-            break
-          fi
-          
-          echo "Jobs completed: ${COMPLETED_JOBS}/${TOTAL_JOBS}, waiting ${WAIT_INTERVAL}s... (${ELAPSED}s elapsed)"
-          sleep ${WAIT_INTERVAL}
-          ELAPSED=$((ELAPSED + WAIT_INTERVAL))
-        done
-        
-        if [ ${ELAPSED} -ge ${MAX_WAIT_TIME} ]; then
-          echo "Timeout waiting for jobs to complete"
-          exit 1
-        fi
-
     - name: Validate all job results
       id: validate
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_RUN_ID: ${{ github.run_id }}
-        GITHUB_WORKFLOW: ${{ github.workflow }}
+        JOB_RESULTS: ${{ inputs.job_results }}
       run: |
         set -e
         
-        # Fetch all jobs for the current workflow run
-        echo "Fetching jobs for workflow run ${GITHUB_RUN_ID}..."
-        JOBS_RESPONSE=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs)
-        
-        # Filter jobs to only include those from the current workflow
-        # This excludes parent workflow jobs when this is a reusable workflow
-        CURRENT_WORKFLOW_JOBS=$(echo "${JOBS_RESPONSE}" | jq --arg wf "${GITHUB_WORKFLOW}" '[.jobs[] | select(.workflow_name == $wf)]')
-        
-        # Extract jobs array (keep as JSON)
-        JOBS_COUNT=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq 'length')
-        
-        if [ -z "${JOBS_COUNT}" ] || [ "${JOBS_COUNT}" = "0" ]; then
-          echo "No jobs found or error fetching jobs"
+        # Parse job results JSON
+        if [ -z "${JOB_RESULTS}" ] || [ "${JOB_RESULTS}" = "null" ]; then
+          echo "No job results provided"
           echo "all_passed=false" >> $GITHUB_OUTPUT
           echo "failed_jobs=[]" >> $GITHUB_OUTPUT
           exit 1
@@ -99,16 +37,12 @@ runs:
         failed_jobs_json="[]"
         job_results_list=""
         
-        # Process each job using jq to iterate
-        for i in $(seq 0 $((JOBS_COUNT - 1))); do
-          job=$(echo "${CURRENT_WORKFLOW_JOBS}" | jq -c ".[${i}]")
-          job_name=$(echo "${job}" | jq -r '.name // ""')
-          job_result=$(echo "${job}" | jq -r '.conclusion // .status // "unknown"')
-          
-          # Skip the validate job itself
-          if [ "${job_name}" = "validate" ]; then
-            continue
-          fi
+        # Iterate through job results from needs context
+        # The needs context structure is: { "job_name": { "result": "success|failure|skipped|cancelled" } }
+        job_names=$(echo "${JOB_RESULTS}" | jq -r 'keys[]')
+        
+        for job_name in ${job_names}; do
+          job_result=$(echo "${JOB_RESULTS}" | jq -r ".[\"${job_name}\"].result // \"unknown\"")
           
           # Store job result for summary
           if [ -n "${job_results_list}" ]; then
@@ -118,7 +52,7 @@ runs:
           
           # Check if job failed (not success and not skipped)
           if [ "${job_result}" != "success" ] && [ "${job_result}" != "skipped" ]; then
-            failed_job_json=$(echo "${job}" | jq -c '{name: .name, result: (.conclusion // .status)}')
+            failed_job_json=$(echo "{\"name\":\"${job_name}\",\"result\":\"${job_result}\"}" | jq -c)
             failed_jobs_json=$(echo "${failed_jobs_json}" | jq -c ". + [${failed_job_json}]")
           fi
         done

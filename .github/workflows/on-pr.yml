@@ -184,7 +184,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
   validate:
-    needs: []
+    needs: [prepare-version, test, auto-merge]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -196,4 +196,6 @@ jobs:
 
       - name: Validate all job results
         uses: ./build-workflow/.github/actions/validate-workflow-jobs
+        with:
+          job_results: ${{ toJson(needs) }}
 

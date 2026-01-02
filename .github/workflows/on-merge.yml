@@ -309,7 +309,7 @@ jobs:
           repository: ${{ github.repository }}
 
   validate:
-    needs: []
+    needs: [prepare-version, re-tag, build-and-test, publish, create-tag]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -321,4 +321,6 @@ jobs:
 
       - name: Validate all job results
         uses: ./build-workflow/.github/actions/validate-workflow-jobs
+        with:
+          job_results: ${{ toJson(needs) }}
 
