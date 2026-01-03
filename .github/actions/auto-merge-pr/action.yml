@@ -94,25 +94,25 @@ runs:
         
         echo "✓ All PR conditions met"
         
-        # Check current review decision
-        REVIEW_DECISION=$(gh pr view "${PR_NUMBER}" \
-          --repo "${REPOSITORY}" \
-          --json reviewDecision \
-          -q '.reviewDecision' || echo "UNKNOWN")
+        # # Check current review decision
+        # REVIEW_DECISION=$(gh pr view "${PR_NUMBER}" \
+        #   --repo "${REPOSITORY}" \
+        #   --json reviewDecision \
+        #   -q '.reviewDecision' || echo "UNKNOWN")
 
-        echo "Review decision: ${REVIEW_DECISION}"
+        # echo "Review decision: ${REVIEW_DECISION}"
 
-        if [ "${REVIEW_DECISION}" != "APPROVED" ]; then
-          echo "Submitting bot approval review..."
-          gh api \
-            repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews \
-            -X POST \
-            -f event=APPROVE \
-            -f body="Automated approval after successful build and runtime validation."
-        else
-          echo "PR already approved, skipping approval."
-        fi
-        
+        # if [ "${REVIEW_DECISION}" != "APPROVED" ]; then
+        #   echo "Submitting bot approval review..."
+        #   gh api \
+        #     repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews \
+        #     -X POST \
+        #     -f event=APPROVE \
+        #     -f body="Automated approval after successful build and runtime validation."
+        # else
+        #   echo "PR already approved, skipping approval."
+        # fi
+
         # Check if PR is still open
         PR_STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json state -q '.state' 2>&1 || echo "ERROR")
         if [ "${PR_STATE}" = "ERROR" ]; then
