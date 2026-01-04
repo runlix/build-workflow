@@ -153,7 +153,7 @@ jobs:
         run: echo "All matrix tests completed successfully"
 
   auto-merge:
-    needs: test
+    needs: test-aggregate
     runs-on: ubuntu-latest
     if: needs.prepare-version.outputs.target_branch != '' && success()
     permissions:
@@ -179,30 +179,3 @@ jobs:
           app_id: ${{ secrets.RUNLIX_APP_ID }}
           private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-
-      # - name: Delete branch after merge
-      #   if: steps.auto-merge.outputs.merged == 'true'
-      #   uses: ./build-workflow/.github/actions/delete-branch
-      #   with:
-      #     repository: ${{ github.repository }}
-      #     branch_name: ${{ github.event.pull_request.head.ref }}
-      #     app_id: ${{ secrets.RUNLIX_APP_ID }}
-      #     private_key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
-      #     owner: ${{ github.repository_owner }}
-
-  # validate:
-  #   needs: [prepare-version, test, auto-merge]
-  #   if: always()
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout build-workflow for actions
-  #       uses: actions/checkout@v6
-  #       with:
-  #         repository: runlix/build-workflow
-  #         path: build-workflow
-
-  #     - name: Validate all job results
-  #       uses: ./build-workflow/.github/actions/validate-workflow-jobs
-  #       with:
-  #         job_results: ${{ toJson(needs) }}
-
