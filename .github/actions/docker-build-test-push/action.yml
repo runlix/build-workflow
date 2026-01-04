@@ -174,7 +174,7 @@ runs:
     # Generate metadata (call existing action)
     - name: Generate metadata
       id: metadata
-      uses: ./generate-metadata
+      uses: ./build-workflow/.github/actions/generate-metadata
       with:
         arch: ${{ inputs.arch }}
         repository: ${{ inputs.repository }}
@@ -188,12 +188,12 @@ runs:
     - name: Generate timestamp
       id: timestamp
       if: inputs.include_oci_labels == 'true'
-      uses: ./generate-timestamp
+      uses: ./build-workflow/.github/actions/generate-timestamp
   
     # Prepare build args (call existing action)
     - name: Prepare build args
       id: prepare-build-args
-      uses: ./prepare-build-args
+      uses: ./build-workflow/.github/actions/prepare-build-args
       with:
         builder_tag: ${{ inputs.builder_tag }}
         builder_digest: ${{ inputs.builder_digest }}
@@ -208,7 +208,7 @@ runs:
     - name: Extract test URL
       id: extract-test-url
       if: inputs.run_smoke_test == 'true' && (inputs.test_url == '' || inputs.test_url == 'null')
-      uses: ./extract-version-metadata
+      uses: ./build-workflow/.github/actions/extract-version-metadata
       with:
         extract_test_url: 'true'
   
@@ -252,7 +252,7 @@ runs:
     - name: Smoke Test
       id: smoketest
       if: inputs.run_smoke_test == 'true'
-      uses: ./smoke-test
+      uses: ./build-workflow/.github/actions/smoke-test
       with:
         image: ${{ steps.metadata.outputs.image-tag }}
         platform: ${{ steps.metadata.outputs.platform }}
