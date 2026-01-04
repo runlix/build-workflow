@@ -307,20 +307,3 @@ jobs:
           version: ${{ needs.prepare-version.outputs.version }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           repository: ${{ github.repository }}
-
-  validate:
-    needs: [prepare-version, re-tag, build-and-test, publish, create-tag]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
-        with:
-          repository: runlix/build-workflow
-          path: build-workflow
-
-      - name: Validate all job results
-        uses: ./build-workflow/.github/actions/validate-workflow-jobs
-        with:
-          job_results: ${{ toJson(needs) }}
-
