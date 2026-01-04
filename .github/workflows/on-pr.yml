@@ -9,6 +9,11 @@ on:
         required: false
         default: true
 
+permissions:
+  contents: read
+  pull-requests: write
+  packages: write
+
 jobs:
   prepare-version:
     runs-on: ubuntu-latest
@@ -69,12 +74,9 @@ jobs:
           repository: runlix/build-workflow
           path: build-workflow
 
-      - name: Set up Docker
-        uses: ./build-workflow/.github/actions/setup-docker
-
-      - name: Generate metadata
-        id: metadata
-        uses: ./build-workflow/.github/actions/generate-metadata
+      - name: Build, test, and push image
+        id: build-test-push
+        uses: ./build-workflow/.github/actions/docker-build-test-push
         with:
           arch: ${{ matrix.target.arch }}
           repository: ${{ github.repository }}
@@ -83,64 +85,18 @@ jobs:
           target_name: ${{ matrix.target.name }}
           sha_short: ${{ needs.prepare-version.outputs.sha_short }}
           pr_mode: ${{ needs.prepare-version.outputs.target_branch != '' && 'true' || 'false' }}
-
-      - name: Prepare build args
-        id: prepare-build-args
-        uses: ./build-workflow/.github/actions/prepare-build-args
-        with:
           builder_tag: ${{ matrix.target.builder.tag }}
           builder_digest: ${{ matrix.target.builder.digest }}
           base_tag: ${{ matrix.target.base.tag }}
           base_digest: ${{ matrix.target.base.digest }}
-          version: ${{ needs.prepare-version.outputs.version }}
           build_date: ${{ needs.prepare-version.outputs.build_date }}
           git_commit: ${{ needs.prepare-version.outputs.sha }}
           package_url: ${{ matrix.target.package_url }}
-
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.target.dockerfile }}
-          platforms: ${{ steps.metadata.outputs.platform }}
-          push: false
-          load: true
-          tags: ${{ steps.metadata.outputs.image-tag }}
-          provenance: false
-          build-args: ${{ steps.prepare-build-args.outputs.build_args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Smoke Test
-        id: smoketest
-        if: ${{ inputs.run_smoke_test }}
-        uses: ./build-workflow/.github/actions/smoke-test
-        with:
-          image: ${{ steps.metadata.outputs.image-tag }}
-          platform: ${{ steps.metadata.outputs.platform }}
-          package_version: ${{ needs.prepare-version.outputs.version }}
+          dockerfile: ${{ matrix.target.dockerfile }}
+          run_smoke_test: ${{ inputs.run_smoke_test && 'true' || 'false' }}
           test_url: ${{ needs.prepare-version.outputs.test_url }}
-
-      - name: Upload test logs
-        if: ${{ always() && inputs.run_smoke_test }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
-          path: ${{ needs.prepare-version.outputs.version }}-test.log
-          retention-days: 7
-
-      - name: Log in to GitHub Container Registry
-        if: success()
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          include_oci_labels: 'false'
           password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Push image
-        if: success()
-        run: |
-          docker push ${{ steps.metadata.outputs.image-tag }}
  
   test-aggregate:
     name: test-aggregate

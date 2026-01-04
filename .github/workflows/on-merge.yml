@@ -9,6 +9,10 @@ on:
         required: false
         default: true
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   prepare-version:
     runs-on: ubuntu-latest
@@ -59,14 +63,9 @@ jobs:
           branch: ${{ steps.extract.outputs.branch }}
           default_branch: ${{ steps.extract.outputs.default_branch }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - name: Set up Docker and login
+        uses: ./build-workflow/.github/actions/docker-setup-login
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Check if PR images exist
@@ -87,14 +86,9 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.prepare-version.outputs.matrix) }}
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - name: Set up Docker and login
+        uses: ./build-workflow/.github/actions/docker-setup-login
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Checkout build-workflow for actions
@@ -131,12 +125,9 @@ jobs:
           repository: runlix/build-workflow
           path: build-workflow
 
-      - name: Set up Docker
-        uses: ./build-workflow/.github/actions/setup-docker
-
-      - name: Generate metadata
-        id: metadata
-        uses: ./build-workflow/.github/actions/generate-metadata
+      - name: Build, test, and push image
+        id: build-test-push
+        uses: ./build-workflow/.github/actions/docker-build-test-push
         with:
           arch: ${{ matrix.target.arch }}
           repository: ${{ github.repository }}
@@ -144,96 +135,28 @@ jobs:
           version: ${{ needs.prepare-version.outputs.version }}
           target_name: ${{ matrix.target.name }}
           pr_mode: 'false'
-
-      - name: Generate created timestamp
-        id: timestamp
-        uses: ./build-workflow/.github/actions/generate-timestamp
-
-      - name: Prepare build args
-        id: prepare-build-args
-        uses: ./build-workflow/.github/actions/prepare-build-args
-        with:
           builder_tag: ${{ matrix.target.builder.tag }}
           builder_digest: ${{ matrix.target.builder.digest }}
           base_tag: ${{ matrix.target.base.tag }}
           base_digest: ${{ matrix.target.base.digest }}
-          version: ${{ needs.prepare-version.outputs.version }}
           build_date: ${{ needs.prepare-version.outputs.build_date }}
           git_commit: ${{ needs.prepare-version.outputs.sha }}
           package_url: ${{ matrix.target.package_url }}
-
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.target.dockerfile }}
-          platforms: ${{ steps.metadata.outputs.platform }}
-          push: false
-          load: true
-          tags: ${{ steps.metadata.outputs.image-tag }}
-          provenance: false
-          build-args: ${{ steps.prepare-build-args.outputs.build_args }}
-          labels: |
-            org.opencontainers.image.created=${{ steps.timestamp.outputs.created }}
-            org.opencontainers.image.title=${{ github.repository }}:${{ needs.prepare-version.outputs.branch }}
-            org.opencontainers.image.revision=${{ needs.prepare-version.outputs.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}/tree/${{ needs.prepare-version.outputs.branch }}
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ needs.prepare-version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract test URL
-        id: extract-test-url
-        if: ${{ inputs.run_smoke_test }}
-        uses: ./build-workflow/.github/actions/extract-version-metadata
-        with:
-          extract_test_url: 'true'
-
-      - name: Smoke Test
-        id: smoketest
-        if: ${{ inputs.run_smoke_test }}
-        uses: ./build-workflow/.github/actions/smoke-test
-        with:
-          image: ${{ steps.metadata.outputs.image-tag }}
-          platform: ${{ steps.metadata.outputs.platform }}
-          package_version: ${{ needs.prepare-version.outputs.version }}
-          test_url: ${{ steps.extract-test-url.outputs.test_url }}
-
-      - name: Upload test logs
-        if: ${{ always() && inputs.run_smoke_test }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-logs-${{ matrix.target.name }}-${{ needs.prepare-version.outputs.version }}
-          path: ${{ needs.prepare-version.outputs.version }}-test.log
-          retention-days: 7
-
-      - name: Log in to GitHub Container Registry
-        if: success()
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          dockerfile: ${{ matrix.target.dockerfile }}
+          run_smoke_test: ${{ inputs.run_smoke_test && 'true' || 'false' }}
+          include_oci_labels: 'true'
+          sha: ${{ needs.prepare-version.outputs.sha }}
+          server_url: ${{ github.server_url }}
           password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Push image
-        if: success()
-        run: |
-          docker push ${{ steps.metadata.outputs.image-tag }}
 
   publish:
     needs: [prepare-version, re-tag, build-and-test]
     if: always() && (needs.re-tag.result == 'success' || needs.build-and-test.result == 'success')
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - name: Set up Docker and login
+        uses: ./build-workflow/.github/actions/docker-setup-login
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}
       
       - name: Checkout build-workflow for actions
