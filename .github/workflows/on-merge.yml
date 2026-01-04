@@ -17,12 +17,10 @@ jobs:
       build_date: ${{ steps.extract.outputs.build_date }}
       branch: ${{ steps.extract.outputs.branch }}
       sha: ${{ steps.extract.outputs.sha }}
-      pr_head_sha: ${{ steps.get-pr-sha.outputs.pr_head_sha }}
       pr_head_sha_short: ${{ steps.get-pr-sha.outputs.pr_head_sha_short }}
       default_branch: ${{ steps.extract.outputs.default_branch }}
       variants: ${{ steps.extract.outputs.variants }}
       matrix: ${{ steps.extract.outputs.matrix }}
-      should_tag: ${{ steps.check-pr.outputs.should_tag }}
       version_changed: ${{ steps.check-version.outputs.version_changed }}
       pr_images_found: ${{ steps.check-pr-images.outputs.pr_images_found }}
     steps:
