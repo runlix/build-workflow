@@ -143,7 +143,7 @@ jobs:
         if: success()
         run: |
           docker push ${{ steps.metadata.outputs.image-tag }}
-  
+ 
   test-aggregate:
     name: test-aggregate
     needs: test
@@ -151,7 +151,8 @@ jobs:
     steps:
       - name: All tests passed
         run: echo "All matrix tests completed successfully"
-        
+
+  auto-merge:
     needs: test
     runs-on: ubuntu-latest
     if: needs.prepare-version.outputs.target_branch != '' && success()
