@@ -19,8 +19,6 @@ jobs:
       sha: ${{ steps.extract.outputs.sha }}
       sha_short: ${{ steps.extract.outputs.sha_short }}
       target_branch: ${{ steps.get-pr-info.outputs.target_branch }}
-      default_branch: ${{ steps.extract.outputs.default_branch }}
-      variants: ${{ steps.extract.outputs.variants }}
       matrix: ${{ steps.extract.outputs.matrix }}
       test_url: ${{ steps.extract.outputs.test_url }}
     steps:
