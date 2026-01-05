@@ -20,6 +20,39 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="delete-branch"
+        
+        # Validate all required inputs
+        if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
+          exit 1
+        fi
+        
+        # Validate repository format (owner/repo)
+        if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.branch_name }}" ] || [ "${{ inputs.branch_name }}" = "null" ] || [ "${{ inputs.branch_name }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch_name is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.github_token }}" ] || [ "${{ inputs.github_token }}" = "null" ] || [ "${{ inputs.github_token }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: github_token is required" >&2
+          exit 1
+        fi
+        
+        # Never log secret values
+        echo "✓ GitHub token provided (not logged)"
+    
     - name: Delete branch
       id: delete-branch
       shell: bash
@@ -29,12 +62,6 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
       run: |
         set -e
-        
-        if [ -z "${BRANCH_NAME}" ]; then
-          echo "Branch name not available, skipping deletion"
-          echo "deleted=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
         
         echo "Deleting branch: ${BRANCH_NAME}"
         # Use gh CLI to delete the branch

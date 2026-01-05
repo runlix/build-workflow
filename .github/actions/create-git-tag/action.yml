@@ -18,6 +18,50 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="create-git-tag"
+        
+        # Validate all required inputs
+        if [ -z "${{ inputs.version }}" ] || [ "${{ inputs.version }}" = "null" ] || [ "${{ inputs.version }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.sha }}" ] || [ "${{ inputs.sha }}" = "null" ] || [ "${{ inputs.sha }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: sha is required" >&2
+          exit 1
+        fi
+        
+        # Validate SHA format (40 hex characters)
+        if ! [[ "${{ inputs.sha }}" =~ ^[a-f0-9]{40}$ ]]; then
+          echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid sha format (expected: 40 hex characters)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
+          exit 1
+        fi
+        
+        # Validate repository format (owner/repo)
+        if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.github_token }}" ] || [ "${{ inputs.github_token }}" = "null" ] || [ "${{ inputs.github_token }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: github_token is required" >&2
+          exit 1
+        fi
+        
+        # Never log secret values
+        echo "✓ GitHub token provided (not logged)"
+    
     - name: Create and push git tag
       shell: bash
       run: |

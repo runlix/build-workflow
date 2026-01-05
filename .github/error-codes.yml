@@ -1,0 +1,14 @@
+# GitHub Actions Error Code Registry
+# This file documents standardized error codes used across all composite actions
+# for consistent error reporting and easier debugging.
+
+validation_codes:
+  VALIDATION_001: "Required input is missing or empty"
+  VALIDATION_002: "Invalid version format"
+  VALIDATION_003: "Invalid SHA format"
+  VALIDATION_004: "Invalid repository format"
+  VALIDATION_005: "Invalid digest format"
+  VALIDATION_006: "Invalid branch name format"
+  VALIDATION_007: "Invalid PR number format"
+  VALIDATION_008: "Conditional input required (e.g., sha_short when pr_mode is true)"
+

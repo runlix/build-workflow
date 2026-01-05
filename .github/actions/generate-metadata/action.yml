@@ -36,6 +36,54 @@ outputs:
 runs:
   using: 'composite'
   steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -e
+          set -o pipefail
+          
+          ACTION_NAME="generate-metadata"
+          
+          # Validate required inputs
+          if [ -z "${{ inputs.arch }}" ] || [ "${{ inputs.arch }}" = "null" ] || [ "${{ inputs.arch }}" = "" ]; then
+            echo "::error::[VALIDATION_001] ${ACTION_NAME}: arch is required" >&2
+            exit 1
+          fi
+          
+          if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+            echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
+            exit 1
+          fi
+          
+          # Validate repository format (owner/repo)
+          if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+            echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
+            exit 1
+          fi
+          
+          if [ -z "${{ inputs.branch }}" ] || [ "${{ inputs.branch }}" = "null" ] || [ "${{ inputs.branch }}" = "" ]; then
+            echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch is required" >&2
+            exit 1
+          fi
+          
+          if [ -z "${{ inputs.version }}" ] || [ "${{ inputs.version }}" = "null" ] || [ "${{ inputs.version }}" = "" ]; then
+            echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
+            exit 1
+          fi
+          
+          if [ -z "${{ inputs.target_name }}" ] || [ "${{ inputs.target_name }}" = "null" ] || [ "${{ inputs.target_name }}" = "" ]; then
+            echo "::error::[VALIDATION_001] ${ACTION_NAME}: target_name is required" >&2
+            exit 1
+          fi
+          
+          # Conditional validation: sha_short is required when pr_mode is true
+          if [ "${{ inputs.pr_mode }}" = "true" ]; then
+            if [ -z "${{ inputs.sha_short }}" ] || [ "${{ inputs.sha_short }}" = "null" ] || [ "${{ inputs.sha_short }}" = "" ]; then
+              echo "::error::[VALIDATION_008] ${ACTION_NAME}: sha_short is required when pr_mode is true" >&2
+              exit 1
+            fi
+          fi
+      
       - name: Generate metadata
         id: metadata
         shell: bash
@@ -51,10 +99,6 @@ runs:
           if [ "${{ inputs.pr_mode }}" = "true" ]; then
             # PR format: pr-<target_branch>-<version>-<sha_short>
             SHA_SHORT="${{ inputs.sha_short }}"
-            if [ -z "$SHA_SHORT" ]; then
-              echo "ERROR: sha_short is required when pr_mode is true"
-              exit 1
-            fi
             IMAGE_TAG="ghcr.io/${{ inputs.repository }}:pr-${BRANCH_SANITIZED}-${{ inputs.version }}-${{ inputs.target_name }}-${SHA_SHORT}"
           else
             # Standard format: <branch>-<version>-<target_name>

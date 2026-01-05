@@ -39,6 +39,85 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="update-tags-json"
+        
+        # Validate all required inputs
+        if [ -z "${{ inputs.run_id }}" ] || [ "${{ inputs.run_id }}" = "null" ] || [ "${{ inputs.run_id }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: run_id is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
+          exit 1
+        fi
+        
+        # Validate repository format (owner/repo)
+        if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.server_url }}" ] || [ "${{ inputs.server_url }}" = "null" ] || [ "${{ inputs.server_url }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: server_url is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.branch }}" ] || [ "${{ inputs.branch }}" = "null" ] || [ "${{ inputs.branch }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.pr_base_branch }}" ] || [ "${{ inputs.pr_base_branch }}" = "null" ] || [ "${{ inputs.pr_base_branch }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: pr_base_branch is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.version }}" ] || [ "${{ inputs.version }}" = "null" ] || [ "${{ inputs.version }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.sha }}" ] || [ "${{ inputs.sha }}" = "null" ] || [ "${{ inputs.sha }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: sha is required" >&2
+          exit 1
+        fi
+        
+        # Validate SHA format (40 hex characters)
+        if ! [[ "${{ inputs.sha }}" =~ ^[a-f0-9]{40}$ ]]; then
+          echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid SHA format (expected: 40 hex characters)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.variants }}" ] || [ "${{ inputs.variants }}" = "null" ] || [ "${{ inputs.variants }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: variants is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.github_token }}" ] || [ "${{ inputs.github_token }}" = "null" ] || [ "${{ inputs.github_token }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: github_token is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.app_bot_name }}" ] || [ "${{ inputs.app_bot_name }}" = "null" ] || [ "${{ inputs.app_bot_name }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: app_bot_name is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.app_bot_email }}" ] || [ "${{ inputs.app_bot_email }}" = "null" ] || [ "${{ inputs.app_bot_email }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: app_bot_email is required" >&2
+          exit 1
+        fi
+        
+        # Never log secret values
+        echo "✓ GitHub token provided (not logged)"
+    
     - name: Update tags.json and create PR
       id: create-pr
       shell: bash

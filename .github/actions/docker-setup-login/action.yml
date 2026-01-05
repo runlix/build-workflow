@@ -20,11 +20,18 @@ runs:
       shell: bash
       run: |
         set -e
-        if [ -z "${{ inputs.password }}" ]; then
-          echo "ERROR: password input is required"
+        set -o pipefail
+        
+        ACTION_NAME="docker-setup-login"
+        
+        # Validate required password input
+        if [ -z "${{ inputs.password }}" ] || [ "${{ inputs.password }}" = "null" ] || [ "${{ inputs.password }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: password is required" >&2
           exit 1
         fi
+        
         # Never log the password value
+        echo "✓ Password provided (not logged)"
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0

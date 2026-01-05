@@ -26,6 +26,36 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="check-version-changed"
+        
+        # Validate all required inputs
+        if [ -z "${{ inputs.commit_sha }}" ] || [ "${{ inputs.commit_sha }}" = "null" ] || [ "${{ inputs.commit_sha }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: commit_sha is required" >&2
+          exit 1
+        fi
+        
+        # Validate SHA format (40 hex characters)
+        if ! [[ "${{ inputs.commit_sha }}" =~ ^[a-f0-9]{40}$ ]]; then
+          echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid commit_sha format (expected: 40 hex characters)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.branch }}" ] || [ "${{ inputs.branch }}" = "null" ] || [ "${{ inputs.branch }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.default_branch }}" ] || [ "${{ inputs.default_branch }}" = "null" ] || [ "${{ inputs.default_branch }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: default_branch is required" >&2
+          exit 1
+        fi
+    
     - name: Check if version changed
       id: check
       shell: bash

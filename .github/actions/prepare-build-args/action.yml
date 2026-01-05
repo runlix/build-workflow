@@ -35,25 +35,46 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Prepare build args
-      id: prepare-build-args
+    - name: Validate inputs
       shell: bash
       run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="prepare-build-args"
+        
+        # Validate required version input
+        if [ -z "${{ inputs.version }}" ] || [ "${{ inputs.version }}" = "null" ] || [ "${{ inputs.version }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
+          exit 1
+        fi
+        
+        # Validate required git_commit input
+        if [ -z "${{ inputs.git_commit }}" ] || [ "${{ inputs.git_commit }}" = "null" ] || [ "${{ inputs.git_commit }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: git_commit is required" >&2
+          exit 1
+        fi
+        
         # Validate that digests are provided (required for Docker FROM statements)
         # Docker FROM statements require digests to be non-empty to avoid invalid "tag@" format
         BUILDER_DIGEST_VALUE="${{ inputs.builder_digest }}"
         BASE_DIGEST_VALUE="${{ inputs.base_digest }}"
         
         if [ -z "${BUILDER_DIGEST_VALUE}" ] || [ "${BUILDER_DIGEST_VALUE}" = "null" ] || [ "${BUILDER_DIGEST_VALUE}" = "" ]; then
-          echo "ERROR: BUILDER_DIGEST is required but was not provided or is empty"
-          echo "  Received value: '${BUILDER_DIGEST_VALUE}'"
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: builder_digest is required" >&2
           exit 1
         fi
         if [ -z "${BASE_DIGEST_VALUE}" ] || [ "${BASE_DIGEST_VALUE}" = "null" ] || [ "${BASE_DIGEST_VALUE}" = "" ]; then
-          echo "ERROR: BASE_DIGEST is required but was not provided or is empty"
-          echo "  Received value: '${BASE_DIGEST_VALUE}'"
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: base_digest is required" >&2
           exit 1
         fi
+    
+    - name: Prepare build args
+      id: prepare-build-args
+      shell: bash
+      run: |
+        BUILDER_DIGEST_VALUE="${{ inputs.builder_digest }}"
+        BASE_DIGEST_VALUE="${{ inputs.base_digest }}"
         
         # Build the build-args multiline string line by line to avoid indentation issues
         {

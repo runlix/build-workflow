@@ -22,6 +22,30 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="smoke-test"
+        
+        # Validate all required inputs
+        if [ -z "${{ inputs.image }}" ] || [ "${{ inputs.image }}" = "null" ] || [ "${{ inputs.image }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: image is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.platform }}" ] || [ "${{ inputs.platform }}" = "null" ] || [ "${{ inputs.platform }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: platform is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.package_version }}" ] || [ "${{ inputs.package_version }}" = "null" ] || [ "${{ inputs.package_version }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: package_version is required" >&2
+          exit 1
+        fi
+    
     - name: Smoke Test
       id: smoketest
       shell: bash

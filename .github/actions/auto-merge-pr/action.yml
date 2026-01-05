@@ -23,6 +23,50 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="auto-merge-pr"
+        
+        # Validate all required inputs
+        if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
+          exit 1
+        fi
+        
+        # Validate repository format (owner/repo)
+        if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.pr_number }}" ] || [ "${{ inputs.pr_number }}" = "null" ] || [ "${{ inputs.pr_number }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: pr_number is required" >&2
+          exit 1
+        fi
+        
+        # Validate PR number format (should be numeric)
+        if ! [[ "${{ inputs.pr_number }}" =~ ^[0-9]+$ ]]; then
+          echo "::error::[VALIDATION_007] ${ACTION_NAME}: Invalid PR number format (expected: numeric)" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.github_token }}" ] || [ "${{ inputs.github_token }}" = "null" ] || [ "${{ inputs.github_token }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: github_token is required" >&2
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.app_bot_name }}" ] || [ "${{ inputs.app_bot_name }}" = "null" ] || [ "${{ inputs.app_bot_name }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: app_bot_name is required" >&2
+          exit 1
+        fi
+        
+        # Never log secret values
+        echo "✓ GitHub token provided (not logged)"
+    
     - name: Check PR conditions and merge
       id: auto-merge
       shell: bash

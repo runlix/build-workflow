@@ -109,50 +109,78 @@ runs:
       shell: bash
       run: |
         set -e
-        if [ -z "${{ inputs.password }}" ]; then
-          echo "ERROR: password input is required"
+        set -o pipefail
+        
+        ACTION_NAME="docker-build-test-push"
+        
+        # Validate required password input
+        if [ -z "${{ inputs.password }}" ] || [ "${{ inputs.password }}" = "null" ] || [ "${{ inputs.password }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: password is required" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.dockerfile }}" ]; then
-          echo "ERROR: dockerfile input is required"
+        
+        # Validate required dockerfile input
+        if [ -z "${{ inputs.dockerfile }}" ] || [ "${{ inputs.dockerfile }}" = "null" ] || [ "${{ inputs.dockerfile }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: dockerfile is required" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.version }}" ]; then
-          echo "ERROR: version input is required"
+        
+        # Validate required version input
+        if [ -z "${{ inputs.version }}" ] || [ "${{ inputs.version }}" = "null" ] || [ "${{ inputs.version }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.arch }}" ]; then
-          echo "ERROR: arch input is required"
+        
+        # Validate required arch input
+        if [ -z "${{ inputs.arch }}" ] || [ "${{ inputs.arch }}" = "null" ] || [ "${{ inputs.arch }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: arch is required" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.repository }}" ]; then
-          echo "ERROR: repository input is required"
+        
+        # Validate required repository input
+        if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.branch }}" ]; then
-          echo "ERROR: branch input is required"
+        
+        # Validate repository format (owner/repo)
+        if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.target_name }}" ]; then
-          echo "ERROR: target_name input is required"
+        
+        # Validate required branch input
+        if [ -z "${{ inputs.branch }}" ] || [ "${{ inputs.branch }}" = "null" ] || [ "${{ inputs.branch }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch is required" >&2
           exit 1
         fi
-        if [ -z "${{ inputs.git_commit }}" ]; then
-          echo "ERROR: git_commit input is required"
+        
+        # Validate required target_name input
+        if [ -z "${{ inputs.target_name }}" ] || [ "${{ inputs.target_name }}" = "null" ] || [ "${{ inputs.target_name }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: target_name is required" >&2
           exit 1
         fi
-        # Validate digests (similar to prepare-build-args)
+        
+        # Validate required git_commit input
+        if [ -z "${{ inputs.git_commit }}" ] || [ "${{ inputs.git_commit }}" = "null" ] || [ "${{ inputs.git_commit }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: git_commit is required" >&2
+          exit 1
+        fi
+        
+        # Validate digests (required for Docker FROM statements)
         BUILDER_DIGEST="${{ inputs.builder_digest }}"
         BASE_DIGEST="${{ inputs.base_digest }}"
         if [ -z "${BUILDER_DIGEST}" ] || [ "${BUILDER_DIGEST}" = "null" ] || [ "${BUILDER_DIGEST}" = "" ]; then
-          echo "ERROR: builder_digest is required but was not provided or is empty"
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: builder_digest is required" >&2
           exit 1
         fi
         if [ -z "${BASE_DIGEST}" ] || [ "${BASE_DIGEST}" = "null" ] || [ "${BASE_DIGEST}" = "" ]; then
-          echo "ERROR: base_digest is required but was not provided or is empty"
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: base_digest is required" >&2
           exit 1
         fi
+        
         # Never log secret values
+        echo "✓ Password provided (not logged)"
     
     # Setup (with QEMU)
     - name: Set up Docker Buildx

@@ -20,6 +20,26 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="check-pr-commit"
+        
+        # Validate required input
+        if [ -z "${{ inputs.commit_sha }}" ] || [ "${{ inputs.commit_sha }}" = "null" ] || [ "${{ inputs.commit_sha }}" = "" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: commit_sha is required" >&2
+          exit 1
+        fi
+        
+        # Validate SHA format (40 hex characters)
+        if ! [[ "${{ inputs.commit_sha }}" =~ ^[a-f0-9]{40}$ ]]; then
+          echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid commit_sha format (expected: 40 hex characters)" >&2
+          exit 1
+        fi
+    
     - name: Check commit author and PR info
       id: check
       shell: bash

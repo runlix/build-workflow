@@ -43,13 +43,18 @@ runs:
       id: extract
       shell: bash
       run: |
+        set -e
+        set -o pipefail
+        
+        ACTION_NAME="extract-version-metadata"
+        
         if [ ! -f VERSION.json ]; then
-          echo "ERROR: VERSION.json not found in current directory"
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: VERSION.json not found in current directory" >&2
           exit 1
         fi
         
         if ! command -v jq &> /dev/null; then
-          echo "ERROR: jq is not installed"
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: jq is not installed" >&2
           exit 1
         fi
         
