@@ -7,6 +7,9 @@ on:
 
 jobs:
   cleanup:
+    permissions:
+      contents: read      # Required for gh repo list to discover repositories
+      packages: delete    # Required for snok/container-retention-policy to delete images
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
