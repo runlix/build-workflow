@@ -43,6 +43,9 @@ jobs:
         run: |
           set -Eeo pipefail
 
+          # Setup git authentication for gh repo clone and git push
+          gh auth setup-git
+
           echo "🔍 Discovering repositories with docker-image topic..."
           REPOSITORIES=$(gh repo list "$OWNER" --limit 200 --json name,repositoryTopics --jq '.[] | select([.repositoryTopics[]?.name] | index("docker-image")) | .name')
           
@@ -58,9 +61,6 @@ jobs:
               DIR=$(mktemp -d)
               gh repo clone "$OWNER/$REPO" "$DIR" -- --branch "$BRANCH" --depth 1
               cd "$DIR"
-              
-              # Configure git credential helper for push operations (non-persistent)
-              git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
 
               [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
               ./update-digests.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }

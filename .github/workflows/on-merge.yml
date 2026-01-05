@@ -225,12 +225,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RUNLIX_APP_ID }}
+          private-key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-version.outputs.sha }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout build-workflow for actions
         uses: actions/checkout@v6
@@ -244,3 +252,4 @@ jobs:
           version: ${{ needs.prepare-version.outputs.version }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           repository: ${{ github.repository }}
+          github_token: ${{ steps.app-token.outputs.token }}

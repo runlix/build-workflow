@@ -11,6 +11,9 @@ inputs:
   repository:
     description: 'GitHub repository (e.g., owner/repo)'
     required: true
+  github_token:
+    description: 'GitHub token (from GitHub App)'
+    required: true
 
 runs:
   using: 'composite'
