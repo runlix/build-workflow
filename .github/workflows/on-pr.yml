@@ -9,13 +9,10 @@ on:
         required: false
         default: true
 
-permissions:
-  contents: read
-  pull-requests: write
-  packages: write
-
 jobs:
   prepare-version:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.extract.outputs.version }}
@@ -58,6 +55,9 @@ jobs:
 
   test:
     needs: prepare-version
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -101,6 +101,8 @@ jobs:
   test-aggregate:
     name: test-aggregate
     needs: test
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: All tests passed

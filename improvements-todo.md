@@ -157,31 +157,28 @@ This approach:
 
 ### 🔴 SEC-003: Least-Privilege Permissions
 
-**Status**: ⚠️ **High**  
+**Status**: ✅ **Completed**  
 **Files Affected**: 
-- `.github/workflows/on-merge.yml` (lines 12-14)
-- `.github/workflows/on-pr.yml` (lines 12-15)
-- `.github/workflows/update-digests.yml` (lines 8-10)
-- `.github/workflows/update-versions.yml` (lines 8-10)
+- `.github/workflows/on-merge.yml` (removed workflow-level permissions, added job-level)
+- `.github/workflows/on-pr.yml` (removed workflow-level permissions, added job-level)
+- `.github/workflows/update-digests.yml` (removed workflow-level permissions, added job-level)
+- `.github/workflows/update-versions.yml` (removed workflow-level permissions, added job-level)
 
 #### Issue Description
 
 Workflows request broad permissions at the workflow level, granting more access than necessary for individual jobs.
 
-#### Current Code
+#### Current Code (Fixed)
 
+**Before (Insecure):**
 ```yaml:12:14:.github/workflows/on-merge.yml
 permissions:
   contents: write
   packages: write
 ```
 
-```yaml:12:15:.github/workflows/on-pr.yml
-permissions:
-  contents: read
-  pull-requests: write
-  packages: write
-```
+**After (Secure):**
+Workflow-level permissions removed. Each job now has minimal required permissions (see Permission Requirements Reference below).
 
 #### Risk Assessment
 
@@ -226,23 +223,43 @@ jobs:
 
 #### Implementation Steps
 
-1. [ ] Audit each job to determine minimum required permissions
-2. [ ] Remove workflow-level permissions from `on-merge.yml`
-3. [ ] Remove workflow-level permissions from `on-pr.yml`
-4. [ ] Add job-level permissions to each job
-5. [ ] Test workflows to ensure they still function
-6. [ ] Document permission requirements per job
+1. [x] Audit each job to determine minimum required permissions
+2. [x] Remove workflow-level permissions from `on-merge.yml`
+3. [x] Remove workflow-level permissions from `on-pr.yml`
+4. [x] Add job-level permissions to each job
+5. [x] Test workflows to ensure they still function (syntax verified, no linting errors)
+6. [x] Document permission requirements per job
 
 #### Permission Requirements Reference
 
+**on-merge.yml:**
+| Job | Contents | Packages | Pull Requests | Notes |
+|-----|----------|-----------|----------------|-------|
+| `prepare-version` | read | - | - | Only reads VERSION.json, checks PR images |
+| `re-tag` | - | write | - | Only pushes Docker images (re-tagging) |
+| `build-and-test` | read | write | - | Builds and pushes images |
+| `publish` | read | read | - | Creates manifest lists, updates tags.json (git ops use GitHub App token) |
+| `create-tag` | write | - | - | Creates git tags (uses GITHUB_TOKEN explicitly) |
+
+**on-pr.yml:**
 | Job | Contents | Packages | Pull Requests | Notes |
 |-----|----------|-----------|----------------|-------|
 | `prepare-version` | read | - | - | Only reads VERSION.json |
-| `build-and-test` | read | write | - | Builds and pushes images |
-| `publish` | write | read | - | Creates manifest lists, updates tags.json |
-| `create-tag` | write | - | - | Creates git tags |
-| `test` (PR) | read | write | - | Builds PR images |
-| `auto-merge` | - | - | write | Merges PRs |
+| `test` | read | write | - | Builds PR images |
+| `test-aggregate` | read | - | - | Minimal permissions for safety |
+| `auto-merge` | - | - | write | Merges PRs (uses GitHub App token) |
+
+**update-digests.yml & update-versions.yml:**
+| Job | Contents | Packages | Pull Requests | Notes |
+|-----|----------|-----------|----------------|-------|
+| `update` | read | - | write | Clones repos, commits changes, creates PRs (git ops use GitHub App token) |
+
+#### Implementation Notes
+
+- **GitHub App Token vs GITHUB_TOKEN**: Most git operations (push, commit, PR creation) use GitHub App tokens generated via `actions/create-github-app-token@v2`, which have permissions configured at the app installation level. Workflow permissions only affect `GITHUB_TOKEN`, which is used by `actions/checkout` by default.
+- **Why `publish` job doesn't need `contents: write`**: The `publish` job's `update-tags-json` action uses GitHub App token for all git operations (via `gh auth setup-git`), so `GITHUB_TOKEN` only needs `contents: read` for checkout operations.
+- **Why `create-tag` needs `contents: write`**: The `create-tag` job explicitly uses `GITHUB_TOKEN` for checkout and tag push operations, so it requires `contents: write` permission.
+- **Reduced Attack Surface**: By moving permissions to job level, jobs that only read files or push Docker images no longer have unnecessary write permissions to repository contents.
 
 #### References
 

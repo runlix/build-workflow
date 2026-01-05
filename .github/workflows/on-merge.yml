@@ -9,12 +9,10 @@ on:
         required: false
         default: true
 
-permissions:
-  contents: write
-  packages: write
-
 jobs:
   prepare-version:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.extract.outputs.version }}
@@ -81,6 +79,8 @@ jobs:
   re-tag:
     needs: prepare-version
     if: needs.prepare-version.outputs.pr_images_found == 'true'
+    permissions:
+      packages: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -109,6 +109,9 @@ jobs:
   build-and-test:
     needs: prepare-version
     if: needs.prepare-version.outputs.pr_images_found == 'false'
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -152,6 +155,9 @@ jobs:
   publish:
     needs: [prepare-version, re-tag, build-and-test]
     if: always() && (needs.re-tag.result == 'success' || needs.build-and-test.result == 'success')
+    permissions:
+      contents: read
+      packages: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout build-workflow for actions
