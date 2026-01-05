@@ -62,6 +62,12 @@ runs:
         # Uses GH_TOKEN environment variable which is already set
         git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
         
+        # Change to the repository directory if it exists
+        # (main repo is checked out to 'repo' directory to avoid clearing build-workflow)
+        if [ -d "repo" ]; then
+          cd repo
+        fi
+        
         # Set git user config globally BEFORE any git operations
         git config --global user.name "${APP_BOT_NAME}"
         git config --global user.email "${APP_BOT_EMAIL}"

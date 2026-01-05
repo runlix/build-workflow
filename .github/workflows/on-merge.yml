@@ -186,6 +186,7 @@ jobs:
         with:
           ref: ${{ needs.prepare-version.outputs.default_branch }}
           fetch-depth: 0
+          path: repo
       
       - name: Generate GitHub App Token
         id: app-token
