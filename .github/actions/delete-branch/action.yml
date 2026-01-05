@@ -8,14 +8,8 @@ inputs:
   branch_name:
     description: 'Branch name to delete'
     required: true
-  app_id:
-    description: 'GitHub App ID'
-    required: true
-  private_key:
-    description: 'GitHub App private key'
-    required: true
-  owner:
-    description: 'Repository owner (organization or user)'
+  github_token:
+    description: 'GitHub token (from GitHub App)'
     required: true
 
 outputs:
@@ -26,19 +20,11 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Generate GitHub App Token
-      id: app-token
-      uses: actions/create-github-app-token@v2
-      with:
-        app-id: ${{ inputs.app_id }}
-        private-key: ${{ inputs.private_key }}
-        owner: ${{ inputs.owner }}
-
     - name: Delete branch
       id: delete-branch
       shell: bash
       env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        GH_TOKEN: ${{ inputs.github_token }}
         BRANCH_NAME: ${{ inputs.branch_name }}
         REPOSITORY: ${{ inputs.repository }}
       run: |

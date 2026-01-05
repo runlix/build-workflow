@@ -8,14 +8,11 @@ inputs:
   pr_number:
     description: 'PR number'
     required: true
-  app_id:
-    description: 'GitHub App ID'
+  github_token:
+    description: 'GitHub token (from GitHub App)'
     required: true
-  private_key:
-    description: 'GitHub App private key'
-    required: true
-  owner:
-    description: 'Repository owner (organization or user)'
+  app_bot_name:
+    description: 'GitHub App bot name (e.g., app-name[bot])'
     required: true
 
 outputs:
@@ -26,21 +23,12 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Generate GitHub App Token
-      id: app-token
-      uses: actions/create-github-app-token@v2
-      with:
-        app-id: ${{ inputs.app_id }}
-        private-key: ${{ inputs.private_key }}
-        owner: ${{ inputs.owner }}
-
     - name: Check PR conditions and merge
       id: auto-merge
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-        APP_BOT_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
+        GH_TOKEN: ${{ inputs.github_token }}
+        APP_BOT_NAME: ${{ inputs.app_bot_name }}
       run: |
         set -e
         
@@ -93,25 +81,6 @@ runs:
         fi
         
         echo "✓ All PR conditions met"
-        
-        # # Check current review decision
-        # REVIEW_DECISION=$(gh pr view "${PR_NUMBER}" \
-        #   --repo "${REPOSITORY}" \
-        #   --json reviewDecision \
-        #   -q '.reviewDecision' || echo "UNKNOWN")
-
-        # echo "Review decision: ${REVIEW_DECISION}"
-
-        # if [ "${REVIEW_DECISION}" != "APPROVED" ]; then
-        #   echo "Submitting bot approval review..."
-        #   gh api \
-        #     repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews \
-        #     -X POST \
-        #     -f event=APPROVE \
-        #     -f body="Automated approval after successful build and runtime validation."
-        # else
-        #   echo "PR already approved, skipping approval."
-        # fi
 
         # Check if PR is still open
         PR_STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json state -q '.state' 2>&1 || echo "ERROR")
