@@ -187,12 +187,6 @@ jobs:
           ref: ${{ needs.prepare-version.outputs.default_branch }}
           fetch-depth: 0
       
-      - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
-        with:
-          repository: runlix/build-workflow
-          path: build-workflow
-      
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v2

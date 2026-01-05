@@ -58,8 +58,9 @@ runs:
         SHA="${{ inputs.sha }}"
         VARIANTS="${{ inputs.variants }}"
         
-        # Configure git to use GitHub CLI for authentication (uses built-in flows)
-        gh auth setup-git
+        # Configure git credential helper for authentication (non-persistent)
+        # Uses GH_TOKEN environment variable which is already set
+        git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
         
         # Set git user config globally BEFORE any git operations
         git config --global user.name "${APP_BOT_NAME}"
