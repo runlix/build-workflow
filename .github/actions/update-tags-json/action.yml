@@ -36,23 +36,6 @@ inputs:
     description: 'Repository owner (organization or user)'
     required: true
 
-outputs:
-  pr_created:
-    description: 'Whether a PR was created (true/false)'
-    value: ${{ steps.create-pr.outputs.pr_created }}
-  pr_number:
-    description: 'PR number if created, empty otherwise'
-    value: ${{ steps.create-pr.outputs.pr_number }}
-  pr_branch:
-    description: 'Branch name used for PR, empty if no PR created'
-    value: ${{ steps.create-pr.outputs.pr_branch }}
-  merged:
-    description: 'Whether the PR was merged (true/false)'
-    value: ${{ steps.auto-merge.outputs.merged }}
-  branch_deleted:
-    description: 'Whether the PR branch was deleted (true/false)'
-    value: ${{ steps.delete-branch.outputs.deleted }}
-
 runs:
   using: 'composite'
   steps:
@@ -75,8 +58,7 @@ runs:
       id: create-pr
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
         APP_BOT_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
         APP_BOT_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
       run: |
@@ -91,9 +73,8 @@ runs:
         SHA="${{ inputs.sha }}"
         VARIANTS="${{ inputs.variants }}"
         
-        # Configure git to use GitHub App token for authentication
-        git config --global credential.helper store
-        echo "https://${APP_BOT_NAME}:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+        # Configure git to use GitHub CLI for authentication (uses built-in flows)
+        gh auth setup-git
         
         # Set git user config globally BEFORE any git operations
         git config --global user.name "${APP_BOT_NAME}"

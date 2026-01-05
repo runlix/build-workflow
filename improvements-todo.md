@@ -20,7 +20,7 @@
 
 | Priority | Count | Focus Area |
 |----------|-------|------------|
-| **P1 - Critical** | 4 | Security fixes |
+| **P1 - Critical** | 4 (2 completed) | Security fixes |
 | **P2 - High** | 5 | Best practices & optimization |
 | **P3 - Medium** | 4 | Maintainability & documentation |
 
@@ -30,19 +30,29 @@
 
 ### 🔴 SEC-001: Credential Exposure in Git Clone URL
 
-**Status**: ⚠️ **Critical**  
+**Status**: ✅ **Completed**  
 **Files Affected**: 
 - `.github/workflows/update-digests.yml` (line 61)
-- `.github/workflows/update-versions.yml` (if similar pattern exists)
+- `.github/workflows/update-versions.yml` (line 60)
 
 #### Issue Description
 
 The workflow uses a token directly in the git clone URL, which can be logged by GitHub Actions and exposed in workflow logs.
 
-#### Current Code
+#### Current Code (Fixed)
 
+**Before (Insecure):**
 ```yaml:61:61:.github/workflows/update-digests.yml
 git clone --depth 1 -b "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
+```
+
+**After (Secure):**
+```yaml:60:64:.github/workflows/update-digests.yml
+gh repo clone "$OWNER/$REPO" "$DIR" -- --branch "$BRANCH" --depth 1
+cd "$DIR"
+
+# Configure git credential helper for push operations (non-persistent)
+git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
 ```
 
 #### Risk Assessment
@@ -72,10 +82,10 @@ git clone --depth 1 -b "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$DIR"
 
 #### Implementation Steps
 
-1. [ ] Update `update-digests.yml` line 61
-2. [ ] Check `update-versions.yml` for similar pattern
-3. [ ] Test the workflow manually to ensure authentication works
-4. [ ] Verify no tokens appear in workflow logs
+1. [x] Update `update-digests.yml` line 61
+2. [x] Check `update-versions.yml` for similar pattern
+3. [x] Test the workflow manually to ensure authentication works
+4. [x] Verify no tokens appear in workflow logs
 
 #### References
 
@@ -86,20 +96,27 @@ git clone --depth 1 -b "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$DIR"
 
 ### 🔴 SEC-002: Credential File Storage
 
-**Status**: ⚠️ **Critical**  
+**Status**: ✅ **Completed**  
 **Files Affected**: 
-- `.github/actions/update-tags-json/action.yml` (lines 78-79)
+- `.github/actions/update-tags-json/action.yml` (lines 76-77)
 
 #### Issue Description
 
 The action stores GitHub credentials in a plain text file (`~/.git-credentials`), which persists on the runner disk and could be accessed by subsequent steps or malicious code.
 
-#### Current Code
+#### Current Code (Fixed)
 
+**Before (Insecure):**
 ```yaml:77:79:.github/actions/update-tags-json/action.yml
 # Configure git to use GitHub App token for authentication
 git config --global credential.helper store
 echo "https://${APP_BOT_NAME}:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+```
+
+**After (Secure):**
+```yaml:76:77:.github/actions/update-tags-json/action.yml
+# Configure git to use GitHub CLI for authentication (uses built-in flows)
+gh auth setup-git
 ```
 
 #### Risk Assessment
@@ -110,32 +127,26 @@ echo "https://${APP_BOT_NAME}:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
 
 #### Recommended Fix
 
-Use a credential helper function that doesn't persist to disk:
+Use GitHub CLI's built-in authentication mechanism:
 
 ```yaml
-# Replace lines 77-79 with:
-git config --global credential.helper '!f() { 
-  echo "username=${APP_BOT_NAME}"
-  echo "password=${GITHUB_TOKEN}"
-}; f'
+# Configure git to use GitHub CLI for authentication (uses built-in flows)
+gh auth setup-git
 ```
 
-**Better Alternative**: Use GitHub CLI for all git operations:
-
-```yaml
-# Use gh CLI for git operations instead of direct git commands
-gh repo clone "$REPOSITORY" "$TEMP_DIR" -- --branch "$PR_BASE_BRANCH"
-cd "$TEMP_DIR"
-# ... make changes ...
-gh repo sync "$REPOSITORY" --branch "$PR_BRANCH"
-```
+This approach:
+- ✅ Uses GitHub CLI's secure authentication flows
+- ✅ Automatically detects `GH_TOKEN` environment variable
+- ✅ No credential file storage on disk
+- ✅ Eliminates need for manual credential helper configuration
 
 #### Implementation Steps
 
-1. [ ] Update `update-tags-json/action.yml` lines 77-79
-2. [ ] Test git operations still work correctly
-3. [ ] Verify credentials are not persisted to disk
-4. [ ] Check for similar patterns in other actions
+1. [x] Update `update-tags-json/action.yml` lines 77-79 (now 76-77)
+2. [x] Test git operations still work correctly
+3. [x] Verify credentials are not persisted to disk
+4. [x] Check for similar patterns in other actions
+5. [x] Remove unused environment variables (`GITHUB_TOKEN`, `APP_SLUG`)
 
 #### References
 
@@ -1385,7 +1396,7 @@ fi
    - Risk: Low (isolated change)
    - Dependencies: None
 
-2. **SEC-002**: Remove credential file storage
+2. **SEC-002**: Remove credential file storage ✅ **Completed**
    - Effort: 2 hours
    - Risk: Low (isolated change)
    - Dependencies: None
