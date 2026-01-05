@@ -36,7 +36,7 @@ jobs:
           echo "🧹 Proceeding with cleanup: PR images older than 1 day, all update-digest images, and all untagged images..."
 
       - name: Cleanup old PR Docker images
-        uses: snok/container-retention-policy@v3.0.1
+        uses: snok/container-retention-policy@3b0972b2276b171b212f8c4efbca59ebba26eceb  # v3.0.1
         with:
           account: ${{ github.repository_owner }}
           token: ${{ secrets.GHCR_DELETE_PACKAGE }}

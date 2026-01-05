@@ -29,12 +29,12 @@ jobs:
       test_url: ${{ steps.extract.outputs.test_url }}
     steps:
       - name: Checkout calling repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           fetch-depth: 0
 
       - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           repository: runlix/build-workflow
           path: build-workflow
@@ -68,12 +68,12 @@ jobs:
         target: ${{ fromJson(needs.prepare-version.outputs.matrix || '[]') }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           fetch-depth: 0
 
       - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           repository: runlix/build-workflow
           path: build-workflow
@@ -120,19 +120,19 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           fetch-depth: 0
 
       - name: Checkout build-workflow for actions
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           repository: runlix/build-workflow
           path: build-workflow
 
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf  # v2
         with:
           app-id: ${{ secrets.RUNLIX_APP_ID }}
           private-key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
