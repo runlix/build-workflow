@@ -57,9 +57,11 @@ jobs:
               echo "➡️ Branch $BRANCH"
               
               DIR=$(mktemp -d)
-              # git clone --depth 1 -b "$BRANCH" "https://${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
-              git clone --depth 1 -b "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/$OWNER/$REPO.git" "$DIR"
+              gh repo clone "$OWNER/$REPO" "$DIR" -- --branch "$BRANCH" --depth 1
               cd "$DIR"
+              
+              # Configure git credential helper for push operations (non-persistent)
+              git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
 
               [[ -x update-digests.sh ]] || { echo "⏭ No script"; cd ..; rm -rf "$DIR"; continue; }
               ./update-digests.sh || { echo "❌ Script failed"; cd ..; rm -rf "$DIR"; continue; }
