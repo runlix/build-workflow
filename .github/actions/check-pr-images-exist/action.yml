@@ -48,7 +48,13 @@ runs:
         BRANCH_INPUT="${{ inputs.branch }}"
         VERSION_INPUT="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT_INPUT="${{ inputs.pr_head_sha_short }}"
-        MATRIX_INPUT="${{ inputs.matrix }}"
+        # For JSON inputs, read using a heredoc to avoid shell interpretation issues
+        # The workflow uses toJson(fromJson()) to normalize the JSON, ensuring it's valid
+        # Read the input and normalize it immediately to ensure valid JSON
+        MATRIX_TMP=$(mktemp)
+        printf '%s\n' '${{ inputs.matrix }}' > "${MATRIX_TMP}"
+        MATRIX_INPUT=$(jq -c '.' "${MATRIX_TMP}" 2>/dev/null || cat "${MATRIX_TMP}")
+        rm -f "${MATRIX_TMP}"
         
         # ============================================================================
         # Input Validation
@@ -102,15 +108,20 @@ runs:
         
         # Normalize JSON: re-parse and re-serialize to ensure valid JSON format
         # This handles cases where GitHub Actions might have escaped or modified the JSON
+        # The workflow should normalize it first, but we normalize here as well for safety
         MATRIX_NORMALIZED=$(printf '%s\n' "${MATRIX_INPUT}" | jq -c '.' 2>&1)
         JQ_NORMALIZE_EXIT=$?
         
         # #region agent log
         echo "DEBUG: Normalization exit code: ${JQ_NORMALIZE_EXIT}" >&2
         echo "DEBUG: Normalized matrix length: ${#MATRIX_NORMALIZED}" >&2
-        echo "DEBUG: Normalized matrix first 200 chars: $(printf '%s\n' "${MATRIX_NORMALIZED}" | head -c 200)" >&2
-        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ]; then
-          echo "DEBUG: Normalization stderr: ${MATRIX_NORMALIZED}" >&2
+        if [ ${JQ_NORMALIZE_EXIT} -eq 0 ] && [ -n "${MATRIX_NORMALIZED}" ]; then
+          echo "DEBUG: Normalized matrix first 200 chars: $(printf '%s\n' "${MATRIX_NORMALIZED}" | head -c 200)" >&2
+        else
+          echo "DEBUG: Normalization failed or empty result" >&2
+          if [ ${JQ_NORMALIZE_EXIT} -ne 0 ]; then
+            echo "DEBUG: Normalization stderr: ${MATRIX_NORMALIZED}" >&2
+          fi
         fi
         # #endregion
         
@@ -166,38 +177,29 @@ runs:
         # Extract First Target from Matrix
         # ============================================================================
         
-        # Store matrix input in variable to avoid shell parsing issues
-        MATRIX="${{ inputs.matrix }}"
+        # Read matrix input using temp file to avoid shell interpretation issues
+        # The workflow uses toJson(fromJson()) to normalize the JSON, ensuring it's valid
+        MATRIX_TMP=$(mktemp)
+        printf '%s\n' '${{ inputs.matrix }}' > "${MATRIX_TMP}"
+        MATRIX=$(jq -c '.' "${MATRIX_TMP}" 2>/dev/null || cat "${MATRIX_TMP}")
+        rm -f "${MATRIX_TMP}"
         
         # #region agent log
         echo "DEBUG: Step 2 - Matrix input length: ${#MATRIX}" >&2
         echo "DEBUG: Step 2 - Matrix first 200 chars: $(printf '%s\n' "${MATRIX}" | head -c 200)" >&2
         # #endregion
         
-        # Normalize JSON: re-parse and re-serialize to ensure valid JSON format
-        # This ensures the matrix is valid JSON even if GitHub Actions modified it during passing
-        MATRIX_NORMALIZED=$(printf '%s\n' "${MATRIX}" | jq -c '.' 2>&1)
-        JQ_NORMALIZE_EXIT=$?
-        
-        # #region agent log
-        echo "DEBUG: Step 2 - Normalization exit code: ${JQ_NORMALIZE_EXIT}" >&2
-        echo "DEBUG: Step 2 - Normalized matrix length: ${#MATRIX_NORMALIZED}" >&2
-        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ]; then
-          echo "DEBUG: Step 2 - Normalization stderr: ${MATRIX_NORMALIZED}" >&2
-        fi
-        # #endregion
-        
-        # Check if normalization succeeded
-        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ] || [ -z "${MATRIX_NORMALIZED}" ]; then
-          echo "::error::[ERROR_001] ${ACTION_NAME}: Failed to normalize matrix JSON in step 2" >&2
+        # Validate the matrix is valid JSON
+        if ! printf '%s\n' "${MATRIX}" | jq empty >/dev/null 2>&1; then
+          echo "::error::[ERROR_001] ${ACTION_NAME}: Failed to parse matrix JSON in step 2" >&2
           exit 1
         fi
         
-        # Extract the first target name from the normalized matrix
+        # Extract the first target name from the matrix
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        FIRST_TARGET_NAME=$(printf '%s\n' "${MATRIX_NORMALIZED}" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
+        FIRST_TARGET_NAME=$(printf '%s\n' "${MATRIX}" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
         
         # #region agent log
         echo "DEBUG: Step 2 - First target name: ${FIRST_TARGET_NAME}" >&2
