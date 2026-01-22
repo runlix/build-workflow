@@ -106,9 +106,11 @@ runs:
         BRANCH="${{ inputs.branch }}"
         SHA="${{ inputs.sha }}"
         REPOSITORY="${{ inputs.repository }}"
-        MATRIX="${{ inputs.matrix }}"
         
-        # Ensure matrix is treated as JSON string (already validated above)
+        # Matrix is passed as JSON string from workflow (using toJson())
+        # Parse it using fromJson() to ensure proper handling, then convert back to JSON string for jq
+        # This handles GitHub Actions' stringification of complex inputs to composite actions
+        MATRIX="${{ toJson(fromJson(inputs.matrix)) }}"
         
         # Sanitize branch name: replace '/' with '-' for valid Docker tag
         BRANCH_SANITIZED="${BRANCH//\//-}"

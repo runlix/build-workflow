@@ -124,9 +124,10 @@ runs:
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         
-        # Matrix is already JSON string from extract-version-metadata action
-        # Use it directly without conversion (same pattern as create-manifest-lists action)
-        MATRIX_JSON="${{ inputs.matrix }}"
+        # Matrix is passed as JSON string from workflow (using toJson())
+        # Parse it using fromJson() to ensure proper handling, then convert back to JSON string for jq
+        # This handles GitHub Actions' stringification of complex inputs to composite actions
+        MATRIX_JSON="${{ toJson(fromJson(inputs.matrix)) }}"
         
         # Sanitize branch name
         BRANCH_SANITIZED=$(sanitize_branch "${BRANCH}")
