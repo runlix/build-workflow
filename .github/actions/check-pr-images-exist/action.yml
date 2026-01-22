@@ -91,36 +91,45 @@ runs:
         # Write JSON to temp file using printf, then read from stdin
         # This avoids shell quote interpretation by using file I/O
         MATRIX_TMP_FILE=$(mktemp)
-        DEBUG_LOG="/Users/ohayoun/personal/runlix/.cursor/debug.log"
         
-        # Debug: Log before printf
-        echo "{\"id\":\"log_$(date +%s)_1\",\"timestamp\":$(date +%s)000,\"location\":\"action.yml:96\",\"message\":\"Before printf - temp file path\",\"data\":{\"temp_file\":\"${MATRIX_TMP_FILE}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}" >> "${DEBUG_LOG}"
+        # #region agent log
+        echo "DEBUG: About to write matrix to ${MATRIX_TMP_FILE}" >&2
+        echo "DEBUG: Matrix input length: $(printf '%s\n' "${{ inputs.matrix }}" | wc -c)" >&2
+        # #endregion
         
         # Write the GitHub Actions expanded JSON to file using printf
         # printf '%s\n' with double quotes allows expansion, printf handles the string correctly
-        printf '%s\n' "${{ inputs.matrix }}" > "${MATRIX_TMP_FILE}" 2>&1
-        PRINTF_EXIT=$?
+        printf '%s\n' "${{ inputs.matrix }}" > "${MATRIX_TMP_FILE}" 2>&1 || {
+          echo "DEBUG: printf failed with exit code $?" >&2
+          rm -f "${MATRIX_TMP_FILE}"
+          exit 1
+        }
         
-        # Debug: Log after printf
-        FILE_SIZE=$(wc -c < "${MATRIX_TMP_FILE}" 2>/dev/null || echo "0")
-        FILE_CONTENT_PREVIEW=$(head -c 200 < "${MATRIX_TMP_FILE}" 2>/dev/null || echo "ERROR_READING")
-        echo "{\"id\":\"log_$(date +%s)_2\",\"timestamp\":$(date +%s)000,\"location\":\"action.yml:100\",\"message\":\"After printf - file write result\",\"data\":{\"printf_exit\":${PRINTF_EXIT},\"file_size\":${FILE_SIZE},\"content_preview\":\"${FILE_CONTENT_PREVIEW}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}" >> "${DEBUG_LOG}"
-        
-        # Debug: Log file content check
-        if [ ! -s "${MATRIX_TMP_FILE}" ]; then
-          echo "{\"id\":\"log_$(date +%s)_3\",\"timestamp\":$(date +%s)000,\"location\":\"action.yml:103\",\"message\":\"File is empty or missing\",\"data\":{\"file_exists\":$([ -f "${MATRIX_TMP_FILE}" ] && echo "true" || echo "false\")},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}" >> "${DEBUG_LOG}"
-        fi
-        
-        # Debug: Log jq validation attempt
-        JQ_VALIDATE_OUTPUT=$(jq -e 'type == "array" and length > 0' < "${MATRIX_TMP_FILE}" 2>&1)
-        JQ_VALIDATE_EXIT=$?
-        JQ_EMPTY_OUTPUT=$(jq empty < "${MATRIX_TMP_FILE}" 2>&1)
-        JQ_EMPTY_EXIT=$?
-        echo "{\"id\":\"log_$(date +%s)_4\",\"timestamp\":$(date +%s)000,\"location\":\"action.yml:109\",\"message\":\"jq validation results\",\"data\":{\"validate_exit\":${JQ_VALIDATE_EXIT},\"validate_output\":\"${JQ_VALIDATE_OUTPUT}\",\"empty_exit\":${JQ_EMPTY_EXIT},\"empty_output\":\"${JQ_EMPTY_OUTPUT}\"},\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}" >> "${DEBUG_LOG}"
+        # #region agent log
+        echo "DEBUG: File written, size: $(wc -c < "${MATRIX_TMP_FILE}") bytes" >&2
+        echo "DEBUG: First 200 chars of file: $(head -c 200 "${MATRIX_TMP_FILE}")" >&2
+        echo "DEBUG: jq validation attempt..." >&2
+        # #endregion
         
         # Validate matrix is valid JSON and a non-empty array from the file
-        if ! jq -e 'type == "array" and length > 0' < "${MATRIX_TMP_FILE}" >/dev/null 2>&1; then
-          if ! jq empty < "${MATRIX_TMP_FILE}" >/dev/null 2>&1; then
+        JQ_OUTPUT=$(jq -e 'type == "array" and length > 0' < "${MATRIX_TMP_FILE}" 2>&1)
+        JQ_EXIT=$?
+        
+        # #region agent log
+        echo "DEBUG: jq exit code: ${JQ_EXIT}" >&2
+        echo "DEBUG: jq output: ${JQ_OUTPUT}" >&2
+        # #endregion
+        
+        if [ ${JQ_EXIT} -ne 0 ]; then
+          JQ_PARSE_OUTPUT=$(jq empty < "${MATRIX_TMP_FILE}" 2>&1)
+          JQ_PARSE_EXIT=$?
+          
+          # #region agent log
+          echo "DEBUG: jq parse test exit code: ${JQ_PARSE_EXIT}" >&2
+          echo "DEBUG: jq parse output: ${JQ_PARSE_OUTPUT}" >&2
+          # #endregion
+          
+          if [ ${JQ_PARSE_EXIT} -ne 0 ]; then
             echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           else
             echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
