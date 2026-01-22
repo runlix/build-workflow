@@ -88,17 +88,19 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq to check if it's valid JSON, non-empty, and an array in one pass
-        # This is more efficient and handles all edge cases (empty string, null, invalid JSON, empty array)
-        if [ -z "${MATRIX_INPUT}" ] || [ "${MATRIX_INPUT}" = "null" ]; then
+        # Validate matrix: use jq exclusively for JSON validation
+        # Check for empty input first (simple shell check is safe here)
+        if [ -z "${MATRIX_INPUT}" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
         fi
         
-        # Validate matrix is valid JSON and a non-empty array
-        if ! echo "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-          # Provide specific error based on what failed
-          if ! echo "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
+        # Validate matrix is valid JSON and a non-empty array using jq
+        # This handles all JSON-related validation without shell quoting issues
+        # Use printf instead of echo for safer string handling
+        if ! printf '%s\n' "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+          # Check if it's invalid JSON or just empty/null
+          if ! printf '%s\n' "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
             echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           else
             echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
@@ -134,7 +136,8 @@ runs:
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        FIRST_TARGET_NAME=$(echo "$MATRIX_JSON" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
+        # Use printf instead of echo for safer string handling
+        FIRST_TARGET_NAME=$(printf '%s\n' "$MATRIX_JSON" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
         
         if [ -z "${FIRST_TARGET_NAME}" ]; then
           echo "⚠️  No target name found in first matrix entry"
