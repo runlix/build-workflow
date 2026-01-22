@@ -48,7 +48,6 @@ runs:
         BRANCH_INPUT="${{ inputs.branch }}"
         VERSION_INPUT="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT_INPUT="${{ inputs.pr_head_sha_short }}"
-        MATRIX_INPUT="${{ inputs.matrix }}"
         
         # ============================================================================
         # Input Validation
@@ -88,19 +87,12 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq exclusively for JSON validation
-        # Check for empty input first (simple shell check is safe here)
-        if [ -z "${MATRIX_INPUT}" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
-          exit 1
-        fi
-        
-        # Validate matrix is valid JSON and a non-empty array using jq
-        # This handles all JSON-related validation without shell quoting issues
-        # Use printf instead of echo for safer string handling
-        if ! printf '%s\n' "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+        # Validate matrix: use jq with -R (raw input) and fromjson to parse JSON safely
+        # This avoids shell quoting issues by reading the JSON as raw input
+        # Use a here-string to pass the GitHub Actions expression to jq without shell interpretation
+        if ! jq -R 'fromjson | type == "array" and length > 0' <<<"${{ inputs.matrix }}" >/dev/null 2>&1; then
           # Check if it's invalid JSON or just empty/null
-          if ! printf '%s\n' "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
+          if ! jq -R 'fromjson' <<<"${{ inputs.matrix }}" >/dev/null 2>&1; then
             echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           else
             echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
@@ -122,7 +114,6 @@ runs:
         BRANCH="${{ inputs.branch }}"
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
-        MATRIX_JSON="${{ inputs.matrix }}"
         
         # Sanitize branch name: replace slashes with hyphens for Docker tag compatibility
         # Example: "feature/new-ui" -> "feature-new-ui"
@@ -132,16 +123,15 @@ runs:
         # Extract First Target from Matrix
         # ============================================================================
         
-        # Extract the first target name from the matrix
+        # Extract the first target name from the matrix using jq
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        # Use printf instead of echo for safer string handling
-        FIRST_TARGET_NAME=$(printf '%s\n' "$MATRIX_JSON" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
+        # Use jq with -R (raw input) and fromjson to avoid shell quoting issues
+        FIRST_TARGET_NAME=$(jq -Rr 'fromjson | .[0].name // empty' <<<"${{ inputs.matrix }}" 2>/dev/null || echo "")
         
         if [ -z "${FIRST_TARGET_NAME}" ]; then
           echo "⚠️  No target name found in first matrix entry"
-          echo "Matrix JSON: ${MATRIX_JSON}"
           PR_IMAGES_FOUND="false"
         else
           # ============================================================================
