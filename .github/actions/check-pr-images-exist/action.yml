@@ -87,41 +87,43 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq with stdin to avoid shell interpretation
-        # Write JSON to temp file using printf, then read from stdin
-        # This avoids shell quote interpretation by using file I/O
+        # Validate matrix: use jq --arg to write JSON safely avoiding shell quote interpretation
+        # jq --arg treats the value as a string literal and writes it correctly
+        # This completely bypasses shell quote parsing
         MATRIX_TMP_FILE=$(mktemp)
         
         # #region agent log
-        echo "DEBUG: About to write matrix to ${MATRIX_TMP_FILE}" >&2
-        echo "DEBUG: Matrix input length: $(printf '%s\n' "${{ inputs.matrix }}" | wc -c)" >&2
+        echo "DEBUG: About to write matrix using jq --arg to ${MATRIX_TMP_FILE}" >&2
         # #endregion
         
-        # Write the GitHub Actions expanded JSON to file using printf
-        # printf '%s\n' with double quotes allows expansion, printf handles the string correctly
-        printf '%s\n' "${{ inputs.matrix }}" > "${MATRIX_TMP_FILE}" 2>&1 || {
-          echo "DEBUG: printf failed with exit code $?" >&2
+        # Use jq -n with --arg to write the JSON string to file
+        # --arg treats the GitHub Actions expanded value as a string literal
+        # This avoids shell interpretation because jq receives it as an argument, not shell variable
+        if ! jq -n --arg matrix "${{ inputs.matrix }}" '$matrix' > "${MATRIX_TMP_FILE}" 2>&1; then
+          echo "DEBUG: jq --arg write failed" >&2
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           rm -f "${MATRIX_TMP_FILE}"
           exit 1
-        }
+        fi
         
         # #region agent log
-        echo "DEBUG: File written, size: $(wc -c < "${MATRIX_TMP_FILE}") bytes" >&2
+        echo "DEBUG: File written via jq, size: $(wc -c < "${MATRIX_TMP_FILE}") bytes" >&2
         echo "DEBUG: First 200 chars of file: $(head -c 200 "${MATRIX_TMP_FILE}")" >&2
         echo "DEBUG: jq validation attempt..." >&2
         # #endregion
         
         # Validate matrix is valid JSON and a non-empty array from the file
-        JQ_OUTPUT=$(jq -e 'type == "array" and length > 0' < "${MATRIX_TMP_FILE}" 2>&1)
+        # Read from file (which now contains the JSON string) and parse with fromjson
+        JQ_OUTPUT=$(jq -e 'fromjson | type == "array" and length > 0' < "${MATRIX_TMP_FILE}" 2>&1)
         JQ_EXIT=$?
         
         # #region agent log
-        echo "DEBUG: jq exit code: ${JQ_EXIT}" >&2
-        echo "DEBUG: jq output: ${JQ_OUTPUT}" >&2
+        echo "DEBUG: jq validation exit code: ${JQ_EXIT}" >&2
+        echo "DEBUG: jq validation output: ${JQ_OUTPUT}" >&2
         # #endregion
         
         if [ ${JQ_EXIT} -ne 0 ]; then
-          JQ_PARSE_OUTPUT=$(jq empty < "${MATRIX_TMP_FILE}" 2>&1)
+          JQ_PARSE_OUTPUT=$(jq -e 'fromjson' < "${MATRIX_TMP_FILE}" 2>&1)
           JQ_PARSE_EXIT=$?
           
           # #region agent log
@@ -166,10 +168,10 @@ runs:
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        # Write JSON to temp file using printf, then read from file to avoid shell quoting issues
+        # Write JSON to temp file using jq --arg, then read from file to avoid shell quoting issues
         MATRIX_TMP_FILE=$(mktemp)
-        printf '%s\n' "${{ inputs.matrix }}" > "${MATRIX_TMP_FILE}"
-        FIRST_TARGET_NAME=$(jq -r '.[0].name // empty' < "${MATRIX_TMP_FILE}" 2>/dev/null || echo "")
+        jq -n --arg matrix "${{ inputs.matrix }}" '$matrix' > "${MATRIX_TMP_FILE}" 2>/dev/null
+        FIRST_TARGET_NAME=$(jq -r 'fromjson | .[0].name // empty' < "${MATRIX_TMP_FILE}" 2>/dev/null || echo "")
         rm -f "${MATRIX_TMP_FILE}"
         
         if [ -z "${FIRST_TARGET_NAME}" ]; then
