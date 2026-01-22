@@ -48,6 +48,7 @@ runs:
         BRANCH_INPUT="${{ inputs.branch }}"
         VERSION_INPUT="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT_INPUT="${{ inputs.pr_head_sha_short }}"
+        MATRIX_INPUT="${{ inputs.matrix }}"
         
         # ============================================================================
         # Input Validation
@@ -87,65 +88,66 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq --arg to write JSON safely avoiding shell quote interpretation
-        # jq --arg treats the value as a string literal and writes it correctly
-        # This completely bypasses shell quote parsing
-        MATRIX_TMP_FILE=$(mktemp)
-        
-        # #region agent log
-        echo "DEBUG: About to write matrix using jq --arg to ${MATRIX_TMP_FILE}" >&2
-        # #endregion
-        
-        # Use jq -n with --arg to write the JSON string to file
-        # --arg treats the GitHub Actions expanded value as a string literal
-        # This avoids shell interpretation because jq receives it as an argument, not shell variable
-        if ! jq -n --arg matrix "${{ inputs.matrix }}" '$matrix' > "${MATRIX_TMP_FILE}" 2>&1; then
-          echo "DEBUG: jq --arg write failed" >&2
-          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-          rm -f "${MATRIX_TMP_FILE}"
+        # Validate matrix: use jq exclusively for JSON validation (same pattern as create-manifest-lists)
+        # Check for empty input first (simple shell check is safe here)
+        if [ -z "${MATRIX_INPUT}" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
         fi
         
         # #region agent log
-        echo "DEBUG: File written via jq, size: $(wc -c < "${MATRIX_TMP_FILE}") bytes" >&2
-        echo "DEBUG: First 200 chars of file: $(head -c 200 "${MATRIX_TMP_FILE}")" >&2
-        echo "DEBUG: jq validation attempt..." >&2
+        echo "DEBUG: Matrix input length: ${#MATRIX_INPUT}" >&2
+        echo "DEBUG: First 200 chars of matrix: $(printf '%s\n' "${MATRIX_INPUT}" | head -c 200)" >&2
         # #endregion
         
-        # Validate matrix is valid JSON and a non-empty array from the file
-        # Read from file (which now contains the JSON string) and parse with fromjson
-        JQ_OUTPUT=$(jq -e 'fromjson | type == "array" and length > 0' < "${MATRIX_TMP_FILE}" 2>&1)
-        JQ_EXIT=$?
+        # Normalize JSON: re-parse and re-serialize to ensure valid JSON format
+        # This handles cases where GitHub Actions might have escaped or modified the JSON
+        MATRIX_NORMALIZED=$(printf '%s\n' "${MATRIX_INPUT}" | jq -c '.' 2>&1)
+        JQ_NORMALIZE_EXIT=$?
         
         # #region agent log
-        echo "DEBUG: jq validation exit code: ${JQ_EXIT}" >&2
-        echo "DEBUG: jq validation output: ${JQ_OUTPUT}" >&2
+        echo "DEBUG: Normalization exit code: ${JQ_NORMALIZE_EXIT}" >&2
+        echo "DEBUG: Normalized matrix length: ${#MATRIX_NORMALIZED}" >&2
+        echo "DEBUG: Normalized matrix first 200 chars: $(printf '%s\n' "${MATRIX_NORMALIZED}" | head -c 200)" >&2
+        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ]; then
+          echo "DEBUG: Normalization stderr: ${MATRIX_NORMALIZED}" >&2
+        fi
         # #endregion
         
-        if [ ${JQ_EXIT} -ne 0 ]; then
-          JQ_PARSE_OUTPUT=$(jq -e 'fromjson' < "${MATRIX_TMP_FILE}" 2>&1)
-          JQ_PARSE_EXIT=$?
-          
+        # Check if normalization succeeded
+        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ] || [ -z "${MATRIX_NORMALIZED}" ]; then
           # #region agent log
-          echo "DEBUG: jq parse test exit code: ${JQ_PARSE_EXIT}" >&2
-          echo "DEBUG: jq parse output: ${JQ_PARSE_OUTPUT}" >&2
+          echo "DEBUG: Normalization failed, testing raw JSON parse..." >&2
+          JQ_PARSE_OUTPUT=$(printf '%s\n' "${MATRIX_INPUT}" | jq empty 2>&1 || true)
+          echo "DEBUG: jq parse error: ${JQ_PARSE_OUTPUT}" >&2
           # #endregion
-          
-          if [ ${JQ_PARSE_EXIT} -ne 0 ]; then
-            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-          else
-            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
-          fi
-          rm -f "${MATRIX_TMP_FILE}"
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           exit 1
         fi
-        rm -f "${MATRIX_TMP_FILE}"
+        
+        # Validate normalized matrix is a non-empty array using jq
+        if ! printf '%s\n' "${MATRIX_NORMALIZED}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+          # #region agent log
+          echo "DEBUG: Array validation failed, checking type..." >&2
+          MATRIX_TYPE=$(printf '%s\n' "${MATRIX_NORMALIZED}" | jq -r 'type' 2>/dev/null || echo "unknown")
+          MATRIX_LENGTH=$(printf '%s\n' "${MATRIX_NORMALIZED}" | jq -r 'length' 2>/dev/null || echo "unknown")
+          echo "DEBUG: Matrix type: ${MATRIX_TYPE}, length: ${MATRIX_LENGTH}" >&2
+          # #endregion
+          echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
+          exit 1
+        fi
+        
+        # Store normalized matrix for use in next step
+        MATRIX_INPUT="${MATRIX_NORMALIZED}"
     
     - name: Check if PR images exist
       id: check
       shell: bash
       run: |
         set -e
+        
+        # Constants
+        readonly ACTION_NAME="check-pr-images-exist"
         
         # ============================================================================
         # Extract and Prepare Inputs
@@ -164,15 +166,42 @@ runs:
         # Extract First Target from Matrix
         # ============================================================================
         
-        # Extract the first target name from the matrix
+        # Store matrix input in variable to avoid shell parsing issues
+        MATRIX="${{ inputs.matrix }}"
+        
+        # #region agent log
+        echo "DEBUG: Step 2 - Matrix input length: ${#MATRIX}" >&2
+        echo "DEBUG: Step 2 - Matrix first 200 chars: $(printf '%s\n' "${MATRIX}" | head -c 200)" >&2
+        # #endregion
+        
+        # Normalize JSON: re-parse and re-serialize to ensure valid JSON format
+        # This ensures the matrix is valid JSON even if GitHub Actions modified it during passing
+        MATRIX_NORMALIZED=$(printf '%s\n' "${MATRIX}" | jq -c '.' 2>&1)
+        JQ_NORMALIZE_EXIT=$?
+        
+        # #region agent log
+        echo "DEBUG: Step 2 - Normalization exit code: ${JQ_NORMALIZE_EXIT}" >&2
+        echo "DEBUG: Step 2 - Normalized matrix length: ${#MATRIX_NORMALIZED}" >&2
+        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ]; then
+          echo "DEBUG: Step 2 - Normalization stderr: ${MATRIX_NORMALIZED}" >&2
+        fi
+        # #endregion
+        
+        # Check if normalization succeeded
+        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ] || [ -z "${MATRIX_NORMALIZED}" ]; then
+          echo "::error::[ERROR_001] ${ACTION_NAME}: Failed to normalize matrix JSON in step 2" >&2
+          exit 1
+        fi
+        
+        # Extract the first target name from the normalized matrix
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        # Write JSON to temp file using jq --arg, then read from file to avoid shell quoting issues
-        MATRIX_TMP_FILE=$(mktemp)
-        jq -n --arg matrix "${{ inputs.matrix }}" '$matrix' > "${MATRIX_TMP_FILE}" 2>/dev/null
-        FIRST_TARGET_NAME=$(jq -r 'fromjson | .[0].name // empty' < "${MATRIX_TMP_FILE}" 2>/dev/null || echo "")
-        rm -f "${MATRIX_TMP_FILE}"
+        FIRST_TARGET_NAME=$(printf '%s\n' "${MATRIX_NORMALIZED}" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
+        
+        # #region agent log
+        echo "DEBUG: Step 2 - First target name: ${FIRST_TARGET_NAME}" >&2
+        # #endregion
         
         if [ -z "${FIRST_TARGET_NAME}" ]; then
           echo "⚠️  No target name found in first matrix entry"
