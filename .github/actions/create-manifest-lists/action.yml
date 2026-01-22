@@ -32,52 +32,69 @@ runs:
         
         ACTION_NAME="create-manifest-lists"
         
+        # Store inputs in variables for safe handling
+        VARIANTS_INPUT="${{ inputs.variants }}"
+        VERSION_INPUT="${{ inputs.version }}"
+        BRANCH_INPUT="${{ inputs.branch }}"
+        SHA_INPUT="${{ inputs.sha }}"
+        REPOSITORY_INPUT="${{ inputs.repository }}"
+        MATRIX_INPUT="${{ inputs.matrix }}"
+        
         # Validate all required inputs
-        if [ -z "${{ inputs.variants }}" ] || [ "${{ inputs.variants }}" = "null" ] || [ "${{ inputs.variants }}" = "" ]; then
+        if [ -z "${VARIANTS_INPUT}" ] || [ "${VARIANTS_INPUT}" = "null" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: variants is required" >&2
           exit 1
         fi
         
-        if [ -z "${{ inputs.version }}" ] || [ "${{ inputs.version }}" = "null" ] || [ "${{ inputs.version }}" = "" ]; then
+        if [ -z "${VERSION_INPUT}" ] || [ "${VERSION_INPUT}" = "null" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
           exit 1
         fi
         
-        if [ -z "${{ inputs.branch }}" ] || [ "${{ inputs.branch }}" = "null" ] || [ "${{ inputs.branch }}" = "" ]; then
+        if [ -z "${BRANCH_INPUT}" ] || [ "${BRANCH_INPUT}" = "null" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch is required" >&2
           exit 1
         fi
         
-        if [ -z "${{ inputs.sha }}" ] || [ "${{ inputs.sha }}" = "null" ] || [ "${{ inputs.sha }}" = "" ]; then
+        if [ -z "${SHA_INPUT}" ] || [ "${SHA_INPUT}" = "null" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: sha is required" >&2
           exit 1
         fi
         
         # Validate SHA format (40 hex characters)
-        if ! [[ "${{ inputs.sha }}" =~ ^[a-f0-9]{40}$ ]]; then
+        if ! [[ "${SHA_INPUT}" =~ ^[a-f0-9]{40}$ ]]; then
           echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid SHA format (expected: 40 hex characters)" >&2
           exit 1
         fi
         
-        if [ -z "${{ inputs.repository }}" ] || [ "${{ inputs.repository }}" = "null" ] || [ "${{ inputs.repository }}" = "" ]; then
+        if [ -z "${REPOSITORY_INPUT}" ] || [ "${REPOSITORY_INPUT}" = "null" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
           exit 1
         fi
         
         # Validate repository format (owner/repo)
-        if ! [[ "${{ inputs.repository }}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+        if ! [[ "${REPOSITORY_INPUT}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
           echo "::error::[VALIDATION_004] ${ACTION_NAME}: Invalid repository format (expected: owner/repo)" >&2
           exit 1
         fi
         
-        if [ -z "${{ inputs.matrix }}" ] || [ "${{ inputs.matrix }}" = "null" ] || [ "${{ inputs.matrix }}" = "" ]; then
+        # Validate matrix: use jq exclusively for JSON validation
+        # Check for empty input first (simple shell check is safe here)
+        if [ -z "${MATRIX_INPUT}" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
         fi
         
-        # Validate matrix is valid JSON
-        if ! echo "${{ inputs.matrix }}" | jq empty 2>/dev/null; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix must be valid JSON" >&2
+        # Validate matrix is valid JSON and a non-empty array using jq
+        # This handles all JSON-related validation without shell quoting issues
+        # Use printf instead of echo for safer string handling
+        if ! printf '%s\n' "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+          # Check if it's invalid JSON or just empty/null
+          if ! printf '%s\n' "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
+            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
+          else
+            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
+          fi
           exit 1
         fi
     
@@ -90,6 +107,8 @@ runs:
         SHA="${{ inputs.sha }}"
         REPOSITORY="${{ inputs.repository }}"
         MATRIX="${{ inputs.matrix }}"
+        
+        # Ensure matrix is treated as JSON string (already validated above)
         
         # Sanitize branch name: replace '/' with '-' for valid Docker tag
         BRANCH_SANITIZED="${BRANCH//\//-}"
@@ -122,7 +141,8 @@ runs:
           echo "Processing variant: $variant"
           
           # Get all enabled targets for this variant from matrix JSON
-          TARGETS=$(echo "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
+          # Use printf instead of echo for safer string handling
+          TARGETS=$(printf '%s\n' "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
           
           # Build image tag list and verify existence
           PLATFORM_IMAGES=()
