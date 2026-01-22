@@ -39,7 +39,7 @@ runs:
         readonly ACTION_NAME="check-pr-images-exist"
         
         # Helper function: Validate required input
-        validate_required() {
+        validatae_required() {
           local name="$1"
           local value="$2"
           if [ -z "${value}" ] || [ "${value}" = "null" ]; then
@@ -81,12 +81,36 @@ runs:
         validate_repository "${REPOSITORY_INPUT}"
         validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
-        # Matrix is passed as JSON string from workflow
-        # Just check that it's not empty (full validation happens in the check step with jq)
-        if [ -z "${{ inputs.matrix }}" ]; then
+        # Validate matrix: use jq exclusively for JSON validation
+        # Matrix is normalized using toJson(fromJson()) in workflow, so we receive it as JSON string
+        # Write to temp file to avoid shell variable truncation with multiline JSON
+        MATRIX_TMPFILE=$(mktemp)
+        printf '%s\n' "${{ toJson(fromJson(inputs.matrix)) }}" > "${MATRIX_TMPFILE}"
+        
+        # Check for empty input first (simple shell check is safe here)
+        if [ ! -s "${MATRIX_TMPFILE}" ]; then
+          rm -f "${MATRIX_TMPFILE}"
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
         fi
+        
+        # Validate matrix is valid JSON and a non-empty array using jq
+        # This handles all JSON-related validation without shell quoting issues
+        if ! jq -e 'type == "array" and length > 0' < "${MATRIX_TMPFILE}" >/dev/null 2>&1; then
+          # Check if it's invalid JSON or just empty/null
+          if ! jq empty < "${MATRIX_TMPFILE}" >/dev/null 2>&1; then
+            rm -f "${MATRIX_TMPFILE}"
+            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
+          else
+            rm -f "${MATRIX_TMPFILE}"
+            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
+          fi
+          exit 1
+        fi
+        
+        # Export temp file path for use in next step (via GITHUB_ENV)
+        # Don't trap cleanup here - let the next step handle it
+        echo "MATRIX_TMPFILE=${MATRIX_TMPFILE}" >> "$GITHUB_ENV"
     
     - name: Check if PR images exist
       id: check
@@ -124,17 +148,22 @@ runs:
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         
-        # Matrix is passed as JSON string from workflow (using toJson())
-        # Parse it using fromJson() to ensure proper handling, then convert back to JSON string for jq
-        # This handles GitHub Actions' stringification of complex inputs to composite actions
-        MATRIX_JSON="${{ toJson(fromJson(inputs.matrix)) }}"
+        # Matrix was normalized and validated in previous step, reuse temp file
+        MATRIX_TMPFILE="${MATRIX_TMPFILE}"
+        if [ ! -f "${MATRIX_TMPFILE}" ]; then
+          echo "::error::[VALIDATION_006] ${ACTION_NAME}: Matrix temp file not found" >&2
+          exit 1
+        fi
+        
+        # Clean up temp file on exit
+        trap "rm -f ${MATRIX_TMPFILE}" EXIT
         
         # Sanitize branch name
         BRANCH_SANITIZED=$(sanitize_branch "${BRANCH}")
         
-        # Get all target names from matrix
-        TARGET_NAMES=$(jq -r '.[].name' <<< "${MATRIX_JSON}")
-        TARGET_COUNT=$(jq 'length' <<< "${MATRIX_JSON}")
+        # Get all target names from matrix using the temp file (already validated)
+        TARGET_NAMES=$(jq -r '.[].name' < "${MATRIX_TMPFILE}")
+        TARGET_COUNT=$(jq 'length' < "${MATRIX_TMPFILE}")
         
         echo "🔍 Checking ${TARGET_COUNT} PR image(s)..."
         
