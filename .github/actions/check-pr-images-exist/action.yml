@@ -39,7 +39,7 @@ runs:
         readonly ACTION_NAME="check-pr-images-exist"
         
         # Helper function: Validate required input
-        validatae_required() {
+        validate_required() {
           local name="$1"
           local value="$2"
           if [ -z "${value}" ] || [ "${value}" = "null" ]; then
