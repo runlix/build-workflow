@@ -78,7 +78,7 @@ jobs:
           branch: ${{ steps.extract.outputs.branch }}
           version: ${{ steps.extract.outputs.version }}
           pr_head_sha_short: ${{ steps.get-pr-sha.outputs.pr_head_sha_short }}
-          matrix: ${{ fromJson(steps.extract.outputs.matrix) }}
+          matrix: ${{ toJson(steps.extract.outputs.matrix) }}
 
   re-tag:
     needs: prepare-version
