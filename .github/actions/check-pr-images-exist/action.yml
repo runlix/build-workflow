@@ -81,8 +81,8 @@ runs:
         validate_repository "${REPOSITORY_INPUT}"
         validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
-        # Matrix validation is handled by GitHub Actions when using fromJson() in workflow
-        # Just check that it's not empty
+        # Matrix is passed as JSON string from workflow
+        # Just check that it's not empty (full validation happens in the check step with jq)
         if [ -z "${{ inputs.matrix }}" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
@@ -124,9 +124,9 @@ runs:
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         
-        # Convert matrix from YAML structure to JSON for jq processing
-        # GitHub Actions passes it as YAML when using fromJson() in workflow
-        MATRIX_JSON="${{ toJson(inputs.matrix) }}"
+        # Matrix is already JSON string from extract-version-metadata action
+        # Use it directly without conversion (same pattern as create-manifest-lists action)
+        MATRIX_JSON="${{ inputs.matrix }}"
         
         # Sanitize branch name
         BRANCH_SANITIZED=$(sanitize_branch "${BRANCH}")

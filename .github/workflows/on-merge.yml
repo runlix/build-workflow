@@ -78,7 +78,7 @@ jobs:
           branch: ${{ steps.extract.outputs.branch }}
           version: ${{ steps.extract.outputs.version }}
           pr_head_sha_short: ${{ steps.get-pr-sha.outputs.pr_head_sha_short }}
-          matrix: ${{ toJson(steps.extract.outputs.matrix) }}
+          matrix: ${{ steps.extract.outputs.matrix }}
 
   re-tag:
     needs: prepare-version
@@ -183,7 +183,7 @@ jobs:
           branch: ${{ needs.prepare-version.outputs.branch }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           repository: ${{ github.repository }}
-          matrix: ${{ fromJson(needs.prepare-version.outputs.matrix) }}
+          matrix: ${{ needs.prepare-version.outputs.matrix }}
       
       - name: Generate GitHub App Token
         id: app-token
