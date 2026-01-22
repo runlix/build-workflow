@@ -19,7 +19,7 @@ inputs:
     description: 'PR head commit SHA shortened to 7 hex characters (e.g., 9e4b4f2)'
     required: true
   matrix:
-    description: 'JSON array of build targets (from VERSION.json). All targets are checked to ensure all PR images exist.'
+    description: 'YAML array of build targets (from VERSION.json). All targets are checked to ensure all PR images exist.'
     required: true
 
 outputs:
@@ -66,51 +66,27 @@ runs:
           fi
         }
         
-        # Helper function: Validate and normalize matrix JSON
-        validate_matrix() {
-          local matrix_input="$1"
-          local tmp_file
-          tmp_file=$(mktemp)
-          printf '%s\n' "${matrix_input}" > "${tmp_file}"
-          
-          # Check if it's valid JSON
-          if ! jq empty "${tmp_file}" >/dev/null 2>&1; then
-            rm -f "${tmp_file}"
-            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-            exit 1
-          fi
-          
-          # Check if it's a non-empty array
-          if ! jq -e 'type == "array" and length > 0' "${tmp_file}" >/dev/null 2>&1; then
-            rm -f "${tmp_file}"
-            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
-            exit 1
-          fi
-          
-          # Return normalized JSON
-          jq -c '.' "${tmp_file}"
-          rm -f "${tmp_file}"
-        }
-        
         # Extract inputs
         REPOSITORY_INPUT="${{ inputs.repository }}"
         BRANCH_INPUT="${{ inputs.branch }}"
         VERSION_INPUT="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT_INPUT="${{ inputs.pr_head_sha_short }}"
-        MATRIX_INPUT="${{ inputs.matrix }}"
         
         # Validate all inputs
         validate_required "repository" "${REPOSITORY_INPUT}"
         validate_required "branch" "${BRANCH_INPUT}"
         validate_required "version" "${VERSION_INPUT}"
         validate_required "pr_head_sha_short" "${PR_HEAD_SHA_SHORT_INPUT}"
-        validate_required "matrix" "${MATRIX_INPUT}"
         
         validate_repository "${REPOSITORY_INPUT}"
         validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
-        # Validate matrix (normalization happens in check step)
-        validate_matrix "${MATRIX_INPUT}" >/dev/null
+        # Matrix validation is handled by GitHub Actions when using fromJson() in workflow
+        # Just check that it's not empty
+        if [ -z "${{ inputs.matrix }}" ]; then
+          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
+          exit 1
+        fi
     
     - name: Check if PR images exist
       id: check
@@ -119,21 +95,6 @@ runs:
         set -e
         
         readonly ACTION_NAME="check-pr-images-exist"
-        
-        # Helper function: Read JSON input safely using temp file
-        read_json_input() {
-          local input_value="$1"
-          local tmp_file
-          tmp_file=$(mktemp)
-          printf '%s\n' "${input_value}" > "${tmp_file}"
-          local result
-          result=$(jq -c '.' "${tmp_file}" 2>/dev/null) || {
-            rm -f "${tmp_file}"
-            return 1
-          }
-          rm -f "${tmp_file}"
-          echo "${result}"
-        }
         
         # Helper function: Sanitize branch name for Docker tag compatibility
         sanitize_branch() {
@@ -163,15 +124,16 @@ runs:
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         
-        # Read and parse matrix using helper function
-        MATRIX=$(read_json_input '${{ inputs.matrix }}')
+        # Convert matrix from YAML structure to JSON for jq processing
+        # GitHub Actions passes it as YAML when using fromJson() in workflow
+        MATRIX_JSON="${{ toJson(inputs.matrix) }}"
         
         # Sanitize branch name
         BRANCH_SANITIZED=$(sanitize_branch "${BRANCH}")
         
         # Get all target names from matrix
-        TARGET_NAMES=$(jq -r '.[].name' <<< "${MATRIX}")
-        TARGET_COUNT=$(jq 'length' <<< "${MATRIX}")
+        TARGET_NAMES=$(jq -r '.[].name' <<< "${MATRIX_JSON}")
+        TARGET_COUNT=$(jq 'length' <<< "${MATRIX_JSON}")
         
         echo "🔍 Checking ${TARGET_COUNT} PR image(s)..."
         
