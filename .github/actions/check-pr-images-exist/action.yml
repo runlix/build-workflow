@@ -87,19 +87,28 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq --arg (string) with fromjson to parse JSON safely
-        # --arg treats the value as a string literal passed to jq, avoiding shell interpretation
-        # GitHub Actions expands ${{ inputs.matrix }} and jq receives it as a string argument
-        # Then use fromjson to parse the JSON string
-        if ! jq -n --arg matrix "${{ inputs.matrix }}" '$matrix | fromjson | type == "array" and length > 0' >/dev/null 2>&1; then
-          # Check if it's invalid JSON or just empty/null
-          if ! jq -n --arg matrix "${{ inputs.matrix }}" '$matrix | fromjson' >/dev/null 2>&1; then
+        # Validate matrix: write JSON to temp file using jq, then validate from file
+        # This completely avoids shell interpretation by using jq to write the JSON
+        # GitHub Actions expands ${{ inputs.matrix }} which jq receives and writes to file
+        MATRIX_TMP_FILE=$(mktemp)
+        # Use jq -n with --arg to write JSON string to file (jq handles the string safely)
+        if ! jq -n --arg matrix "${{ inputs.matrix }}" '$matrix' > "${MATRIX_TMP_FILE}" 2>/dev/null; then
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
+          rm -f "${MATRIX_TMP_FILE}"
+          exit 1
+        fi
+        
+        # Validate matrix is valid JSON and a non-empty array from the file
+        if ! jq -e 'fromjson | type == "array" and length > 0' < "${MATRIX_TMP_FILE}" >/dev/null 2>&1; then
+          if ! jq -e 'fromjson' < "${MATRIX_TMP_FILE}" >/dev/null 2>&1; then
             echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           else
             echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
           fi
+          rm -f "${MATRIX_TMP_FILE}"
           exit 1
         fi
+        rm -f "${MATRIX_TMP_FILE}"
     
     - name: Check if PR images exist
       id: check
@@ -124,12 +133,15 @@ runs:
         # Extract First Target from Matrix
         # ============================================================================
         
-        # Extract the first target name from the matrix using jq --arg with fromjson
+        # Extract the first target name from the matrix
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        # Use jq --arg (string) with fromjson to avoid shell quoting issues
-        FIRST_TARGET_NAME=$(jq -n --arg matrix "${{ inputs.matrix }}" '$matrix | fromjson | .[0].name // empty' 2>/dev/null || echo "")
+        # Write JSON to temp file using jq, then read from file to avoid shell quoting issues
+        MATRIX_TMP_FILE=$(mktemp)
+        jq -n --arg matrix "${{ inputs.matrix }}" '$matrix' > "${MATRIX_TMP_FILE}" 2>/dev/null
+        FIRST_TARGET_NAME=$(jq -r 'fromjson | .[0].name // empty' < "${MATRIX_TMP_FILE}" 2>/dev/null || echo "")
+        rm -f "${MATRIX_TMP_FILE}"
         
         if [ -z "${FIRST_TARGET_NAME}" ]; then
           echo "⚠️  No target name found in first matrix entry"
