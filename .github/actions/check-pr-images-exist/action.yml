@@ -87,12 +87,12 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq with -R (raw input) and fromjson to parse JSON safely
-        # This avoids shell quoting issues by reading the JSON as raw input
-        # Use a here-string to pass the GitHub Actions expression to jq without shell interpretation
-        if ! jq -R 'fromjson | type == "array" and length > 0' <<<"${{ inputs.matrix }}" >/dev/null 2>&1; then
+        # Validate matrix: use jq --argjson to parse JSON directly
+        # --argjson expects JSON input and parses it, avoiding shell interpretation
+        # GitHub Actions expands ${{ inputs.matrix }} and jq receives the JSON directly
+        if ! jq -n --argjson matrix "${{ inputs.matrix }}" '$matrix | type == "array" and length > 0' >/dev/null 2>&1; then
           # Check if it's invalid JSON or just empty/null
-          if ! jq -R 'fromjson' <<<"${{ inputs.matrix }}" >/dev/null 2>&1; then
+          if ! jq -n --argjson matrix "${{ inputs.matrix }}" '$matrix' >/dev/null 2>&1; then
             echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           else
             echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
@@ -123,12 +123,12 @@ runs:
         # Extract First Target from Matrix
         # ============================================================================
         
-        # Extract the first target name from the matrix using jq
+        # Extract the first target name from the matrix using jq --argjson
         # Optimization: We only check the first target because:
         # - PR images are built for all targets together in a single workflow run
         # - If the first target exists, all targets should exist
-        # Use jq with -R (raw input) and fromjson to avoid shell quoting issues
-        FIRST_TARGET_NAME=$(jq -Rr 'fromjson | .[0].name // empty' <<<"${{ inputs.matrix }}" 2>/dev/null || echo "")
+        # Use jq --argjson to avoid shell quoting issues
+        FIRST_TARGET_NAME=$(jq -n --argjson matrix "${{ inputs.matrix }}" '$matrix[0].name // empty' 2>/dev/null || echo "")
         
         if [ -z "${FIRST_TARGET_NAME}" ]; then
           echo "⚠️  No target name found in first matrix entry"
