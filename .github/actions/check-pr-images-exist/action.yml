@@ -82,29 +82,29 @@ runs:
         validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
         # Validate matrix: use jq exclusively for JSON validation
-        # Matrix is normalized using toJson(fromJson()) in workflow, so we receive it as JSON string
-        # Write to temp file to avoid shell variable truncation with multiline JSON
+        # Matrix is passed as JSON string from workflow (already compact from extract-version-metadata)
+        # Write to temp file using jq -c to ensure compact format and avoid truncation
         MATRIX_TMPFILE=$(mktemp)
-        printf '%s\n' "${{ toJson(fromJson(inputs.matrix)) }}" > "${MATRIX_TMPFILE}"
         
-        # Check for empty input first (simple shell check is safe here)
-        if [ ! -s "${MATRIX_TMPFILE}" ]; then
+        # Check for empty input first
+        if [ -z "${{ inputs.matrix }}" ]; then
           rm -f "${MATRIX_TMPFILE}"
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
         fi
         
-        # Validate matrix is valid JSON and a non-empty array using jq
-        # This handles all JSON-related validation without shell quoting issues
+        # Parse and compact JSON using jq -c (compact format, single line)
+        # This ensures we have valid, compact JSON that won't get truncated
+        if ! printf '%s\n' "${{ inputs.matrix }}" | jq -c . > "${MATRIX_TMPFILE}" 2>/dev/null; then
+          rm -f "${MATRIX_TMPFILE}"
+          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
+          exit 1
+        fi
+        
+        # Validate matrix is a non-empty array
         if ! jq -e 'type == "array" and length > 0' < "${MATRIX_TMPFILE}" >/dev/null 2>&1; then
-          # Check if it's invalid JSON or just empty/null
-          if ! jq empty < "${MATRIX_TMPFILE}" >/dev/null 2>&1; then
-            rm -f "${MATRIX_TMPFILE}"
-            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-          else
-            rm -f "${MATRIX_TMPFILE}"
-            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
-          fi
+          rm -f "${MATRIX_TMPFILE}"
+          echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
           exit 1
         fi
         
