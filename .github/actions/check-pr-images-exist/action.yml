@@ -1,9 +1,8 @@
 name: 'Check PR Images Exist'
 description: |
-  Checks if PR images exist in GitHub Container Registry (GHCR) by verifying the first target image.
+  Checks if PR images exist in GitHub Container Registry (GHCR) by verifying all target images.
   
-  This action is used as an optimization: PR images are built for all targets together, so checking
-  the first target is sufficient to determine if all PR images exist. The image tag format is:
+  This action checks all targets in the matrix to ensure all PR images exist. The image tag format is:
   ghcr.io/{repository}:pr-{branch}-{version}-{target}-{sha}
 
 inputs:
@@ -20,12 +19,12 @@ inputs:
     description: 'PR head commit SHA shortened to 7 hex characters (e.g., 9e4b4f2)'
     required: true
   matrix:
-    description: 'JSON array of build targets (from VERSION.json). Only the first target is checked as an optimization - if it exists, we assume all PR images exist.'
+    description: 'JSON array of build targets (from VERSION.json). All targets are checked to ensure all PR images exist.'
     required: true
 
 outputs:
   pr_images_found:
-    description: 'true if PR image exists for the first target, false otherwise'
+    description: 'true if all PR images exist for all targets, false otherwise'
     value: ${{ steps.check.outputs.pr_images_found }}
 
 runs:
@@ -37,119 +36,81 @@ runs:
         set -e
         set -o pipefail
         
-        # Constants
         readonly ACTION_NAME="check-pr-images-exist"
         
-        # ============================================================================
-        # Extract Inputs to Variables
-        # ============================================================================
-        # Store inputs in variables first to avoid shell parsing issues with complex values
+        # Helper function: Validate required input
+        validate_required() {
+          local name="$1"
+          local value="$2"
+          if [ -z "${value}" ] || [ "${value}" = "null" ]; then
+            echo "::error::[VALIDATION_001] ${ACTION_NAME}: ${name} is required" >&2
+            exit 1
+          fi
+        }
+        
+        # Helper function: Validate repository format
+        validate_repository() {
+          local repo="$1"
+          if ! [[ "${repo}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
+            echo "::error::[VALIDATION_002] ${ACTION_NAME}: Invalid repository format (expected: owner/repo, got: ${repo})" >&2
+            exit 1
+          fi
+        }
+        
+        # Helper function: Validate SHA format
+        validate_sha() {
+          local sha="$1"
+          if ! [[ "${sha}" =~ ^[a-f0-9]{7}$ ]]; then
+            echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid pr_head_sha_short format (expected: 7 lowercase hex characters, got: ${sha})" >&2
+            exit 1
+          fi
+        }
+        
+        # Helper function: Validate and normalize matrix JSON
+        validate_matrix() {
+          local matrix_input="$1"
+          local tmp_file
+          tmp_file=$(mktemp)
+          printf '%s\n' "${matrix_input}" > "${tmp_file}"
+          
+          # Check if it's valid JSON
+          if ! jq empty "${tmp_file}" >/dev/null 2>&1; then
+            rm -f "${tmp_file}"
+            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
+            exit 1
+          fi
+          
+          # Check if it's a non-empty array
+          if ! jq -e 'type == "array" and length > 0' "${tmp_file}" >/dev/null 2>&1; then
+            rm -f "${tmp_file}"
+            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
+            exit 1
+          fi
+          
+          # Return normalized JSON
+          jq -c '.' "${tmp_file}"
+          rm -f "${tmp_file}"
+        }
+        
+        # Extract inputs
         REPOSITORY_INPUT="${{ inputs.repository }}"
         BRANCH_INPUT="${{ inputs.branch }}"
         VERSION_INPUT="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT_INPUT="${{ inputs.pr_head_sha_short }}"
-        # For JSON inputs, read using a heredoc to avoid shell interpretation issues
-        # The workflow uses toJson(fromJson()) to normalize the JSON, ensuring it's valid
-        # Read the input and normalize it immediately to ensure valid JSON
-        MATRIX_TMP=$(mktemp)
-        printf '%s\n' '${{ inputs.matrix }}' > "${MATRIX_TMP}"
-        MATRIX_INPUT=$(jq -c '.' "${MATRIX_TMP}" 2>/dev/null || cat "${MATRIX_TMP}")
-        rm -f "${MATRIX_TMP}"
+        MATRIX_INPUT="${{ inputs.matrix }}"
         
-        # ============================================================================
-        # Input Validation
-        # ============================================================================
+        # Validate all inputs
+        validate_required "repository" "${REPOSITORY_INPUT}"
+        validate_required "branch" "${BRANCH_INPUT}"
+        validate_required "version" "${VERSION_INPUT}"
+        validate_required "pr_head_sha_short" "${PR_HEAD_SHA_SHORT_INPUT}"
+        validate_required "matrix" "${MATRIX_INPUT}"
         
-        # Validate required inputs (using variables to avoid shell parsing issues with complex values)
-        # Check for empty or null values
-        if [ -z "${REPOSITORY_INPUT}" ] || [ "${REPOSITORY_INPUT}" = "null" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: repository is required" >&2
-          exit 1
-        fi
+        validate_repository "${REPOSITORY_INPUT}"
+        validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
-        if [ -z "${BRANCH_INPUT}" ] || [ "${BRANCH_INPUT}" = "null" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: branch is required" >&2
-          exit 1
-        fi
-        
-        if [ -z "${VERSION_INPUT}" ] || [ "${VERSION_INPUT}" = "null" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: version is required" >&2
-          exit 1
-        fi
-        
-        if [ -z "${PR_HEAD_SHA_SHORT_INPUT}" ] || [ "${PR_HEAD_SHA_SHORT_INPUT}" = "null" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: pr_head_sha_short is required" >&2
-          exit 1
-        fi
-        
-        # Validate repository format (must be owner/repo)
-        if ! [[ "${REPOSITORY_INPUT}" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ ]]; then
-          echo "::error::[VALIDATION_002] ${ACTION_NAME}: Invalid repository format (expected: owner/repo, got: ${REPOSITORY_INPUT})" >&2
-          exit 1
-        fi
-        
-        # Validate SHA format (exactly 7 lowercase hex characters)
-        if ! [[ "${PR_HEAD_SHA_SHORT_INPUT}" =~ ^[a-f0-9]{7}$ ]]; then
-          echo "::error::[VALIDATION_003] ${ACTION_NAME}: Invalid pr_head_sha_short format (expected: 7 lowercase hex characters, got: ${PR_HEAD_SHA_SHORT_INPUT})" >&2
-          exit 1
-        fi
-        
-        # Validate matrix: use jq exclusively for JSON validation (same pattern as create-manifest-lists)
-        # Check for empty input first (simple shell check is safe here)
-        if [ -z "${MATRIX_INPUT}" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
-          exit 1
-        fi
-        
-        # #region agent log
-        echo "DEBUG: Matrix input length: ${#MATRIX_INPUT}" >&2
-        echo "DEBUG: First 200 chars of matrix: $(printf '%s\n' "${MATRIX_INPUT}" | head -c 200)" >&2
-        # #endregion
-        
-        # Normalize JSON: re-parse and re-serialize to ensure valid JSON format
-        # This handles cases where GitHub Actions might have escaped or modified the JSON
-        # The workflow should normalize it first, but we normalize here as well for safety
-        MATRIX_NORMALIZED=$(printf '%s\n' "${MATRIX_INPUT}" | jq -c '.' 2>&1)
-        JQ_NORMALIZE_EXIT=$?
-        
-        # #region agent log
-        echo "DEBUG: Normalization exit code: ${JQ_NORMALIZE_EXIT}" >&2
-        echo "DEBUG: Normalized matrix length: ${#MATRIX_NORMALIZED}" >&2
-        if [ ${JQ_NORMALIZE_EXIT} -eq 0 ] && [ -n "${MATRIX_NORMALIZED}" ]; then
-          echo "DEBUG: Normalized matrix first 200 chars: $(printf '%s\n' "${MATRIX_NORMALIZED}" | head -c 200)" >&2
-        else
-          echo "DEBUG: Normalization failed or empty result" >&2
-          if [ ${JQ_NORMALIZE_EXIT} -ne 0 ]; then
-            echo "DEBUG: Normalization stderr: ${MATRIX_NORMALIZED}" >&2
-          fi
-        fi
-        # #endregion
-        
-        # Check if normalization succeeded
-        if [ ${JQ_NORMALIZE_EXIT} -ne 0 ] || [ -z "${MATRIX_NORMALIZED}" ]; then
-          # #region agent log
-          echo "DEBUG: Normalization failed, testing raw JSON parse..." >&2
-          JQ_PARSE_OUTPUT=$(printf '%s\n' "${MATRIX_INPUT}" | jq empty 2>&1 || true)
-          echo "DEBUG: jq parse error: ${JQ_PARSE_OUTPUT}" >&2
-          # #endregion
-          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-          exit 1
-        fi
-        
-        # Validate normalized matrix is a non-empty array using jq
-        if ! printf '%s\n' "${MATRIX_NORMALIZED}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-          # #region agent log
-          echo "DEBUG: Array validation failed, checking type..." >&2
-          MATRIX_TYPE=$(printf '%s\n' "${MATRIX_NORMALIZED}" | jq -r 'type' 2>/dev/null || echo "unknown")
-          MATRIX_LENGTH=$(printf '%s\n' "${MATRIX_NORMALIZED}" | jq -r 'length' 2>/dev/null || echo "unknown")
-          echo "DEBUG: Matrix type: ${MATRIX_TYPE}, length: ${MATRIX_LENGTH}" >&2
-          # #endregion
-          echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
-          exit 1
-        fi
-        
-        # Store normalized matrix for use in next step
-        MATRIX_INPUT="${MATRIX_NORMALIZED}"
+        # Validate matrix (normalization happens in check step)
+        validate_matrix "${MATRIX_INPUT}" >/dev/null
     
     - name: Check if PR images exist
       id: check
@@ -157,84 +118,92 @@ runs:
       run: |
         set -e
         
-        # Constants
         readonly ACTION_NAME="check-pr-images-exist"
         
-        # ============================================================================
-        # Extract and Prepare Inputs
-        # ============================================================================
+        # Helper function: Read JSON input safely using temp file
+        read_json_input() {
+          local input_value="$1"
+          local tmp_file
+          tmp_file=$(mktemp)
+          printf '%s\n' "${input_value}" > "${tmp_file}"
+          local result
+          result=$(jq -c '.' "${tmp_file}" 2>/dev/null) || {
+            rm -f "${tmp_file}"
+            return 1
+          }
+          rm -f "${tmp_file}"
+          echo "${result}"
+        }
         
+        # Helper function: Sanitize branch name for Docker tag compatibility
+        sanitize_branch() {
+          local branch="$1"
+          echo "${branch//\//-}"
+        }
+        
+        # Helper function: Construct PR image tag
+        construct_image_tag() {
+          local repository="$1"
+          local branch_sanitized="$2"
+          local version="$3"
+          local target_name="$4"
+          local sha_short="$5"
+          echo "ghcr.io/${repository}:pr-${branch_sanitized}-${version}-${target_name}-${sha_short}"
+        }
+        
+        # Helper function: Check if image exists in GHCR
+        image_exists() {
+          local image_tag="$1"
+          docker buildx imagetools inspect "${image_tag}" >/dev/null 2>&1
+        }
+        
+        # Extract inputs
         REPOSITORY="${{ inputs.repository }}"
         BRANCH="${{ inputs.branch }}"
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         
-        # Sanitize branch name: replace slashes with hyphens for Docker tag compatibility
-        # Example: "feature/new-ui" -> "feature-new-ui"
-        BRANCH_SANITIZED="${BRANCH//\//-}"
+        # Read and parse matrix using helper function
+        MATRIX=$(read_json_input '${{ inputs.matrix }}')
         
-        # ============================================================================
-        # Extract First Target from Matrix
-        # ============================================================================
+        # Sanitize branch name
+        BRANCH_SANITIZED=$(sanitize_branch "${BRANCH}")
         
-        # Read matrix input using temp file to avoid shell interpretation issues
-        # The workflow uses toJson(fromJson()) to normalize the JSON, ensuring it's valid
-        MATRIX_TMP=$(mktemp)
-        printf '%s\n' '${{ inputs.matrix }}' > "${MATRIX_TMP}"
-        MATRIX=$(jq -c '.' "${MATRIX_TMP}" 2>/dev/null || cat "${MATRIX_TMP}")
-        rm -f "${MATRIX_TMP}"
+        # Get all target names from matrix
+        TARGET_NAMES=$(jq -r '.[].name' <<< "${MATRIX}")
+        TARGET_COUNT=$(jq 'length' <<< "${MATRIX}")
         
-        # #region agent log
-        echo "DEBUG: Step 2 - Matrix input length: ${#MATRIX}" >&2
-        echo "DEBUG: Step 2 - Matrix first 200 chars: $(printf '%s\n' "${MATRIX}" | head -c 200)" >&2
-        # #endregion
+        echo "🔍 Checking ${TARGET_COUNT} PR image(s)..."
         
-        # Validate the matrix is valid JSON
-        if ! printf '%s\n' "${MATRIX}" | jq empty >/dev/null 2>&1; then
-          echo "::error::[ERROR_001] ${ACTION_NAME}: Failed to parse matrix JSON in step 2" >&2
-          exit 1
-        fi
+        # Check each target image
+        ALL_FOUND=true
+        MISSING_TARGETS=()
         
-        # Extract the first target name from the matrix
-        # Optimization: We only check the first target because:
-        # - PR images are built for all targets together in a single workflow run
-        # - If the first target exists, all targets should exist
-        FIRST_TARGET_NAME=$(printf '%s\n' "${MATRIX}" | jq -r '.[0].name // empty' 2>/dev/null || echo "")
-        
-        # #region agent log
-        echo "DEBUG: Step 2 - First target name: ${FIRST_TARGET_NAME}" >&2
-        # #endregion
-        
-        if [ -z "${FIRST_TARGET_NAME}" ]; then
-          echo "⚠️  No target name found in first matrix entry"
-          PR_IMAGES_FOUND="false"
-        else
-          # ============================================================================
-          # Construct Image Tag and Check Existence
-          # ============================================================================
-          
-          # Construct PR image tag following the format:
-          # ghcr.io/{repository}:pr-{branch}-{version}-{target}-{sha}
-          # Example: ghcr.io/runlix/radarr:pr-release-4.0.16.2944-amd64-latest-9e4b4f2
-          PR_IMAGE_TAG="ghcr.io/${REPOSITORY}:pr-${BRANCH_SANITIZED}-${VERSION}-${FIRST_TARGET_NAME}-${PR_HEAD_SHA_SHORT}"
-          
-          echo "🔍 Checking for PR image: ${PR_IMAGE_TAG}"
-          
-          # Use docker buildx imagetools to check if image exists in GHCR
-          # Suppress output (redirect to /dev/null) and check exit code
-          if docker buildx imagetools inspect "${PR_IMAGE_TAG}" >/dev/null 2>&1; then
-            echo "✅ Found PR image: ${PR_IMAGE_TAG}"
-            PR_IMAGES_FOUND="true"
-          else
-            echo "❌ PR image not found: ${PR_IMAGE_TAG}"
-            PR_IMAGES_FOUND="false"
+        while IFS= read -r target_name; do
+          if [ -z "${target_name}" ]; then
+            continue
           fi
+          
+          IMAGE_TAG=$(construct_image_tag "${REPOSITORY}" "${BRANCH_SANITIZED}" "${VERSION}" "${target_name}" "${PR_HEAD_SHA_SHORT}")
+          
+          if image_exists "${IMAGE_TAG}"; then
+            echo "✅ Found PR image: ${IMAGE_TAG}"
+          else
+            echo "❌ PR image not found: ${IMAGE_TAG}"
+            ALL_FOUND=false
+            MISSING_TARGETS+=("${target_name}")
+          fi
+        done <<< "${TARGET_NAMES}"
+        
+        # Set output based on whether all images were found
+        if [ "${ALL_FOUND}" = "true" ]; then
+          PR_IMAGES_FOUND="true"
+          echo ""
+          echo "📊 Result: All ${TARGET_COUNT} PR image(s) found ✅"
+        else
+          PR_IMAGES_FOUND="false"
+          echo ""
+          echo "📊 Result: Missing ${#MISSING_TARGETS[@]} PR image(s): ${MISSING_TARGETS[*]} ❌"
         fi
         
-        # ============================================================================
-        # Set Output
-        # ============================================================================
-        
-        echo "pr_images_found=${PR_IMAGES_FOUND}" >> $GITHUB_OUTPUT
-        echo ""
-        echo "📊 Result: PR images found = ${PR_IMAGES_FOUND}"
+        echo "pr_images_found=${PR_IMAGES_FOUND}" >> "$GITHUB_OUTPUT"
