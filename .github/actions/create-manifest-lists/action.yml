@@ -78,15 +78,19 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq to check if it's valid JSON, non-empty, and an array in one pass
-        if [ -z "${MATRIX_INPUT}" ] || [ "${MATRIX_INPUT}" = "null" ]; then
+        # Validate matrix: use jq exclusively for JSON validation
+        # Check for empty input first (simple shell check is safe here)
+        if [ -z "${MATRIX_INPUT}" ]; then
           echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
           exit 1
         fi
         
-        # Validate matrix is valid JSON and a non-empty array
-        if ! echo "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-          if ! echo "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
+        # Validate matrix is valid JSON and a non-empty array using jq
+        # This handles all JSON-related validation without shell quoting issues
+        # Use printf instead of echo for safer string handling
+        if ! printf '%s\n' "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+          # Check if it's invalid JSON or just empty/null
+          if ! printf '%s\n' "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
             echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
           else
             echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
@@ -137,7 +141,8 @@ runs:
           echo "Processing variant: $variant"
           
           # Get all enabled targets for this variant from matrix JSON
-          TARGETS=$(echo "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
+          # Use printf instead of echo for safer string handling
+          TARGETS=$(printf '%s\n' "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
           
           # Build image tag list and verify existence
           PLATFORM_IMAGES=()
