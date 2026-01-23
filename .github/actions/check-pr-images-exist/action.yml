@@ -82,8 +82,9 @@ runs:
         validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
         # Validate matrix: use jq exclusively for JSON validation
-        # Matrix is passed as JSON string from workflow (already compact from extract-version-metadata)
-        # Write to temp file using jq -c to ensure compact format and avoid truncation
+        # Matrix is passed directly from extract-version-metadata output (multiline EOF format)
+        # We pass it directly without toJson/fromJson to preserve the multiline format and avoid truncation
+        # jq handles multiline JSON correctly, so we can parse it directly
         MATRIX_TMPFILE=$(mktemp)
         
         # Check for empty input first
@@ -94,7 +95,8 @@ runs:
         fi
         
         # Parse and compact JSON using jq -c (compact format, single line)
-        # This ensures we have valid, compact JSON that won't get truncated
+        # jq handles multiline EOF format correctly, so we can parse multiline JSON directly
+        # printf '%s\n' preserves multiline format when reading from input
         if ! printf '%s\n' "${{ inputs.matrix }}" | jq -c . > "${MATRIX_TMPFILE}" 2>/dev/null; then
           rm -f "${MATRIX_TMPFILE}"
           echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
