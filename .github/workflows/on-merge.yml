@@ -183,7 +183,7 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
       
       - name: Download MATRIX.json artifact
-        uses: actions/download-artifact@5e31784e7b3e4e65b3aeb86e4b8c2c0e3b0c0b0a  # v4
+        uses: actions/download-artifact@v4
         with:
           name: matrix-json
       
