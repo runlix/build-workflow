@@ -17,9 +17,10 @@ inputs:
   repository:
     description: 'GitHub repository (e.g., owner/repo)'
     required: true
-  matrix:
-    description: 'JSON array of enabled targets'
-    required: true
+  matrix_file:
+    description: 'Path to filtered MATRIX.json file (only enabled targets). Defaults to MATRIX.json'
+    required: false
+    default: 'MATRIX.json'
 
 runs:
   using: 'composite'
@@ -38,7 +39,7 @@ runs:
         BRANCH_INPUT="${{ inputs.branch }}"
         SHA_INPUT="${{ inputs.sha }}"
         REPOSITORY_INPUT="${{ inputs.repository }}"
-        MATRIX_INPUT="${{ inputs.matrix }}"
+        MATRIX_FILE_INPUT="${{ inputs.matrix_file }}"
         
         # Validate all required inputs
         if [ -z "${VARIANTS_INPUT}" ] || [ "${VARIANTS_INPUT}" = "null" ]; then
@@ -78,25 +79,22 @@ runs:
           exit 1
         fi
         
-        # Validate matrix: use jq exclusively for JSON validation
-        # Check for empty input first (simple shell check is safe here)
-        if [ -z "${MATRIX_INPUT}" ]; then
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
+        # Validate matrix file exists and is readable
+        # Matrix file is pre-validated by extract-version-metadata, so we just check it exists
+        MATRIX_FILE="${MATRIX_FILE_INPUT:-MATRIX.json}"
+        if [ ! -f "${MATRIX_FILE}" ]; then
+          echo "::error::[VALIDATION_006] ${ACTION_NAME}: Matrix file not found: ${MATRIX_FILE}" >&2
           exit 1
         fi
         
-        # Validate matrix is valid JSON and a non-empty array using jq
-        # This handles all JSON-related validation without shell quoting issues
-        # Use printf instead of echo for safer string handling
-        if ! printf '%s\n' "${MATRIX_INPUT}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-          # Check if it's invalid JSON or just empty/null
-          if ! printf '%s\n' "${MATRIX_INPUT}" | jq empty >/dev/null 2>&1; then
-            echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-          else
-            echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
-          fi
+        # Validate file has at least one enabled target
+        if ! jq -e '.targets | length > 0' "${MATRIX_FILE}" >/dev/null 2>&1; then
+          echo "::error::[VALIDATION_005] ${ACTION_NAME}: Matrix file must contain at least one enabled target" >&2
           exit 1
         fi
+        
+        # Export matrix file path for use in next step
+        echo "MATRIX_FILE=${MATRIX_FILE}" >> "$GITHUB_ENV"
     
     - name: Create and push manifest lists
       shell: bash
@@ -107,10 +105,12 @@ runs:
         SHA="${{ inputs.sha }}"
         REPOSITORY="${{ inputs.repository }}"
         
-        # Matrix is passed as JSON string from workflow (using toJson())
-        # Parse it using fromJson() to ensure proper handling, then convert back to JSON string for jq
-        # This handles GitHub Actions' stringification of complex inputs to composite actions
-        MATRIX="${{ toJson(fromJson(inputs.matrix)) }}"
+        # Matrix file was validated in previous step
+        MATRIX_FILE="${MATRIX_FILE}"
+        if [ ! -f "${MATRIX_FILE}" ]; then
+          echo "::error::create-manifest-lists: Matrix file not found: ${MATRIX_FILE}" >&2
+          exit 1
+        fi
         
         # Sanitize branch name: replace '/' with '-' for valid Docker tag
         BRANCH_SANITIZED="${BRANCH//\//-}"
@@ -142,9 +142,9 @@ runs:
         echo "$VARIANTS" | while IFS= read -r variant; do
           echo "Processing variant: $variant"
           
-          # Get all enabled targets for this variant from matrix JSON
-          # Use printf instead of echo for safer string handling
-          TARGETS=$(printf '%s\n' "$MATRIX" | jq -r --arg v "$variant" '.[] | select(.variant == $v) | .name')
+          # Get all enabled targets for this variant from matrix file
+          # No filtering needed - file already contains only enabled targets
+          TARGETS=$(jq -r --arg v "$variant" '.targets[] | select(.variant == $v) | .name' "${MATRIX_FILE}")
           
           # Build image tag list and verify existence
           PLATFORM_IMAGES=()

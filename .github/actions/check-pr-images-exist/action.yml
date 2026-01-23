@@ -18,9 +18,10 @@ inputs:
   pr_head_sha_short:
     description: 'PR head commit SHA shortened to 7 hex characters (e.g., 9e4b4f2)'
     required: true
-  matrix:
-    description: 'YAML array of build targets (from VERSION.json). All targets are checked to ensure all PR images exist.'
-    required: true
+  matrix_file:
+    description: 'Path to filtered MATRIX.json file (only enabled targets). Defaults to MATRIX.json'
+    required: false
+    default: 'MATRIX.json'
 
 outputs:
   pr_images_found:
@@ -30,28 +31,6 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Write matrix to file
-      shell: bash
-      env:
-        MATRIX_JSON: ${{ toJson(fromJson(inputs.matrix)) }}
-      run: |
-        # Write matrix input to file using environment variable to avoid shell command line truncation
-        # Environment variables can handle larger content than command line arguments
-        # Use jq to validate and compact the JSON while writing to file
-        MATRIX_TMPFILE=$(mktemp)
-        if [ -z "${MATRIX_JSON}" ] || [ "${MATRIX_JSON}" = "null" ]; then
-          rm -f "${MATRIX_TMPFILE}"
-          echo "::error::[VALIDATION_001] check-pr-images-exist: matrix is required" >&2
-          exit 1
-        fi
-        # Use jq to parse and compact, reading from environment variable via stdin
-        printf '%s' "${MATRIX_JSON}" | jq -c . > "${MATRIX_TMPFILE}" 2>/dev/null || {
-          rm -f "${MATRIX_TMPFILE}"
-          echo "::error::[VALIDATION_004] check-pr-images-exist: matrix must be valid JSON" >&2
-          exit 1
-        }
-        echo "MATRIX_TMPFILE=${MATRIX_TMPFILE}" >> "$GITHUB_ENV"
-    
     - name: Validate inputs
       shell: bash
       run: |
@@ -103,40 +82,26 @@ runs:
         validate_repository "${REPOSITORY_INPUT}"
         validate_sha "${PR_HEAD_SHA_SHORT_INPUT}"
         
-        # Validate matrix: use jq exclusively for JSON validation
-        # Matrix was written to file in previous step to avoid shell variable truncation
-        # Read from file instead of shell variable to handle large JSON
-        MATRIX_TMPFILE="${MATRIX_TMPFILE}"
-        if [ ! -f "${MATRIX_TMPFILE}" ]; then
-          echo "::error::[VALIDATION_006] ${ACTION_NAME}: Matrix temp file not found" >&2
+        # Validate matrix file exists and is readable
+        # Matrix file is pre-validated by extract-version-metadata, so we just check it exists
+        MATRIX_FILE="${{ inputs.matrix_file }}"
+        if [ -z "${MATRIX_FILE}" ]; then
+          MATRIX_FILE="MATRIX.json"
+        fi
+        
+        if [ ! -f "${MATRIX_FILE}" ]; then
+          echo "::error::[VALIDATION_006] ${ACTION_NAME}: Matrix file not found: ${MATRIX_FILE}" >&2
           exit 1
         fi
         
-        # Check for empty input (file size check)
-        if [ ! -s "${MATRIX_TMPFILE}" ]; then
-          rm -f "${MATRIX_TMPFILE}"
-          echo "::error::[VALIDATION_001] ${ACTION_NAME}: matrix is required" >&2
+        # Validate file has at least one enabled target
+        if ! jq -e '.targets | length > 0' "${MATRIX_FILE}" >/dev/null 2>&1; then
+          echo "::error::[VALIDATION_005] ${ACTION_NAME}: Matrix file must contain at least one enabled target" >&2
           exit 1
         fi
         
-        # Parse and compact JSON using jq -c (compact format, single line)
-        # jq handles multiline EOF format correctly, so we can parse multiline JSON directly
-        # Read from file instead of shell variable to avoid truncation
-        if ! jq -c . < "${MATRIX_TMPFILE}" > "${MATRIX_TMPFILE}.compact" 2>/dev/null; then
-          rm -f "${MATRIX_TMPFILE}" "${MATRIX_TMPFILE}.compact"
-          echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
-          exit 1
-        fi
-        
-        # Replace original with compact version
-        mv "${MATRIX_TMPFILE}.compact" "${MATRIX_TMPFILE}"
-        
-        # Validate matrix is a non-empty array
-        if ! jq -e 'type == "array" and length > 0' < "${MATRIX_TMPFILE}" >/dev/null 2>&1; then
-          rm -f "${MATRIX_TMPFILE}"
-          echo "::error::[VALIDATION_005] ${ACTION_NAME}: matrix must be a non-empty JSON array" >&2
-          exit 1
-        fi
+        # Export matrix file path for use in next step
+        echo "MATRIX_FILE=${MATRIX_FILE}" >> "$GITHUB_ENV"
     
     - name: Check if PR images exist
       id: check
@@ -174,22 +139,20 @@ runs:
         VERSION="${{ inputs.version }}"
         PR_HEAD_SHA_SHORT="${{ inputs.pr_head_sha_short }}"
         
-        # Matrix was normalized and validated in previous step, reuse temp file
-        MATRIX_TMPFILE="${MATRIX_TMPFILE}"
-        if [ ! -f "${MATRIX_TMPFILE}" ]; then
-          echo "::error::[VALIDATION_006] ${ACTION_NAME}: Matrix temp file not found" >&2
+        # Matrix file was validated in previous step
+        MATRIX_FILE="${MATRIX_FILE}"
+        if [ ! -f "${MATRIX_FILE}" ]; then
+          echo "::error::[VALIDATION_006] ${ACTION_NAME}: Matrix file not found: ${MATRIX_FILE}" >&2
           exit 1
         fi
-        
-        # Clean up temp file on exit
-        trap "rm -f ${MATRIX_TMPFILE}" EXIT
         
         # Sanitize branch name
         BRANCH_SANITIZED=$(sanitize_branch "${BRANCH}")
         
-        # Get all target names from matrix using the temp file (already validated)
-        TARGET_NAMES=$(jq -r '.[].name' < "${MATRIX_TMPFILE}")
-        TARGET_COUNT=$(jq 'length' < "${MATRIX_TMPFILE}")
+        # Get all target names from matrix file (already filtered to only enabled targets)
+        # No filtering needed - file already contains only enabled targets
+        TARGET_NAMES=$(jq -r '.targets[].name' "${MATRIX_FILE}")
+        TARGET_COUNT=$(jq '.targets | length' "${MATRIX_FILE}")
         
         echo "🔍 Checking ${TARGET_COUNT} PR image(s)..."
         

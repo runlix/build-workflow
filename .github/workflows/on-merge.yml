@@ -78,7 +78,14 @@ jobs:
           branch: ${{ steps.extract.outputs.branch }}
           version: ${{ steps.extract.outputs.version }}
           pr_head_sha_short: ${{ steps.get-pr-sha.outputs.pr_head_sha_short }}
-          matrix: ${{ toJson(fromJson(steps.extract.outputs.matrix)) }}
+          # matrix_file defaults to MATRIX.json, which is created by extract-version-metadata
+
+      - name: Upload MATRIX.json artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: matrix-json
+          path: MATRIX.json
+          retention-days: 1
 
   re-tag:
     needs: prepare-version
@@ -175,6 +182,11 @@ jobs:
         with:
           password: ${{ secrets.GHCR_TOKEN }}
       
+      - name: Download MATRIX.json artifact
+        uses: actions/download-artifact@5e31784e7b3e4e65b3aeb86e4b8c2c0e3b0c0b0a  # v4
+        with:
+          name: matrix-json
+      
       - name: Create and push manifest lists
         uses: ./build-workflow/.github/actions/create-manifest-lists
         with:
@@ -183,7 +195,7 @@ jobs:
           branch: ${{ needs.prepare-version.outputs.branch }}
           sha: ${{ needs.prepare-version.outputs.sha }}
           repository: ${{ github.repository }}
-          matrix: ${{ toJson(fromJson(needs.prepare-version.outputs.matrix)) }}
+          # matrix_file defaults to MATRIX.json, which is downloaded from artifact
       
       - name: Generate GitHub App Token
         id: app-token
