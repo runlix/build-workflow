@@ -44,43 +44,69 @@ matrix: ${{ toJson(fromJson(steps.extract.outputs.matrix)) }}
 **Status:** Already implemented - matrix is extracted as compact JSON
 **Why it helps:** Compact JSON reduces size, but doesn't solve the truncation issue when passed through `toJson(fromJson())`
 
-### Attempt 4: Pass Directly and Handle Multiline in Action (Current Solution)
+### Attempt 4: Pass Directly and Handle Multiline in Action (Failed)
 **What:** Pass matrix output directly and handle multiline EOF format in the action
 ```yaml
 matrix: ${{ steps.extract.outputs.matrix }}
 ```
 **In action:** Read the input as-is and parse with jq, which handles multiline JSON correctly
-**Why it works:** 
-- Multiline EOF format is preserved when reading from step outputs
-- jq can parse multiline JSON correctly
-- Avoids the truncation that occurs with `toJson()` conversion
+**Why it failed:** When GitHub Actions expands `${{ inputs.matrix }}` in shell commands (like `printf` or `echo`), large JSON strings get truncated due to shell command-line argument size limits.
+
+### Attempt 5: Use Environment Variable (Current Solution)
+**What:** Use `toJson(fromJson())` in workflow and write to file using environment variable
+```yaml
+matrix: ${{ toJson(fromJson(steps.extract.outputs.matrix)) }}
+```
+**In action:** Write JSON to file using environment variable instead of command-line argument
+```bash
+env:
+  MATRIX_JSON: ${{ toJson(fromJson(inputs.matrix)) }}
+run: |
+  printf '%s' "${MATRIX_JSON}" | jq -c . > "${MATRIX_TMPFILE}"
+```
+**Why it works:**
+- Environment variables can handle larger content than command-line arguments
+- `toJson(fromJson())` normalizes the JSON format
+- Writing via `printf` from environment variable avoids command-line truncation
+- `jq` validates and compacts the JSON while writing to file
 
 ## Current Solution
 
 ### Workflow (on-merge.yml)
 ```yaml
-matrix: ${{ steps.extract.outputs.matrix }}
+matrix: ${{ toJson(fromJson(steps.extract.outputs.matrix)) }}
 ```
 
 ### Action (check-pr-images-exist/action.yml)
-The action reads the matrix input directly and uses jq to parse it. jq handles both single-line and multiline JSON correctly:
+The action writes the matrix input to a file using an environment variable to avoid shell command-line truncation:
 
+**Step 1: Write matrix to file**
 ```bash
-# Parse and compact JSON using jq -c (compact format, single line)
-# jq handles multiline JSON from EOF format correctly
-if ! printf '%s\n' "${{ inputs.matrix }}" | jq -c . > "${MATRIX_TMPFILE}" 2>/dev/null; then
-  rm -f "${MATRIX_TMPFILE}"
-  echo "::error::[VALIDATION_004] ${ACTION_NAME}: matrix must be valid JSON" >&2
+env:
+  MATRIX_JSON: ${{ toJson(fromJson(inputs.matrix)) }}
+run: |
+  MATRIX_TMPFILE=$(mktemp)
+  printf '%s' "${MATRIX_JSON}" | jq -c . > "${MATRIX_TMPFILE}"
+  echo "MATRIX_TMPFILE=${MATRIX_TMPFILE}" >> "$GITHUB_ENV"
+```
+
+**Step 2: Validate matrix**
+```bash
+# Read from file (already validated and compacted in previous step)
+MATRIX_TMPFILE="${MATRIX_TMPFILE}"
+if ! jq -e 'type == "array" and length > 0' < "${MATRIX_TMPFILE}" >/dev/null 2>&1; then
+  echo "::error::[VALIDATION_005] matrix must be a non-empty JSON array" >&2
   exit 1
 fi
 ```
 
 ## Key Insights
 
-1. **Multiline EOF format** is the correct way to output large data from actions to avoid truncation
-2. **Don't use `toJson(fromJson())`** when the source is already multiline EOF format - it collapses it and risks truncation
-3. **jq handles multiline JSON** - When reading multiline EOF format, jq can parse it correctly without needing normalization
-4. **Action inputs preserve multiline format** - When passing multiline EOF format from step outputs to action inputs, the format is preserved
+1. **Shell command-line arguments have size limits** - Expanding `${{ inputs.matrix }}` in shell commands (like `printf` or `echo`) can truncate large JSON
+2. **Environment variables handle larger content** - Using `env:` to set environment variables allows larger content than command-line arguments
+3. **Write to file immediately** - Write JSON to a file as soon as possible, using environment variables or direct file writing
+4. **Use `toJson(fromJson())` for normalization** - This ensures proper JSON formatting before writing to file
+5. **jq validates while writing** - Using `jq -c .` validates JSON and compacts it in one step
 
 ## References
 
