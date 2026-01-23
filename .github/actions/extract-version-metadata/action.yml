@@ -32,6 +32,9 @@ outputs:
   matrix:
     description: 'JSON array of enabled targets'
     value: ${{ steps.extract.outputs.matrix }}
+  matrix_file:
+    description: 'Path to filtered MATRIX.json file (only enabled targets)'
+    value: ${{ steps.extract.outputs.matrix_file }}
   test_url:
     description: 'Test URL from VERSION.json (if extract_test_url is true)'
     value: ${{ steps.extract.outputs.test_url }}
@@ -77,6 +80,20 @@ runs:
           MATRIX="[]"
         fi
         
+        # Create filtered MATRIX.json file with only enabled targets
+        # This file can be used directly by downstream actions without filtering
+        # Preserves root-level fields (version, build_date, sbranch, test_url) for context
+        if ! jq '{version, build_date, sbranch, test_url, targets: [.targets[] | select(.enabled == true)]}' \
+          VERSION.json > MATRIX.json 2>/dev/null; then
+          echo "WARNING: Failed to create MATRIX.json, creating empty structure"
+          echo '{"version":"","build_date":"","sbranch":"","test_url":"","targets":[]}' > MATRIX.json
+        fi
+        
+        # Validate filtered file has at least one enabled target
+        if ! jq -e '.targets | length > 0' MATRIX.json >/dev/null 2>&1; then
+          echo "WARNING: No enabled targets found in MATRIX.json"
+        fi
+        
         # Extract unique variants
         VARIANTS=$(jq -r '.targets[] | select(.enabled == true) | .variant' VERSION.json | sort -u)
         
@@ -112,4 +129,7 @@ runs:
           printf '%s\n' "$MATRIX"
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
+        
+        # Output matrix file path for downstream actions
+        echo "matrix_file=MATRIX.json" >> "$GITHUB_OUTPUT"
 
