@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Docker Matrix Configuration",
+  "description": "Schema for multi-architecture Docker build configuration",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Optional version string for services (e.g., v5.2.1). Omit for base images (uses SHA)."
+    },
+    "base_image": {
+      "type": "object",
+      "description": "Pinned base image reference for services. Omit for base image repos.",
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Registry image name (e.g., ghcr.io/runlix/distroless)",
+          "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Base image tag (e.g., abc1234)",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "description": "Multi-arch manifest digest (e.g., sha256:...)",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": ["image", "tag", "digest"],
+      "additionalProperties": false
+    },
+    "variants": {
+      "type": "array",
+      "description": "Array of variant configurations to build",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique identifier for the variant (e.g., radarr-latest)",
+            "pattern": "^[a-z0-9-]+$",
+            "minLength": 1
+          },
+          "tag_suffix": {
+            "type": "string",
+            "description": "User-facing variant identifier for final tags (e.g., '', '-debug', '-nonroot')"
+          },
+          "default": {
+            "type": "boolean",
+            "description": "Marks which variant is default (required if version field present, exactly one must be true)",
+            "default": false
+          },
+          "dockerfiles": {
+            "type": "object",
+            "description": "Map of platform to Dockerfile path",
+            "patternProperties": {
+              "^linux/(amd64|arm64|arm/v7|386|ppc64le|s390x)$": {
+                "type": "string",
+                "description": "Relative path to Dockerfile for this platform",
+                "pattern": "^[^/].*$"
+              }
+            },
+            "additionalProperties": false,
+            "minProperties": 1
+          },
+          "platforms": {
+            "type": "array",
+            "description": "Array of target platforms for this variant",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "linux/amd64",
+                "linux/arm64",
+                "linux/arm/v7",
+                "linux/386",
+                "linux/ppc64le",
+                "linux/s390x"
+              ]
+            },
+            "uniqueItems": true
+          },
+          "build_args": {
+            "type": "object",
+            "description": "Additional Docker build arguments (literal strings only). BASE_IMAGE, BASE_TAG, BASE_DIGEST are auto-injected from base_image object.",
+            "patternProperties": {
+              "^[A-Z_][A-Z0-9_]*$": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "test_script": {
+            "type": "string",
+            "description": "Path to test script that receives IMAGE_TAG env var",
+            "default": ""
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Feature flag to disable variant without removing from configuration",
+            "default": true
+          }
+        },
+        "required": ["name", "tag_suffix", "dockerfiles", "platforms"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["variants"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["version"]
+      },
+      "then": {
+        "properties": {
+          "variants": {
+            "type": "array",
+            "contains": {
+              "properties": {
+                "default": {
+                  "const": true
+                }
+              },
+              "required": ["default"]
+            },
+            "minContains": 1,
+            "maxContains": 1
+          }
+        }
+      }
+    }
+  ]
+}
