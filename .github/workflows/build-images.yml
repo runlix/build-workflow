@@ -471,16 +471,17 @@ jobs:
         if: ${{ !inputs.pr_mode && success() }}
         run: |
           PLATFORM_TAG="${{ steps.release-tag.outputs.platform_tag }}"
+          FILENAME="platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}.txt"
 
           echo "📦 Saving platform tag for manifest creation: $PLATFORM_TAG"
-          echo "$PLATFORM_TAG" > platform-tag.txt
+          echo "$PLATFORM_TAG" > "$FILENAME"
 
       - name: Upload platform tag artifact
         if: ${{ !inputs.pr_mode && success() }}
         uses: actions/upload-artifact@v4
         with:
           name: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}
-          path: platform-tag.txt
+          path: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}.txt
           retention-days: 1
 
       - name: Report failure to PR
