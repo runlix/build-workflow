@@ -1078,24 +1078,34 @@ jobs:
           retention-days: 90
 
       - name: Send release notification
-        if: needs.parse-matrix.outputs.version != ''
+        if: ${{ !inputs.pr_mode }}
         continue-on-error: true
         run: |
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           MANIFESTS=$(cat manifests-created.txt | tr '\n' ', ' | sed 's/,$//')
 
-          echo "📢 Sending release notification for versioned release..."
+          echo "📢 Sending release notification..."
           echo "Service: $SERVICE_NAME"
-          echo "Version: $VERSION"
+          if [ -n "$VERSION" ]; then
+            echo "Version: $VERSION"
+          else
+            echo "Version: $SHORT_SHA (SHA-based)"
+          fi
           echo "Manifests: $MANIFESTS"
 
           # Prepare notification message (Telegram supports HTML and Markdown)
+          if [ -n "$VERSION" ]; then
+            VERSION_LINE="*Version:* \`$VERSION\`"
+          else
+            VERSION_LINE="*Version:* \`$SHORT_SHA\` (SHA-based)"
+          fi
+
           MESSAGE=$(cat <<EOF
           🎉 *Docker Release Complete*
 
           *Service:* \`$SERVICE_NAME\`
-          *Version:* \`$VERSION\`
+          $VERSION_LINE
           *Commit:* [\`$SHORT_SHA\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
 
           *Manifests Created:*
