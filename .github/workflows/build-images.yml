@@ -1067,14 +1067,28 @@ jobs:
 
             console.log(`Created PR #${pr.number}: ${pr.html_url}`);
 
-            // Enable auto-merge on the PR
+            // Enable auto-merge on the PR using GraphQL
             try {
-              await github.rest.pulls.enableAutoMerge({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                merge_method: 'MERGE'
+              const mutation = `
+                mutation($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+                  enablePullRequestAutoMerge(input: {
+                    pullRequestId: $pullRequestId,
+                    mergeMethod: $mergeMethod
+                  }) {
+                    pullRequest {
+                      autoMergeRequest {
+                        enabledAt
+                      }
+                    }
+                  }
+                }
+              `;
+
+              await github.graphql(mutation, {
+                pullRequestId: pr.node_id,
+                mergeMethod: 'MERGE'
               });
+
               console.log(`✅ Enabled auto-merge on PR #${pr.number}`);
               console.log(`PR will be automatically merged once all requirements are satisfied`);
             } catch (error) {
