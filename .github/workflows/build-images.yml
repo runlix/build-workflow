@@ -525,7 +525,7 @@ jobs:
           echo "Image: ${{ env.IMAGE_TAG }}@$DIGEST"
 
       - name: Upload manifest fragment
-        if: success()
+        if: success() && inputs.pr_mode
         uses: actions/upload-artifact@v4
         with:
           name: manifest-${{ matrix.variant_name }}-${{ matrix.arch }}
@@ -772,7 +772,7 @@ jobs:
             }
 
       - name: Upload consolidated manifest
-        if: steps.manifest.outputs.image_count > 0
+        if: inputs.pr_mode && steps.manifest.outputs.image_count > 0
         uses: actions/upload-artifact@v4
         with:
           name: build-manifest
