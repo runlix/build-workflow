@@ -1030,6 +1030,7 @@ jobs:
           else
             VERSION="${{ needs.parse-matrix.outputs.version }}"
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            BRANCH_NAME="releases-json-update-${SHORT_SHA}"
 
             if [ -n "$VERSION" ]; then
               COMMIT_MSG="Release: $SERVICE_NAME $VERSION @ $SHORT_SHA"
@@ -1037,11 +1038,48 @@ jobs:
               COMMIT_MSG="Release: $SERVICE_NAME @ $SHORT_SHA"
             fi
 
+            # Create new branch and commit
+            git checkout -b "$BRANCH_NAME"
             git commit -m "$COMMIT_MSG"
-            git push
+            git push origin "$BRANCH_NAME"
 
-            echo "✅ Pushed releases.json to main branch"
+            echo "✅ Pushed releases.json to branch $BRANCH_NAME"
+            echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           fi
+        id: push-releases
+
+      - name: Create pull request
+        if: steps.push-releases.outputs.branch_name != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branchName = '${{ steps.push-releases.outputs.branch_name }}';
+            const shortSha = branchName.replace('releases-json-update-', '');
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Update releases.json - ${context.payload.repository.name} @ ${shortSha}`,
+              body: `Automated update to \`releases.json\` from release workflow.\n\n**Service:** ${context.payload.repository.name}\n**Commit:** ${context.sha}\n**Manifests created:**\n\`\`\`\n${{ steps.push-releases.outputs.manifests || 'See manifests-created.txt' }}\n\`\`\``,
+              head: branchName,
+              base: 'main'
+            });
+
+            console.log(`Created PR #${pr.number}: ${pr.html_url}`);
+
+            // Auto-merge if repository allows it
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'squash'
+              });
+              console.log(`✅ Auto-merged PR #${pr.number}`);
+            } catch (error) {
+              console.log(`ℹ️ Could not auto-merge: ${error.message}`);
+              console.log(`Please manually merge PR #${pr.number}`);
+            }
 
       - name: Upload manifest list
         uses: actions/upload-artifact@v4
