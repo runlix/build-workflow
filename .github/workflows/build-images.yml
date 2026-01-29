@@ -1073,7 +1073,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number,
-                merge_method: 'squash'
+                merge_method: 'merge'
               });
               console.log(`✅ Auto-merged PR #${pr.number}`);
             } catch (error) {
