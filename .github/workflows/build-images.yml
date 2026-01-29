@@ -1067,17 +1067,18 @@ jobs:
 
             console.log(`Created PR #${pr.number}: ${pr.html_url}`);
 
-            // Auto-merge if repository allows it
+            // Enable auto-merge on the PR
             try {
-              await github.rest.pulls.merge({
+              await github.rest.pulls.enableAutoMerge({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number,
-                merge_method: 'merge'
+                merge_method: 'MERGE'
               });
-              console.log(`✅ Auto-merged PR #${pr.number}`);
+              console.log(`✅ Enabled auto-merge on PR #${pr.number}`);
+              console.log(`PR will be automatically merged once all requirements are satisfied`);
             } catch (error) {
-              console.log(`ℹ️ Could not auto-merge: ${error.message}`);
+              console.log(`ℹ️ Could not enable auto-merge: ${error.message}`);
               console.log(`Please manually merge PR #${pr.number}`);
             }
 
