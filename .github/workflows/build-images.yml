@@ -257,7 +257,7 @@ jobs:
         if: ${{ !inputs.pr_mode }}
         uses: imjasonh/setup-crane@v0.1
 
-      - name: Find merged PR
+      - name: Find merged PR and workflow run
         id: find-pr
         if: ${{ !inputs.pr_mode }}
         run: |
@@ -265,7 +265,7 @@ jobs:
 
           echo "Searching for merged PR containing commit ${{ github.sha }}..."
 
-          # Search for merged PR and get both PR number and head SHA
+          # Search for merged PR
           PR_DATA=$(gh pr list \
             --search "${{ github.sha }}" \
             --state merged \
@@ -281,6 +281,22 @@ jobs:
             echo "  Merge commit: ${{ github.sha }} ($SHORT_SHA)"
             echo "  PR head commit: $PR_HEAD_SHA ($PR_HEAD_SHORT)"
 
+            # Find the most recent successful PR validation workflow run for this PR
+            echo ""
+            echo "Searching for PR validation workflow run..."
+            WORKFLOW_RUN=$(gh run list \
+              --workflow=pr-validation.yml \
+              --json databaseId,conclusion,headSha \
+              --jq ".[] | select(.headSha | startswith(\"$PR_HEAD_SHA\")) | select(.conclusion == \"success\") | .databaseId" | \
+              head -n1)
+
+            if [ -n "$WORKFLOW_RUN" ]; then
+              echo "✅ Found workflow run: $WORKFLOW_RUN"
+              echo "workflow_run_id=$WORKFLOW_RUN" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️  No successful PR validation workflow run found"
+            fi
+
             echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
             echo "pr_head_sha=$PR_HEAD_SHA" >> $GITHUB_OUTPUT
             echo "pr_head_short=$PR_HEAD_SHORT" >> $GITHUB_OUTPUT
@@ -293,36 +309,68 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download PR build manifest
+        id: download-manifest
+        if: ${{ !inputs.pr_mode && steps.find-pr.outputs.found == 'true' && steps.find-pr.outputs.workflow_run_id != '' }}
+        continue-on-error: true
+        run: |
+          WORKFLOW_RUN_ID="${{ steps.find-pr.outputs.workflow_run_id }}"
+
+          echo "Downloading build manifest from workflow run: $WORKFLOW_RUN_ID"
+
+          # Download the build-manifest artifact from the PR workflow run
+          gh run download "$WORKFLOW_RUN_ID" \
+            --name build-manifest \
+            --dir pr-manifest/
+
+          if [ -f pr-manifest/manifest.json ]; then
+            echo "✅ Downloaded manifest.json"
+            cat pr-manifest/manifest.json | jq .
+            echo "manifest_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  manifest.json not found in artifact"
+            echo "manifest_found=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Check for PR image
         id: check-pr-image
         if: ${{ !inputs.pr_mode && steps.find-pr.outputs.found == 'true' }}
         run: |
-          # Use PR head SHA (from when PR was built), not merge commit SHA
-          PR_HEAD_SHORT="${{ steps.find-pr.outputs.pr_head_short }}"
-          PR_NUM=${{ steps.find-pr.outputs.pr_number }}
-          VERSION="${{ needs.parse-matrix.outputs.version }}"
+          # Try to find exact image from PR manifest first
+          if [ "${{ steps.download-manifest.outputs.manifest_found }}" == "true" ]; then
+            echo "Looking for image in PR manifest..."
 
-          echo "Looking for PR image built from PR head commit: $PR_HEAD_SHORT"
+            # Extract images for this variant and arch from manifest
+            # Manifest format: {pr_number, commit_sha, timestamp, images: ["image@digest", ...]}
+            IMAGE_REF=$(jq -r --arg variant "${{ matrix.tag_suffix }}" \
+                              --arg arch "${{ matrix.arch }}" \
+              '.images[] | select(contains($variant) and contains($arch))' \
+              pr-manifest/manifest.json | head -n1)
 
-          # Expected PR image tag format
-          # Format: pr-<pr_number>-<version>-<suffix>-<arch>-<sha>
-          if [ -n "$VERSION" ]; then
-            PR_TAG="pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${PR_HEAD_SHORT}"
+            if [ -n "$IMAGE_REF" ]; then
+              # Extract tag from full image reference
+              PR_TAG=$(echo "$IMAGE_REF" | sed 's|.*:||' | sed 's|@.*||')
+              echo "✅ Found exact PR image from manifest: $PR_TAG"
+              echo "  Full reference: $IMAGE_REF"
+
+              # Verify image still exists
+              if crane digest "$IMAGE_REF" > /dev/null 2>&1; then
+                echo "✅ Image verified in registry"
+                echo "exists=true" >> $GITHUB_OUTPUT
+                echo "pr_tag=$PR_TAG" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️  Image from manifest no longer exists in registry"
+                echo "exists=false" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "⚠️  No matching image found in manifest for ${{ matrix.tag_suffix }}-${{ matrix.arch }}"
+              echo "exists=false" >> $GITHUB_OUTPUT
+            fi
           else
-            PR_TAG="pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${PR_HEAD_SHORT}"
-          fi
-          FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PR_TAG}"
-
-          echo "Checking for PR image: $FULL_IMAGE"
-
-          if crane digest "$FULL_IMAGE" > /dev/null 2>&1; then
-            echo "✅ PR image exists: $PR_TAG"
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "pr_tag=$PR_TAG" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️  PR image not found: $PR_TAG"
-            echo "Image may have expired or been deleted"
-            echo "Will rebuild from scratch"
+            echo "⚠️  No PR manifest available"
+            echo "Cannot verify exact images, will rebuild from scratch"
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
