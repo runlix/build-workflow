@@ -46,12 +46,7 @@
           },
           "tag_suffix": {
             "type": "string",
-            "description": "User-facing variant identifier for final tags (e.g., '', '-debug', '-nonroot')"
-          },
-          "default": {
-            "type": "boolean",
-            "description": "Marks which variant is default (required if version field present, exactly one must be true)",
-            "default": false
+            "description": "User-facing variant identifier for final tags (e.g., 'stable', 'debug', 'nonroot'). No leading dash."
           },
           "dockerfiles": {
             "type": "object",
@@ -110,35 +105,5 @@
     }
   },
   "required": ["variants"],
-  "additionalProperties": false,
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "version": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": ["version"]
-      },
-      "then": {
-        "properties": {
-          "variants": {
-            "type": "array",
-            "contains": {
-              "properties": {
-                "default": {
-                  "const": true
-                }
-              },
-              "required": ["default"]
-            },
-            "minContains": 1,
-            "maxContains": 1
-          }
-        }
-      }
-    }
-  ]
+  "additionalProperties": false
 }
