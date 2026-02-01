@@ -911,25 +911,20 @@ jobs:
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
 
-          # Extract unique variants from matrix
-          VARIANTS=$(echo '${{ needs.parse-matrix.outputs.matrix }}' | \
-            jq -r '[.[] | {name: .variant_name, suffix: .tag_suffix, default: .is_default}] | unique_by(.name)')
+          # Extract unique tag suffixes from matrix
+          TAG_SUFFIXES=$(echo '${{ needs.parse-matrix.outputs.matrix }}' | \
+            jq -r '[.[] | .tag_suffix] | unique | .[]')
 
-          echo "🔨 Creating manifests for variants:"
-          echo "$VARIANTS" | jq -r '.[] | "  - \(.name) (suffix: \"\(.suffix)\", default: \(.default))"'
+          echo "🔨 Creating multi-arch manifests:"
           echo ""
 
           # Create manifests-created.txt for tracking
           touch manifests-created.txt
 
-          # For each variant
-          echo "$VARIANTS" | jq -c '.[]' | while read variant; do
-            VARIANT_NAME=$(echo "$variant" | jq -r '.name')
-            TAG_SUFFIX=$(echo "$variant" | jq -r '.suffix')
-            IS_DEFAULT=$(echo "$variant" | jq -r '.default')
-
+          # For each unique tag suffix, create a multi-arch manifest
+          echo "$TAG_SUFFIXES" | while read TAG_SUFFIX; do
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "Variant: $VARIANT_NAME"
+            echo "Tag Suffix: $TAG_SUFFIX"
             echo ""
 
             # Determine manifest tag
@@ -942,19 +937,24 @@ jobs:
 
             echo "Target manifest tag: $MANIFEST_TAG"
 
-            # Collect platform images for this variant
+            # Collect ALL platform images with this manifest tag (across all architectures)
+            # Platform tags have format: <version>-<suffix>-<arch>-<sha> or <suffix>-<arch>-<sha>
+            # So they start with the manifest tag followed by a dash
             PLATFORM_IMAGES=()
-            for tag_file in platform-tags/platform-tag-${VARIANT_NAME}-*.txt; do
+            for tag_file in platform-tags/platform-tag-*.txt; do
               if [ -f "$tag_file" ]; then
                 PLATFORM_TAG=$(cat "$tag_file")
-                FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PLATFORM_TAG}"
-                PLATFORM_IMAGES+=("$FULL_IMAGE")
-                echo "  + Platform: $PLATFORM_TAG"
+                # Check if platform tag starts with manifest tag + dash
+                if [[ "$PLATFORM_TAG" == "${MANIFEST_TAG}-"* ]]; then
+                  FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PLATFORM_TAG}"
+                  PLATFORM_IMAGES+=("$FULL_IMAGE")
+                  echo "  + Platform: $PLATFORM_TAG"
+                fi
               fi
             done
 
             if [ ${#PLATFORM_IMAGES[@]} -eq 0 ]; then
-              echo "❌ Error: No platform images found for variant $VARIANT_NAME"
+              echo "❌ Error: No platform images found for manifest tag $MANIFEST_TAG"
               exit 1
             fi
 
