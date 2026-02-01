@@ -127,18 +127,6 @@ jobs:
           fi
           echo "✅ Found $ENABLED_COUNT enabled variant(s)"
 
-          # If version present, check exactly one default variant
-          VERSION=$(jq -r '.version // ""' .ci/docker-matrix.json)
-          if [ -n "$VERSION" ]; then
-            DEFAULT_COUNT=$(jq '[.variants[] | select(.default == true)] | length' .ci/docker-matrix.json)
-            if [ "$DEFAULT_COUNT" -ne 1 ]; then
-              echo "❌ ERROR: Exactly one variant must have 'default: true' when version field is present"
-              echo "Found: $DEFAULT_COUNT default variants"
-              exit 1
-            fi
-            echo "✅ Found exactly one default variant"
-          fi
-
           # Check variant name uniqueness
           DUPLICATE_NAMES=$(jq -r '.variants[].name' .ci/docker-matrix.json | sort | uniq -d)
           if [ -n "$DUPLICATE_NAMES" ]; then
@@ -147,17 +135,6 @@ jobs:
             exit 1
           fi
           echo "✅ All variant names are unique"
-
-          # Check tag_suffix collision
-          if [ -n "$VERSION" ]; then
-            DUPLICATE_TAGS=$(jq -r --arg ver "$VERSION" '.variants[] | "\($ver)\(.tag_suffix)"' .ci/docker-matrix.json | sort | uniq -d)
-            if [ -n "$DUPLICATE_TAGS" ]; then
-              echo "❌ ERROR: Duplicate tags after applying suffixes:"
-              echo "$DUPLICATE_TAGS"
-              exit 1
-            fi
-            echo "✅ No tag collisions detected"
-          fi
 
       - name: Validate platform-Dockerfile mapping
         run: |
@@ -217,12 +194,11 @@ jobs:
                   dockerfile: .dockerfiles[$platform],
                   tag_suffix: .tag_suffix,
                   test_script: (.test_script // ""),
-                  is_default: (.default // false),
                   build_args: (
                     .build_args +
                     (if $base_img != "" then {
                       BASE_IMAGE: $base_img,
-                      BASE_TAG: ($base_tag + .tag_suffix),
+                      BASE_TAG: ($base_tag + "-" + .tag_suffix),
                       BASE_DIGEST: $base_digest
                     } else {} end)
                   )
@@ -314,9 +290,15 @@ jobs:
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           PR_NUM=${{ steps.find-pr.outputs.pr_number }}
+          VERSION="${{ needs.parse-matrix.outputs.version }}"
 
           # Expected PR image tag format
-          PR_TAG="pr-${PR_NUM}-${SHORT_SHA}${{ matrix.tag_suffix }}-${{ matrix.arch }}"
+          # Format: pr-<pr_number>-<version>-<suffix>-<arch>-<sha>
+          if [ -n "$VERSION" ]; then
+            PR_TAG="pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+          else
+            PR_TAG="pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+          fi
           FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PR_TAG}"
 
           echo "Checking for PR image: $FULL_IMAGE"
@@ -340,12 +322,13 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
 
           # Generate platform tag (temporary)
+          # Format: <version>-<suffix>-<arch>-<sha> or <suffix>-<arch>-<sha>
           if [ -n "$VERSION" ]; then
-            PLATFORM_TAG="${VERSION}${{ matrix.tag_suffix }}-${{ matrix.arch }}"
+            PLATFORM_TAG="${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
             echo "Platform tag (versioned): $PLATFORM_TAG"
           else
-            # Base images without version use SHA
-            PLATFORM_TAG="${SHORT_SHA}${{ matrix.tag_suffix }}-${{ matrix.arch }}"
+            # Base images without version use SHA at end
+            PLATFORM_TAG="${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
             echo "Platform tag (SHA-based): $PLATFORM_TAG"
           fi
 
@@ -402,9 +385,15 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
 
           if ${{ inputs.pr_mode }}; then
-            # PR mode: pr-{number}-{sha}{tag_suffix}-{arch}
+            # PR mode: pr-<pr_number>-<version>-<suffix>-<arch>-<sha>
             PR_NUM=${{ github.event.pull_request.number }}
-            IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${SHORT_SHA}${{ matrix.tag_suffix }}-${{ matrix.arch }}"
+            VERSION="${{ needs.parse-matrix.outputs.version }}"
+
+            if [ -n "$VERSION" ]; then
+              IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+            else
+              IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+            fi
           else
             # Release mode rebuild: use platform tag from release-tag step
             PLATFORM_TAG="${{ steps.release-tag.outputs.platform_tag }}"
@@ -877,10 +866,11 @@ jobs:
             echo ""
 
             # Determine manifest tag
+            # Format: <version>-<suffix> or <suffix>
             if [ -n "$VERSION" ]; then
-              MANIFEST_TAG="${VERSION}${TAG_SUFFIX}"
+              MANIFEST_TAG="${VERSION}-${TAG_SUFFIX}"
             else
-              MANIFEST_TAG="${SHORT_SHA}${TAG_SUFFIX}"
+              MANIFEST_TAG="${TAG_SUFFIX}"
             fi
 
             echo "Target manifest tag: $MANIFEST_TAG"
@@ -916,35 +906,6 @@ jobs:
 
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ All manifests created successfully"
-
-      - name: Create latest tag
-        if: needs.parse-matrix.outputs.version != ''
-        run: |
-          VERSION="${{ needs.parse-matrix.outputs.version }}"
-
-          echo "🏷️  Creating latest tag for default variant..."
-
-          # Find default variant (has is_default == true)
-          DEFAULT_VARIANT=$(echo '${{ needs.parse-matrix.outputs.matrix }}' | \
-            jq -r '[.[] | select(.is_default == true)] | .[0]')
-
-          if [ -n "$DEFAULT_VARIANT" ] && [ "$DEFAULT_VARIANT" != "null" ]; then
-            TAG_SUFFIX=$(echo "$DEFAULT_VARIANT" | jq -r '.tag_suffix')
-            MANIFEST_TAG="${VERSION}${TAG_SUFFIX}"
-
-            echo "Default variant manifest: $MANIFEST_TAG"
-            echo "Copying to latest tag..."
-
-            # Copy manifest to latest tag
-            crane copy \
-              "${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${MANIFEST_TAG}" \
-              "${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:latest"
-
-            echo "latest" >> manifests-created.txt
-            echo "✅ Created latest tag"
-          else
-            echo "⚠️  No default variant found, skipping latest tag"
-          fi
 
       - name: Cleanup platform tags
         continue-on-error: true
@@ -1187,5 +1148,6 @@ jobs:
           done
 
 # Workflow outputs:
-# - PR mode: Platform-specific images tagged pr-{number}-{sha}{tag_suffix}-{arch}
-# - Release mode: Multi-arch manifests tagged {version}{tag_suffix} or {sha}{tag_suffix}
+# - PR mode: Platform-specific images tagged pr-{number}-{version}-{suffix}-{arch}-{sha}
+#            (version omitted for SHA-based services)
+# - Release mode: Multi-arch manifests tagged {version}-{suffix} or {suffix} (SHA-based)
