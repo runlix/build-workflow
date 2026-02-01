@@ -507,6 +507,7 @@ jobs:
           ${{ matrix.test_script }}
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          PLATFORM: ${{ matrix.platform }}
 
       - name: Scan for vulnerabilities
         if: inputs.pr_mode || steps.promote.outputs.promoted != 'true'
