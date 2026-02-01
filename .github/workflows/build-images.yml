@@ -265,16 +265,25 @@ jobs:
 
           echo "Searching for merged PR containing commit ${{ github.sha }}..."
 
-          # Search for merged PR containing this commit
-          PR_NUM=$(gh pr list \
+          # Search for merged PR and get both PR number and head SHA
+          PR_DATA=$(gh pr list \
             --search "${{ github.sha }}" \
             --state merged \
-            --json number \
-            --jq '.[0].number // empty')
+            --json number,headRefOid \
+            --jq '.[0] // empty')
 
-          if [ -n "$PR_NUM" ]; then
+          if [ -n "$PR_DATA" ]; then
+            PR_NUM=$(echo "$PR_DATA" | jq -r '.number')
+            PR_HEAD_SHA=$(echo "$PR_DATA" | jq -r '.headRefOid')
+            PR_HEAD_SHORT=$(echo "$PR_HEAD_SHA" | cut -c1-7)
+
             echo "✅ Found merged PR #$PR_NUM"
+            echo "  Merge commit: ${{ github.sha }} ($SHORT_SHA)"
+            echo "  PR head commit: $PR_HEAD_SHA ($PR_HEAD_SHORT)"
+
             echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
+            echo "pr_head_sha=$PR_HEAD_SHA" >> $GITHUB_OUTPUT
+            echo "pr_head_short=$PR_HEAD_SHORT" >> $GITHUB_OUTPUT
             echo "found=true" >> $GITHUB_OUTPUT
           else
             echo "⚠️  No merged PR found for this commit"
@@ -288,16 +297,19 @@ jobs:
         id: check-pr-image
         if: ${{ !inputs.pr_mode && steps.find-pr.outputs.found == 'true' }}
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          # Use PR head SHA (from when PR was built), not merge commit SHA
+          PR_HEAD_SHORT="${{ steps.find-pr.outputs.pr_head_short }}"
           PR_NUM=${{ steps.find-pr.outputs.pr_number }}
           VERSION="${{ needs.parse-matrix.outputs.version }}"
+
+          echo "Looking for PR image built from PR head commit: $PR_HEAD_SHORT"
 
           # Expected PR image tag format
           # Format: pr-<pr_number>-<version>-<suffix>-<arch>-<sha>
           if [ -n "$VERSION" ]; then
-            PR_TAG="pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+            PR_TAG="pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${PR_HEAD_SHORT}"
           else
-            PR_TAG="pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+            PR_TAG="pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${PR_HEAD_SHORT}"
           fi
           FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PR_TAG}"
 
