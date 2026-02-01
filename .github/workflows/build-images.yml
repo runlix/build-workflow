@@ -417,6 +417,9 @@ jobs:
           echo "✅ Promoted successfully in ~30 seconds (no rebuild needed)"
           echo "promoted=true" >> $GITHUB_OUTPUT
 
+          # Set IMAGE_TAG for downstream steps (digest capture, etc.)
+          echo "IMAGE_TAG=$DST" >> $GITHUB_ENV
+
       - name: Set up QEMU
         if: inputs.pr_mode || steps.promote.outputs.promoted != 'true'
         uses: docker/setup-qemu-action@v3
@@ -584,6 +587,7 @@ jobs:
           path: image-manifest.txt
 
       - name: Move cache
+        if: inputs.pr_mode || steps.promote.outputs.promoted != 'true'
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
