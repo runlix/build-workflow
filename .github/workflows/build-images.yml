@@ -351,7 +351,10 @@ jobs:
 
             if [ -n "$IMAGE_REF" ]; then
               # Extract tag from full image reference
-              PR_TAG=$(echo "$IMAGE_REF" | sed 's|.*:||' | sed 's|@.*||')
+              # Format: registry/org/repo:tag@sha256:digest
+              # We want just the "tag" part
+              PR_TAG=$(echo "$IMAGE_REF" | sed 's|^[^:]*:||' | cut -d'@' -f1)
+
               echo "✅ Found exact PR image from manifest: $PR_TAG"
               echo "  Full reference: $IMAGE_REF"
 
