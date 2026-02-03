@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Copy test fixtures to root
         run: |
@@ -50,9 +50,9 @@ jobs:
           cp test-fixtures/base-image/docker-matrix.json .ci/
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install ajv-cli
         run: npm install -g ajv-cli ajv-formats
@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Copy test fixtures to root
         run: |
@@ -125,9 +125,9 @@ jobs:
           cp test-fixtures/service/docker-matrix.json .ci/
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install ajv-cli
         run: npm install -g ajv-cli ajv-formats
