@@ -21,3 +21,6 @@ COPY --chmod=0644 <<EOF /etc/build-info
 EOF
 
 # Debug variant includes busybox shell for runtime troubleshooting
+
+# Add dummy CMD so docker create works (needed for testing)
+CMD ["/etc/build-info"]

@@ -40,4 +40,5 @@ EXPOSE 8080
 
 # Distroless images have no shell or entrypoint by default
 # In real usage, you would COPY your compiled binary and set it as ENTRYPOINT
-# For testing purposes, we don't set an entrypoint (container will exit immediately)
+# For testing purposes, we set a dummy CMD so docker create works (it won't actually run)
+CMD ["/app/metadata.json"]
