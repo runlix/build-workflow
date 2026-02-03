@@ -179,6 +179,7 @@ jobs:
 
           # Expand variants × platforms into matrix
           # Auto-inject BASE_IMAGE, BASE_TAG (with tag_suffix appended), BASE_DIGEST
+          # Auto-select runner based on architecture for performance
           MATRIX=$(jq -c \
             --arg base_img "$BASE_IMAGE" \
             --arg base_tag "$BASE_TAG" \
@@ -191,6 +192,13 @@ jobs:
                   variant_name: .name,
                   platform: $platform,
                   arch: ($platform | split("/")[1]),
+                  runner: (
+                    if ($platform | split("/")[1]) == "arm64" then
+                      "ubuntu-24.04-arm64"
+                    else
+                      "ubuntu-latest"
+                    end
+                  ),
                   dockerfile: .dockerfiles[$platform],
                   tag_suffix: .tag_suffix,
                   test_script: (.test_script // ""),
@@ -214,7 +222,7 @@ jobs:
           echo "✅ Matrix expanded: $MATRIX_SIZE jobs"
           echo ""
           echo "Matrix jobs:"
-          echo "$MATRIX" | jq -r '.[] | "  - \(.variant_name) / \(.arch)"'
+          echo "$MATRIX" | jq -r '.[] | "  - \(.variant_name) / \(.arch) on \(.runner)"'
 
       - name: Log disabled variants
         run: |
@@ -241,8 +249,8 @@ jobs:
   # Release mode: Promote from PR images or rebuild if not found
   promote-or-build:
     needs: parse-matrix
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120  # Increased for ARM builds, though native ARM is much faster
     strategy:
       fail-fast: true
       matrix:
