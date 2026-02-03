@@ -77,7 +77,7 @@ if [ -z "$USER" ]; then
 fi
 echo "  User: $USER"
 
-# Extract and verify metadata file (can't run container without entrypoint)
+# Extract and verify metadata file
 echo ""
 echo "Checking metadata file..."
 TEMP_CONTAINER=$(docker create "$IMAGE_TAG")
