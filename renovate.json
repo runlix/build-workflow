@@ -6,7 +6,11 @@
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
-      "groupName": "GitHub Actions"
+      "groupName": "GitHub Actions",
+      "pinDigests": true,
+      "automerge": false,
+      "schedule": ["before 4am on Monday"],
+      "commitMessageTopic": "{{depName}} GitHub Action"
     }
   ]
 }

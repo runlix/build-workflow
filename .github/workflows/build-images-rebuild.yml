@@ -402,7 +402,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
 
       - name: Scan for vulnerabilities
-        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac # master (pinned for security)
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac # 0.33.1+
         continue-on-error: true
         with:
           image-ref: ${{ env.IMAGE_TAG }}
