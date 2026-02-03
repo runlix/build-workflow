@@ -57,6 +57,19 @@ jobs:
       - name: Install ajv-cli
         run: npm install -g ajv-cli ajv-formats
 
+      - name: Validate schema structure
+        run: |
+          echo "Validating schema structure..."
+          ajv compile -s schema/docker-matrix-schema.json --strict=false
+
+      - name: Validate all example files
+        run: |
+          echo "Validating examples and test fixtures..."
+          for file in examples/base-image-matrix.json examples/service-matrix.json test-fixtures/base-image/docker-matrix.json test-fixtures/service/docker-matrix.json; do
+            echo "  Checking $file"
+            ajv validate -s schema/docker-matrix-schema.json -d "$file" --strict=false
+          done
+
       - name: Validate base image schema
         run: |
           echo "Validating base image docker-matrix.json..."
@@ -131,6 +144,19 @@ jobs:
 
       - name: Install ajv-cli
         run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate schema structure
+        run: |
+          echo "Validating schema structure..."
+          ajv compile -s schema/docker-matrix-schema.json --strict=false
+
+      - name: Validate all example files
+        run: |
+          echo "Validating examples and test fixtures..."
+          for file in examples/base-image-matrix.json examples/service-matrix.json test-fixtures/base-image/docker-matrix.json test-fixtures/service/docker-matrix.json; do
+            echo "  Checking $file"
+            ajv validate -s schema/docker-matrix-schema.json -d "$file" --strict=false
+          done
 
       - name: Validate service schema
         run: |
