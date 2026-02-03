@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull request template with comprehensive checklist
 - API reference documentation (`docs/api-reference.md`)
 - CHANGELOG.md to track changes
+- Schema structure validation in test workflow (validates schema before using it)
+- Validation of all example files in test workflow (prevents documentation drift)
 
 ### Changed
 - **SECURITY**: Pinned all GitHub Actions to commit SHA hashes (30 actions across 2 workflow files)
@@ -30,12 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed unused `default` field from schema examples and test fixtures
 - Updated documentation to remove references to `latest` tag (not implemented)
 - Made Telegram secrets optional in workflow definition
+- Enhanced Renovate configuration with explicit digest pinning, weekly schedule, and better commit messages
+- Enhanced .gitignore with comprehensive patterns for IDE, OS, and temporary files
 
 ### Fixed
 - aquasecurity/trivy-action@master vulnerability (pinned to specific SHA)
 - Secret exposure in Telegram notification step
 - Example workflow comments that referenced outdated promotion behavior
 - Documentation inconsistencies about PR image pushing
+- Schema validation error: Added `$schema` as allowed property in JSON schema
+- Trivy action version comment for better Renovate compatibility
 
 ### Security
 - All GitHub Actions now pinned to immutable commit SHA hashes
