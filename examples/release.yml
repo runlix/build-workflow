@@ -29,12 +29,14 @@ jobs:
 
 # Workflow behavior:
 # - Validates docker-matrix.json schema
-# - For each variant+platform:
-#   * Checks if PR image exists (pr-{num}-{sha}{tag_suffix}-{arch})
-#   * If exists: Copy with crane (fast promotion)
-#   * If not exists: Rebuild from scratch
-# - Creates multi-arch manifests with format:
+# - Rebuilds all images from release branch for correctness
+# - Runs test scripts for each variant (if configured)
+# - Scans images for vulnerabilities with Trivy
+# - Pushes platform-specific images to GHCR:
+#   * Format: {version}{tag_suffix}-{arch}-{sha} (e.g., v5.2.1-amd64-abc1234)
+#   * SHA-based services: {tag_suffix}-{arch}-{sha} (e.g., -amd64-abc1234)
+# - Creates multi-arch manifests:
 #   * Services with version: {version}{tag_suffix} (e.g., v5.2.1, v5.2.1-debug)
-#   * Base images: {sha}{tag_suffix} (e.g., abc1234, abc1234-debug)
+#   * Base images: {tag_suffix} (e.g., "", "-debug")
 # - Deletes temporary platform tags after manifests created
 # - Updates releases.json in main branch with release metadata

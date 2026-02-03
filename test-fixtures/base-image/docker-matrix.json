@@ -4,7 +4,6 @@
     {
       "name": "distroless-base",
       "tag_suffix": "",
-      "default": true,
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -23,7 +22,6 @@
     {
       "name": "distroless-debug",
       "tag_suffix": "-debug",
-      "default": false,
       "platforms": [
         "linux/amd64",
         "linux/arm64"

@@ -10,7 +10,6 @@
     {
       "name": "radarr-latest",
       "tag_suffix": "",
-      "default": true,
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
         "linux/arm64": "Dockerfile.arm64"

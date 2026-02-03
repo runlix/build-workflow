@@ -10,7 +10,6 @@
     {
       "name": "testapp-latest",
       "tag_suffix": "",
-      "default": true,
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -29,7 +28,6 @@
     {
       "name": "testapp-debug",
       "tag_suffix": "-debug",
-      "default": false,
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -49,7 +47,6 @@
     {
       "name": "testapp-minimal",
       "tag_suffix": "-minimal",
-      "default": false,
       "enabled": false,
       "platforms": [
         "linux/amd64"

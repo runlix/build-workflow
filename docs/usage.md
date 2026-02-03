@@ -91,7 +91,6 @@ Services use versioned releases and wrapped base images:
     {
       "name": "my-service-latest",
       "tag_suffix": "",
-      "default": true,
       "platforms": ["linux/amd64", "linux/arm64"],
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
@@ -112,7 +111,6 @@ Services use versioned releases and wrapped base images:
 - `base_image`: The wrapped base image to use
 - `base_image.tag`: Will have variant's `tag_suffix` appended automatically
 - `build_args`: DO NOT include `BASE_IMAGE`, `BASE_TAG`, `BASE_DIGEST` (auto-injected)
-- `default: true`: Required for exactly one variant when version is present
 
 ### For Base Image Repositories
 
@@ -157,7 +155,6 @@ Add multiple variants for different build configurations:
     {
       "name": "radarr-latest",
       "tag_suffix": "",
-      "default": true,
       "platforms": ["linux/amd64", "linux/arm64"],
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
@@ -171,7 +168,6 @@ Add multiple variants for different build configurations:
     {
       "name": "radarr-debug",
       "tag_suffix": "-debug",
-      "default": false,
       "platforms": ["linux/amd64", "linux/arm64"],
       "dockerfiles": {
         "linux/amd64": "Dockerfile.debug.amd64",
@@ -188,7 +184,7 @@ Add multiple variants for different build configurations:
 ```
 
 **Results:**
-- Default variant: `ghcr.io/runlix/radarr:v5.2.1` and `ghcr.io/runlix/radarr:latest`
+- Standard variant: `ghcr.io/runlix/radarr:v5.2.1`
 - Debug variant: `ghcr.io/runlix/radarr:v5.2.1-debug`
 
 ### Validation
@@ -528,9 +524,8 @@ gh api "orgs/runlix/packages/container/YOUR_SERVICE/versions" \
   --jq '.[] | .metadata.container.tags[]'
 
 # Expected tags (for v5.2.1):
-# v5.2.1 (multi-arch manifest)
-# v5.2.1-debug (if you have debug variant)
-# latest (only for default variant)
+# v5.2.1 (multi-arch manifest for variant with empty tag_suffix)
+# v5.2.1-debug (multi-arch manifest for debug variant)
 ```
 
 ### Step 5: Test Deployed Image

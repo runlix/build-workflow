@@ -30,6 +30,12 @@ on:
       RUNLIX_PRIVATE_KEY:
         description: 'GitHub App private key for authenticated operations'
         required: true
+      TELEGRAM_BOT_TOKEN:
+        description: 'Telegram bot token for notifications (optional)'
+        required: false
+      TELEGRAM_CHAT_ID:
+        description: 'Telegram chat ID for notifications (optional)'
+        required: false
 
 # Workflow-level environment variables
 env:
@@ -53,15 +59,41 @@ jobs:
       matrix: ${{ steps.expand.outputs.matrix }}
       version: ${{ steps.extract.outputs.version }}
     steps:
+      - name: Validate required secrets
+        run: |
+          echo "🔐 Validating required secrets..."
+
+          # Check GitHub App secrets (required for release mode)
+          if [ "${{ inputs.pr_mode }}" == "false" ]; then
+            if [ -z "${{ secrets.RUNLIX_APP_ID }}" ]; then
+              echo "❌ ERROR: RUNLIX_APP_ID secret is required for release mode"
+              exit 1
+            fi
+            if [ -z "${{ secrets.RUNLIX_PRIVATE_KEY }}" ]; then
+              echo "❌ ERROR: RUNLIX_PRIVATE_KEY secret is required for release mode"
+              exit 1
+            fi
+            echo "✅ Required secrets for release mode are configured"
+          else
+            echo "✅ PR mode - no secrets validation needed"
+          fi
+
+          # Check optional Telegram secrets
+          if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] && [ -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
+            echo "✅ Telegram notifications configured"
+          else
+            echo "ℹ️  Telegram notifications not configured (optional)"
+          fi
+
       - name: Checkout calling repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # For PR mode: checkout PR head SHA
           # For release mode: checkout release branch
           ref: ${{ inputs.pr_mode && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup Node.js for schema validation
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -252,16 +284,19 @@ jobs:
   promote-or-build:
     needs: parse-matrix
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120  # Increased for ARM builds, though native ARM is much faster
+    timeout-minutes: 60  # Reduced from 120 - sufficient for most builds
+    concurrency:
+      group: build-${{ github.repository }}-${{ matrix.variant_name }}-${{ matrix.arch }}-${{ github.ref }}
+      cancel-in-progress: ${{ inputs.pr_mode }}  # Cancel old PR builds, but not releases
     strategy:
-      fail-fast: true
+      fail-fast: false  # Changed to false - allow other variants to complete even if one fails
       matrix:
         include: ${{ fromJson(needs.parse-matrix.outputs.matrix) }}
     env:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
       - name: Checkout calling repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Generate release tag
         id: release-tag
@@ -285,20 +320,20 @@ jobs:
 
       - name: Log in to GHCR (release mode only)
         if: ${{ !inputs.pr_mode && !inputs.dry_run }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Cache Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: /tmp/.buildx-cache
           key: buildx-${{ matrix.variant_name }}-${{ matrix.platform }}-${{ github.sha }}
@@ -367,22 +402,28 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
 
       - name: Scan for vulnerabilities
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac # master (pinned for security)
         continue-on-error: true
         with:
           image-ref: ${{ env.IMAGE_TAG }}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.variant_name }}-${{ matrix.arch }}.sarif'
           severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library'
+          scanners: 'vuln,secret,config'
+          timeout: '10m'
+          # Skip DB update errors - workflow should continue
+          exit-code: '0'
 
       - name: Push image with retry
         if: |
           !inputs.dry_run && !inputs.pr_mode
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@14672906e672a08bd6eeb15720e9ed3ce869cdd4 # v2
         with:
           timeout_minutes: 10
           max_attempts: 3
-          retry_wait_seconds: 10
+          retry_wait_seconds: 30
+          exponential_backoff: true  # Exponential backoff: 30s, 60s, 120s
           command: docker push ${{ env.IMAGE_TAG }}
 
       - name: Save platform tag for manifest creation
@@ -396,7 +437,7 @@ jobs:
 
       - name: Upload platform tag artifact
         if: ${{ !inputs.pr_mode && success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}
           path: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}.txt
@@ -404,7 +445,7 @@ jobs:
 
       - name: Report failure to PR
         if: failure() && inputs.pr_mode
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             github.rest.issues.createComment({
@@ -419,7 +460,7 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: failure-${{ matrix.variant_name }}-${{ matrix.arch }}
           path: |
@@ -449,10 +490,10 @@ jobs:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
       - name: Checkout calling repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts/
 
@@ -575,7 +616,7 @@ jobs:
 
       - name: Post PR comment
         if: inputs.pr_mode
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');
@@ -658,7 +699,7 @@ jobs:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup crane
         run: |
@@ -691,14 +732,14 @@ jobs:
           echo "✅ Installed crane ${CRANE_VERSION} for ${CRANE_ARCH}"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download platform tags
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: platform-tag-*
           path: platform-tags/
@@ -712,6 +753,8 @@ jobs:
       - name: Create multi-arch manifests
         id: manifests
         run: |
+          set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
 
@@ -724,6 +767,9 @@ jobs:
 
           # Create manifests-created.txt for tracking
           touch manifests-created.txt
+
+          # Track success/failure
+          MANIFEST_SUCCESS=true
 
           # For each unique tag suffix, create a multi-arch manifest
           echo "$TAG_SUFFIXES" | while read TAG_SUFFIX; do
@@ -810,7 +856,7 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2
         with:
           app-id: ${{ secrets.RUNLIX_APP_ID }}
           private-key: ${{ secrets.RUNLIX_PRIVATE_KEY }}
@@ -823,7 +869,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
           path: main-branch
@@ -903,7 +949,7 @@ jobs:
           fi
 
       - name: Upload manifest list
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: manifests-created
           path: manifests-created.txt
@@ -912,10 +958,21 @@ jobs:
       - name: Send release notification
         if: ${{ !inputs.pr_mode }}
         continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           MANIFESTS=$(cat manifests-created.txt | tr '\n' ', ' | sed 's/,$//')
+
+          # Mask secrets in logs (GitHub Actions security best practice)
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          fi
+          if [ -n "$TELEGRAM_CHAT_ID" ]; then
+            echo "::add-mask::$TELEGRAM_CHAT_ID"
+          fi
 
           echo "📢 Sending release notification..."
           echo "Service: $SERVICE_NAME"
@@ -951,25 +1008,24 @@ jobs:
           )
 
           # Send to Telegram bot if configured
-          if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ] && [ -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
             echo "Sending to Telegram..."
 
-            # URL encode the message for Telegram API
-            ENCODED_MESSAGE=$(echo "$MESSAGE" | jq -sRr @uri)
-
-            # Send via Telegram Bot API
-            RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "text=$MESSAGE" \
+            # Send via Telegram Bot API (using env vars to avoid exposing in command)
+            RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MESSAGE}" \
               -d "parse_mode=Markdown" \
-              -d "disable_web_page_preview=true")
+              -d "disable_web_page_preview=true" 2>&1)
 
-            # Check if successful
-            if echo "$RESPONSE" | jq -e '.ok == true' > /dev/null; then
+            # Check if successful (avoid logging response that might contain sensitive data)
+            if echo "$RESPONSE" | jq -e '.ok == true' > /dev/null 2>&1; then
               echo "✅ Notification sent to Telegram"
             else
-              echo "⚠️  Telegram API returned error:"
-              echo "$RESPONSE" | jq -r '.description // "Unknown error"'
+              echo "⚠️  Telegram API returned error (check bot token and chat ID configuration)"
+              # Only log non-sensitive error description
+              ERROR_DESC=$(echo "$RESPONSE" | jq -r '.description // "Unknown error"' 2>/dev/null || echo "Unknown error")
+              echo "Error: $ERROR_DESC"
             fi
           else
             echo "⚠️  TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured, skipping notification"

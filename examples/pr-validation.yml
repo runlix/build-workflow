@@ -26,7 +26,6 @@ on:
 # Required permissions for PR validation workflow
 permissions:
   contents: read        # Checkout code, read docker-matrix.json
-  packages: write       # Push images to GHCR
   pull-requests: write  # Comment on PR with test failures/scan results
   actions: read         # Read workflow artifacts from previous runs
 
@@ -41,8 +40,9 @@ jobs:
 
 # Workflow behavior:
 # - Validates docker-matrix.json schema
-# - Builds all enabled variants × platforms in parallel
-# - Runs test scripts (if specified)
-# - Pushes PR images to GHCR with format: pr-{number}-{sha}{tag_suffix}-{arch}
-# - Comments on PR with build results
-# - Blocks merge if builds or tests fail
+# - Builds all enabled variants × platforms in parallel (local Docker daemon only)
+# - Runs test scripts for each variant (if configured)
+# - Scans images for vulnerabilities with Trivy
+# - Comments on PR with build and test results
+# - **NOTE**: Images are NOT pushed to registry in PR mode
+# - Blocks merge if builds, tests, or critical vulnerabilities fail

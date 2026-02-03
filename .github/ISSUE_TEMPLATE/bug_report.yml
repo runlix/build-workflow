@@ -1,0 +1,154 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us understand and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: "The workflow fails when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: "I expected the workflow to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: "Instead, the workflow..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Configure docker-matrix.json with...
+        2. Run workflow with...
+        3. See error...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which component is affected?
+      options:
+        - Workflow (build-images-rebuild.yml)
+        - Schema (docker-matrix-schema.json)
+        - Documentation
+        - Test fixtures
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Your docker-matrix.json (sanitized, remove sensitive info)
+      placeholder: |
+        ```json
+        {
+          "version": "v1.0.0",
+          "variants": [...]
+        }
+        ```
+      render: json
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Workflow Logs
+      description: Relevant error messages or logs
+      placeholder: |
+        Paste relevant error messages here
+      render: shell
+
+  - type: input
+    id: workflow-run
+    attributes:
+      label: Workflow Run URL
+      description: Link to the failed workflow run (if applicable)
+      placeholder: "https://github.com/org/repo/actions/runs/12345"
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Workflow Mode
+      description: Was this in PR mode or release mode?
+      options:
+        - PR validation mode
+        - Release mode
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runner
+    attributes:
+      label: Runner Type
+      description: What type of runner was used?
+      options:
+        - GitHub-hosted (ubuntu-24.04)
+        - GitHub-hosted (ubuntu-24.04-arm)
+        - Self-hosted
+        - Unknown
+
+  - type: input
+    id: service-repo
+    attributes:
+      label: Service Repository
+      description: Which repository is using this workflow? (optional)
+      placeholder: "org/service-name"
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does this occur?
+      options:
+        - Always (100%)
+        - Frequently (>50%)
+        - Sometimes (10-50%)
+        - Rarely (<10%)
+        - First time
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem
+      placeholder: "This started happening after..."
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues for duplicates
+          required: true
+        - label: I have included relevant error messages/logs
+          required: true
+        - label: I have sanitized any sensitive information
+          required: true
+        - label: I have provided reproduction steps
+          required: true

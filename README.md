@@ -31,7 +31,7 @@ See [Usage Guide](./docs/usage.md) for complete setup instructions.
 - **PR validation**: Build and test on every PR (no registry push)
 - **Reliable releases**: Always rebuild from release branch for correctness
 - **Declarative configuration**: Single JSON file defines all variants
-- **Automatic tagging**: Semantic versioning and latest tags
+- **Automatic tagging**: Semantic versioning with variant suffixes
 - **Test integration**: Run custom test scripts on built images
 - **Vulnerability scanning**: Trivy scans with SARIF output
 - **PR comments**: Automatic build result summaries
@@ -220,9 +220,8 @@ This provides:
 - `v5.2.1-debug-amd64-abc1234`
 
 **Multi-arch manifests** (permanent): `{version}{tag_suffix}`
-- `v5.2.1` (default variant)
-- `v5.2.1-debug`
-- `latest` (default variant only)
+- `v5.2.1` (variant with empty tag_suffix)
+- `v5.2.1-debug` (variant with "-debug" tag_suffix)
 
 ## Documentation
 

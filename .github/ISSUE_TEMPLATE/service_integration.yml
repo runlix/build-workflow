@@ -1,0 +1,193 @@
+name: Service Integration Help
+description: Get help integrating this workflow with your service
+title: "[Integration]: "
+labels: ["help-wanted", "integration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Need help integrating build-workflow with your service? Fill out this template and we'll assist you!
+
+  - type: input
+    id: service
+    attributes:
+      label: Service Name
+      description: What service are you integrating?
+      placeholder: "my-service"
+    validations:
+      required: true
+
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: Link to your service repository (if public)
+      placeholder: "https://github.com/org/my-service"
+
+  - type: dropdown
+    id: service-type
+    attributes:
+      label: Service Type
+      description: What type of service is this?
+      options:
+        - Application service (uses base image)
+        - Base image (wraps upstream image)
+        - Multi-stage build
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-setup
+    attributes:
+      label: Current Build Setup
+      description: How do you currently build your images?
+      placeholder: |
+        - Using manual docker build
+        - Using GitHub Actions with...
+        - Using other CI/CD...
+        - No automation yet
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Integration Goal
+      description: What do you want to achieve?
+      placeholder: |
+        I want to:
+        - Build multi-arch images (AMD64 + ARM64)
+        - Automate releases
+        - Add vulnerability scanning
+        - ...
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Target Architectures
+      description: Which architectures do you need?
+      multiple: true
+      options:
+        - linux/amd64
+        - linux/arm64
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: variants
+    attributes:
+      label: Image Variants
+      description: Do you need multiple image variants? (e.g., standard, debug, alpine)
+      placeholder: |
+        - Standard variant with...
+        - Debug variant with...
+        - No variants needed
+
+  - type: textarea
+    id: dockerfile
+    attributes:
+      label: Current Dockerfile
+      description: Share your current Dockerfile (or key parts)
+      placeholder: |
+        ```dockerfile
+        FROM debian:12-slim
+        COPY app /app
+        CMD ["/app/myservice"]
+        ```
+      render: dockerfile
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Build Dependencies
+      description: What dependencies does your build need?
+      placeholder: |
+        - Base image: debian, alpine, distroless
+        - Build tools: gcc, go, npm
+        - Runtime deps: ca-certificates, tzdata
+
+  - type: dropdown
+    id: testing
+    attributes:
+      label: Testing Requirements
+      description: Do you need automated testing?
+      options:
+        - "Yes - Have test scripts"
+        - "Yes - Need help creating tests"
+        - "No - Tests not needed"
+        - "Not sure"
+
+  - type: textarea
+    id: questions
+    attributes:
+      label: Specific Questions
+      description: What specific help do you need?
+      placeholder: |
+        1. How do I handle multi-stage builds?
+        2. Should I use separate Dockerfiles per architecture?
+        3. How do I configure base image pinning?
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Timeline
+      description: How urgent is this integration?
+      options:
+        - "ASAP - Blocking production"
+        - "This week - Active development"
+        - "This month - Planning phase"
+        - "Future - Just exploring"
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What Have You Tried?
+      description: What steps have you already taken?
+      placeholder: |
+        - Read documentation: [list docs]
+        - Attempted configuration: [describe]
+        - Encountered issues: [describe]
+
+  - type: textarea
+    id: config-attempt
+    attributes:
+      label: Draft Configuration
+      description: If you've started, share your docker-matrix.json attempt
+      placeholder: |
+        ```json
+        {
+          "version": "v1.0.0",
+          "variants": [...]
+        }
+        ```
+      render: json
+
+  - type: checkboxes
+    id: docs-read
+    attributes:
+      label: Documentation Review
+      description: Which docs have you reviewed?
+      options:
+        - label: README.md
+        - label: docs/usage.md
+        - label: docs/customization.md
+        - label: examples/
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information
+      placeholder: "Our service is written in... and deployed to..."
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have reviewed the documentation
+          required: true
+        - label: I have checked the examples directory
+          required: true
+        - label: I have described my use case clearly
+          required: true
