@@ -8,13 +8,19 @@ ARG UPSTREAM_DIGEST
 FROM ${UPSTREAM_IMAGE}:${UPSTREAM_TAG}@${UPSTREAM_DIGEST}
 
 # Add a simple test marker file
-# Debug images include busybox, so we can use shell
-RUN echo '{ \
-  "arch": "amd64", \
-  "base_image": "'${UPSTREAM_IMAGE}'", \
-  "base_tag": "'${UPSTREAM_TAG}'", \
-  "base_digest": "'${UPSTREAM_DIGEST}'", \
-  "variant": "debug" \
-}' > /etc/build-info
+# Debug images include busybox for runtime, but still no shell during build
+# Use COPY with heredoc like standard variant
+COPY --chmod=0644 <<EOF /etc/build-info
+{
+  "arch": "amd64",
+  "base_image": "${UPSTREAM_IMAGE}",
+  "base_tag": "${UPSTREAM_TAG}",
+  "base_digest": "${UPSTREAM_DIGEST}",
+  "variant": "debug"
+}
+EOF
 
-# Debug variant includes shell for troubleshooting
+# Debug variant includes busybox shell for runtime troubleshooting
+
+# Add dummy CMD so docker create works (needed for testing)
+CMD ["/etc/build-info"]

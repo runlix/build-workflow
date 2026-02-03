@@ -1,5 +1,6 @@
 # Test Dockerfile for service - ARM64
 # Demonstrates auto-injection of BASE_IMAGE, BASE_TAG, BASE_DIGEST
+# NOTE: Distroless images can only run static binaries, not shell scripts
 
 # These build args are auto-injected by the workflow
 # DO NOT manually add them to docker-matrix.json build_args
@@ -14,23 +15,8 @@ ARG APP_PORT
 
 FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
 
-# Create a minimal test application
-# In a real service, this would copy your built binaries
-COPY --chmod=0755 <<'EOF' /app/testapp
-#!/bin/sh
-echo "Test Application v${APP_VERSION}"
-echo "Running on ARM64"
-echo "User: ${APP_USER}"
-echo "Port: ${APP_PORT}"
-echo "Base Image: ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}"
-
-# Simple HTTP server for health checks
-while true; do
-  echo -e "HTTP/1.1 200 OK\n\nHealthy" | nc -l -p ${APP_PORT}
-done
-EOF
-
-# Add metadata file
+# Add metadata file with build information
+# This is the only thing we can reliably add to distroless
 COPY --chmod=0644 <<EOF /app/metadata.json
 {
   "app_version": "${APP_VERSION}",
@@ -44,6 +30,15 @@ COPY --chmod=0644 <<EOF /app/metadata.json
 }
 EOF
 
-EXPOSE ${APP_PORT}
-USER ${APP_USER}
-ENTRYPOINT ["/app/testapp"]
+# EXPOSE does not support variable expansion - must use literal port
+# In real usage, you would expose the actual port your app uses
+EXPOSE 8080
+
+# USER does not support variable expansion and distroless only has root and nonroot users
+# For production, you should use nonroot: USER 65532:65532
+# For this test, we use root (default)
+
+# Distroless images have no shell or entrypoint by default
+# In real usage, you would COPY your compiled binary and set it as ENTRYPOINT
+# For testing purposes, we set a dummy CMD so docker create works (it won't actually run)
+CMD ["/app/metadata.json"]

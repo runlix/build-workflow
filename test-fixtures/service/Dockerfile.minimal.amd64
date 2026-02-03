@@ -1,5 +1,6 @@
 # Test Dockerfile for service - Minimal variant (disabled by default)
 # Demonstrates a variant that can be toggled with enabled: false
+# NOTE: Distroless images can only run static binaries, not shell scripts
 
 ARG BASE_IMAGE
 ARG BASE_TAG
@@ -10,12 +11,7 @@ ARG MINIMAL_BUILD
 
 FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
 
-# Minimal variant - smallest possible image
-COPY --chmod=0755 <<'EOF' /app/testapp
-#!/bin/sh
-echo "Minimal Test App v${APP_VERSION}"
-EOF
-
+# Minimal variant - smallest possible image, just metadata
 COPY --chmod=0644 <<EOF /app/metadata.json
 {
   "app_version": "${APP_VERSION}",
@@ -26,5 +22,11 @@ COPY --chmod=0644 <<EOF /app/metadata.json
 }
 EOF
 
-USER ${APP_USER}
-ENTRYPOINT ["/app/testapp"]
+# USER does not support variable expansion and distroless only has root and nonroot users
+# For production, you should use nonroot: USER 65532:65532
+# For this test, we use root (default)
+
+# Distroless images have no shell or entrypoint by default
+# In real usage, you would COPY your compiled binary and set it as ENTRYPOINT
+# For testing purposes, we set a dummy CMD so docker create works (it won't actually run)
+CMD ["/app/metadata.json"]

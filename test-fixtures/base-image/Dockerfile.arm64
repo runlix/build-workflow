@@ -21,3 +21,6 @@ EOF
 # Test that the base image works
 # Distroless images don't have shell, so we can't add much here
 # In a real base image, you might add certificates, timezone data, etc.
+
+# Add dummy CMD so docker create works (needed for testing)
+CMD ["/etc/build-info"]

@@ -4,6 +4,10 @@
   "description": "Schema for multi-architecture Docker build configuration",
   "type": "object",
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference (optional)"
+    },
     "version": {
       "type": "string",
       "description": "Optional version string for services (e.g., v5.2.1). Omit for base images (uses SHA)."

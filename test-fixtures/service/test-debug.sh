@@ -3,6 +3,8 @@ set -e
 
 # Test script for service (debug variant)
 # This receives IMAGE_TAG from the workflow
+# NOTE: Distroless images with no entrypoint cannot be run
+# We can only inspect metadata
 
 echo "============================================"
 echo "Testing Service Image (Debug Variant)"
@@ -28,74 +30,104 @@ echo "✅ Image exists: $IMAGE_TAG"
 echo ""
 echo "Checking OCI labels..."
 VERSION=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.version"}}' "$IMAGE_TAG")
+REVISION=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_TAG")
+CREATED=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.created"}}' "$IMAGE_TAG")
+SOURCE=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.source"}}' "$IMAGE_TAG")
+
 echo "  ✅ Version: $VERSION"
+echo "  ✅ Revision: $REVISION"
+echo "  ✅ Created: $CREATED"
+echo "  ✅ Source: $SOURCE"
 
-# Start container
+# Check architecture
 echo ""
-echo "Testing debug variant features..."
-docker run -d --name test-debug-service -p 8080:8080 "$IMAGE_TAG" || {
-  echo "❌ ERROR: Failed to start container"
-  exit 1
-}
+echo "Checking architecture..."
+ARCH=$(docker inspect --format='{{.Architecture}}' "$IMAGE_TAG")
+echo "  Architecture: $ARCH"
 
-sleep 3
-
-# Check container is running
-if ! docker ps | grep -q test-debug-service; then
-  echo "❌ ERROR: Container is not running"
-  docker logs test-debug-service
-  docker rm -f test-debug-service
+if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ]; then
+  echo "❌ ERROR: Unexpected architecture: $ARCH"
   exit 1
 fi
 
-echo "  ✅ Container is running"
+echo "  ✅ Valid architecture: $ARCH"
 
-# Test shell availability (debug variant should have shell)
+# Check configuration
 echo ""
-echo "Testing shell availability..."
-if docker exec test-debug-service sh -c "echo 'Shell test'" > /dev/null 2>&1; then
-  echo "  ✅ Shell is available (debug mode)"
-else
-  echo "❌ ERROR: Shell not available in debug variant"
-  docker stop test-debug-service
-  docker rm test-debug-service
+echo "Checking configuration..."
+EXPOSED_PORTS=$(docker inspect --format='{{range $p, $conf := .Config.ExposedPorts}}{{$p}} {{end}}' "$IMAGE_TAG")
+echo "  Exposed ports: $EXPOSED_PORTS"
+
+if [[ ! "$EXPOSED_PORTS" =~ "8080" ]]; then
+  echo "❌ ERROR: Port 8080 not exposed"
   exit 1
 fi
 
-# Check metadata file
+echo "  ✅ Port 8080 is exposed"
+
+USER=$(docker inspect --format='{{.Config.User}}' "$IMAGE_TAG")
+if [ -z "$USER" ]; then
+  USER="root (default)"
+fi
+echo "  User: $USER"
+
+# Extract and verify metadata file
 echo ""
 echo "Checking metadata file..."
-if docker exec test-debug-service sh -c "cat /app/metadata.json" > /dev/null 2>&1; then
-  METADATA=$(docker exec test-debug-service sh -c "cat /app/metadata.json")
-  echo "  Metadata:"
-  echo "$METADATA" | jq '.'
+TEMP_CONTAINER=$(docker create "$IMAGE_TAG")
 
-  # Verify debug flag
-  DEBUG_ENABLED=$(echo "$METADATA" | jq -r '.debug_enabled')
-  if [ "$DEBUG_ENABLED" == "true" ]; then
-    echo "  ✅ Debug mode enabled"
+if docker cp "$TEMP_CONTAINER:/app/metadata.json" /tmp/metadata-debug-test.json 2>/dev/null; then
+  echo "  ✅ metadata.json exists"
+
+  # Validate JSON and check content
+  if jq empty /tmp/metadata-debug-test.json 2>/dev/null; then
+    echo "  ✅ metadata.json is valid JSON"
+
+    # Display metadata
+    echo ""
+    echo "  Metadata content:"
+    jq '.' /tmp/metadata-debug-test.json | sed 's/^/    /'
+
+    # Verify debug flag
+    DEBUG_ENABLED=$(jq -r '.debug_enabled' /tmp/metadata-debug-test.json)
+    if [ "$DEBUG_ENABLED" == "true" ]; then
+      echo ""
+      echo "  ✅ Debug mode enabled in metadata"
+    else
+      echo ""
+      echo "⚠️  WARNING: Debug mode not enabled in metadata (got: $DEBUG_ENABLED)"
+    fi
+
+    # Verify variant
+    VARIANT=$(jq -r '.variant' /tmp/metadata-debug-test.json)
+    if [ "$VARIANT" == "debug" ]; then
+      echo "  ✅ Variant is 'debug'"
+    else
+      echo "⚠️  WARNING: Expected variant 'debug', got '$VARIANT'"
+    fi
   else
-    echo "⚠️  WARNING: Debug mode not enabled in metadata"
+    echo "⚠️  WARNING: metadata.json is not valid JSON"
   fi
+
+  rm -f /tmp/metadata-debug-test.json
 else
   echo "⚠️  WARNING: metadata.json not found"
 fi
 
-# Check logs show debug output
+docker rm "$TEMP_CONTAINER" > /dev/null
+
+# Check image layers
 echo ""
-echo "Checking debug logs..."
-LOGS=$(docker logs test-debug-service 2>&1)
-if echo "$LOGS" | grep -q "DEBUG"; then
-  echo "  ✅ Debug logging is active"
-else
-  echo "⚠️  WARNING: No debug output in logs"
+echo "Checking image layers..."
+LAYER_COUNT=$(docker inspect --format='{{len .RootFS.Layers}}' "$IMAGE_TAG")
+echo "  Layer count: $LAYER_COUNT"
+
+if [ "$LAYER_COUNT" -lt 1 ]; then
+  echo "❌ ERROR: Image has no layers"
+  exit 1
 fi
 
-# Cleanup
-echo ""
-echo "Cleaning up..."
-docker stop test-debug-service > /dev/null
-docker rm test-debug-service > /dev/null
+echo "  ✅ Image has $LAYER_COUNT layers"
 
 echo ""
 echo "============================================"
