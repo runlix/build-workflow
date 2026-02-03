@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation inconsistencies about PR image pushing
 - Schema validation error: Added `$schema` as allowed property in JSON schema
 - Trivy action version comment for better Renovate compatibility
+- Test workflow now uses valid distroless image digests (latest: sha256:347a41e7..., debug: sha256:e8075f7d...)
 
 ### Security
 - All GitHub Actions now pinned to immutable commit SHA hashes
