@@ -459,7 +459,11 @@ jobs:
       - name: List downloaded artifacts
         run: |
           echo "📦 Downloaded artifacts:"
-          ls -R artifacts/
+          if [ -d "artifacts" ]; then
+            ls -R artifacts/
+          else
+            echo "No artifacts found (expected for successful PR builds)"
+          fi
 
       - name: Parse vulnerability results
         id: vulns
