@@ -86,14 +86,14 @@ jobs:
           fi
 
       - name: Checkout calling repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           # For PR mode: checkout PR head SHA
           # For release mode: checkout release branch
           ref: ${{ inputs.pr_mode && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup Node.js for schema validation
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: '20'
 
@@ -296,7 +296,7 @@ jobs:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
       - name: Checkout calling repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Generate release tag
         id: release-tag
@@ -333,7 +333,7 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Cache Docker layers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: /tmp/.buildx-cache
           key: buildx-${{ matrix.variant_name }}-${{ matrix.platform }}-${{ github.sha }}
@@ -418,7 +418,7 @@ jobs:
       - name: Push image with retry
         if: |
           !inputs.dry_run && !inputs.pr_mode
-        uses: nick-fields/retry@14672906e672a08bd6eeb15720e9ed3ce869cdd4 # v2
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
         with:
           timeout_minutes: 10
           max_attempts: 3
@@ -437,7 +437,7 @@ jobs:
 
       - name: Upload platform tag artifact
         if: ${{ !inputs.pr_mode && success() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}
           path: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}.txt
@@ -445,7 +445,7 @@ jobs:
 
       - name: Report failure to PR
         if: failure() && inputs.pr_mode
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             github.rest.issues.createComment({
@@ -460,7 +460,7 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: failure-${{ matrix.variant_name }}-${{ matrix.arch }}
           path: |
@@ -490,10 +490,10 @@ jobs:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
       - name: Checkout calling repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: artifacts/
 
@@ -616,7 +616,7 @@ jobs:
 
       - name: Post PR comment
         if: inputs.pr_mode
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const fs = require('fs');
@@ -699,7 +699,7 @@ jobs:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Setup crane
         run: |
@@ -739,7 +739,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download platform tags
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: platform-tag-*
           path: platform-tags/
@@ -869,7 +869,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout main branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           ref: main
           path: main-branch
@@ -949,7 +949,7 @@ jobs:
           fi
 
       - name: Upload manifest list
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: manifests-created
           path: manifests-created.txt
