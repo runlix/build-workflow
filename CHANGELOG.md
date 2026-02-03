@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trivy action version comment for better Renovate compatibility
 - Test workflow now uses valid distroless image digests (latest: sha256:347a41e7..., debug: sha256:e8075f7d...)
 - Debug Dockerfiles in test fixtures now use `COPY` with heredoc instead of `RUN echo` (distroless has no shell during build)
+- Test scripts now work with distroless images (no shell assumptions): use `docker cp` to extract files instead of `docker exec` commands
 
 ### Security
 - All GitHub Actions now pinned to immutable commit SHA hashes
