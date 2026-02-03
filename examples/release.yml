@@ -1,0 +1,40 @@
+# Example Release Workflow
+# Place this file in your service repository at: .github/workflows/release.yml
+
+name: Release
+
+on:
+  push:
+    branches:
+      - release  # Trigger on push to release branch (from merged PRs)
+
+# Required permissions for release workflow
+permissions:
+  contents: write       # Update releases.json in main branch
+  packages: write       # Push images to GHCR, delete platform tags
+  actions: read         # Query PR status via gh CLI for image discovery
+
+# Prevent concurrent releases for the same repository
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    # Call the reusable workflow from build-workflow repository
+    uses: runlix/build-workflow/.github/workflows/build-images-rebuild.yml@main
+    with:
+      pr_mode: false  # Release mode
+    secrets: inherit
+
+# Workflow behavior:
+# - Validates docker-matrix.json schema
+# - For each variant+platform:
+#   * Checks if PR image exists (pr-{num}-{sha}{tag_suffix}-{arch})
+#   * If exists: Copy with crane (fast promotion)
+#   * If not exists: Rebuild from scratch
+# - Creates multi-arch manifests with format:
+#   * Services with version: {version}{tag_suffix} (e.g., v5.2.1, v5.2.1-debug)
+#   * Base images: {sha}{tag_suffix} (e.g., abc1234, abc1234-debug)
+# - Deletes temporary platform tags after manifests created
+# - Updates releases.json in main branch with release metadata

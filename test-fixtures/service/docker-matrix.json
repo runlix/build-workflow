@@ -1,0 +1,67 @@
+{
+  "$schema": "../../schema/docker-matrix-schema.json",
+  "version": "v1.2.3",
+  "base_image": {
+    "image": "ghcr.io/runlix/distroless",
+    "tag": "test-abc1234",
+    "digest": "sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8"
+  },
+  "variants": [
+    {
+      "name": "testapp-latest",
+      "tag_suffix": "",
+      "default": true,
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "dockerfiles": {
+        "linux/amd64": "test-fixtures/service/Dockerfile.amd64",
+        "linux/arm64": "test-fixtures/service/Dockerfile.arm64"
+      },
+      "build_args": {
+        "APP_VERSION": "1.2.3",
+        "APP_USER": "testapp",
+        "APP_PORT": "8080"
+      },
+      "test_script": "test-fixtures/service/test.sh"
+    },
+    {
+      "name": "testapp-debug",
+      "tag_suffix": "-debug",
+      "default": false,
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "dockerfiles": {
+        "linux/amd64": "test-fixtures/service/Dockerfile.debug.amd64",
+        "linux/arm64": "test-fixtures/service/Dockerfile.debug.arm64"
+      },
+      "build_args": {
+        "APP_VERSION": "1.2.3",
+        "APP_USER": "testapp",
+        "APP_PORT": "8080",
+        "DEBUG_ENABLED": "true"
+      },
+      "test_script": "test-fixtures/service/test-debug.sh"
+    },
+    {
+      "name": "testapp-minimal",
+      "tag_suffix": "-minimal",
+      "default": false,
+      "enabled": false,
+      "platforms": [
+        "linux/amd64"
+      ],
+      "dockerfiles": {
+        "linux/amd64": "test-fixtures/service/Dockerfile.minimal.amd64"
+      },
+      "build_args": {
+        "APP_VERSION": "1.2.3",
+        "APP_USER": "testapp",
+        "MINIMAL_BUILD": "true"
+      }
+    }
+  ]
+}

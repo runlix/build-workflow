@@ -1,0 +1,49 @@
+# Test Dockerfile for service - AMD64
+# Demonstrates auto-injection of BASE_IMAGE, BASE_TAG, BASE_DIGEST
+
+# These build args are auto-injected by the workflow
+# DO NOT manually add them to docker-matrix.json build_args
+ARG BASE_IMAGE
+ARG BASE_TAG
+ARG BASE_DIGEST
+
+# Application-specific build args (defined in docker-matrix.json)
+ARG APP_VERSION
+ARG APP_USER
+ARG APP_PORT
+
+FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
+
+# Create a minimal test application
+# In a real service, this would copy your built binaries
+COPY --chmod=0755 <<'EOF' /app/testapp
+#!/bin/sh
+echo "Test Application v${APP_VERSION}"
+echo "Running on AMD64"
+echo "User: ${APP_USER}"
+echo "Port: ${APP_PORT}"
+echo "Base Image: ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}"
+
+# Simple HTTP server for health checks
+while true; do
+  echo -e "HTTP/1.1 200 OK\n\nHealthy" | nc -l -p ${APP_PORT}
+done
+EOF
+
+# Add metadata file
+COPY --chmod=0644 <<EOF /app/metadata.json
+{
+  "app_version": "${APP_VERSION}",
+  "arch": "amd64",
+  "user": "${APP_USER}",
+  "port": "${APP_PORT}",
+  "base_image": "${BASE_IMAGE}",
+  "base_tag": "${BASE_TAG}",
+  "base_digest": "${BASE_DIGEST}",
+  "variant": "standard"
+}
+EOF
+
+EXPOSE ${APP_PORT}
+USER ${APP_USER}
+ENTRYPOINT ["/app/testapp"]

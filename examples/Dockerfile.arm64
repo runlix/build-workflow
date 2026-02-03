@@ -1,0 +1,27 @@
+# Example Dockerfile for ARM64 architecture
+# This example shows a base image wrapping distroless
+
+# Build arguments - these are specified in docker-matrix.json
+ARG UPSTREAM_IMAGE
+ARG UPSTREAM_TAG
+ARG UPSTREAM_DIGEST
+
+# Base image with digest pinning for immutability
+FROM ${UPSTREAM_IMAGE}:${UPSTREAM_TAG}@${UPSTREAM_DIGEST}
+
+# For base images wrapping upstream:
+# Add common tools/configs/scripts that services will use
+# COPY scripts/ /usr/local/bin/
+
+# For services using wrapped base images:
+# The BASE_IMAGE, BASE_TAG, BASE_DIGEST args are auto-injected by workflow
+# ARG BASE_IMAGE
+# ARG BASE_TAG
+# ARG BASE_DIGEST
+# FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
+
+# Copy application-specific files
+# COPY dist/app-arm64 /app/app
+# RUN chmod +x /app/app
+
+# ENTRYPOINT ["/app/app"]

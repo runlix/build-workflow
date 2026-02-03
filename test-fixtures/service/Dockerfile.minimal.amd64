@@ -1,0 +1,30 @@
+# Test Dockerfile for service - Minimal variant (disabled by default)
+# Demonstrates a variant that can be toggled with enabled: false
+
+ARG BASE_IMAGE
+ARG BASE_TAG
+ARG BASE_DIGEST
+ARG APP_VERSION
+ARG APP_USER
+ARG MINIMAL_BUILD
+
+FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
+
+# Minimal variant - smallest possible image
+COPY --chmod=0755 <<'EOF' /app/testapp
+#!/bin/sh
+echo "Minimal Test App v${APP_VERSION}"
+EOF
+
+COPY --chmod=0644 <<EOF /app/metadata.json
+{
+  "app_version": "${APP_VERSION}",
+  "arch": "amd64",
+  "user": "${APP_USER}",
+  "variant": "minimal",
+  "minimal_build": "${MINIMAL_BUILD}"
+}
+EOF
+
+USER ${APP_USER}
+ENTRYPOINT ["/app/testapp"]

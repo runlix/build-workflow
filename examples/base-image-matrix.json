@@ -1,0 +1,38 @@
+{
+  "$schema": "../schema/docker-matrix-schema.json",
+  "variants": [
+    {
+      "name": "base-latest",
+      "tag_suffix": "",
+      "default": true,
+      "dockerfiles": {
+        "linux/amd64": "Dockerfile.amd64",
+        "linux/arm64": "Dockerfile.arm64"
+      },
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "build_args": {
+        "UPSTREAM_IMAGE": "gcr.io/distroless/base-debian12",
+        "UPSTREAM_TAG": "latest",
+        "UPSTREAM_DIGEST": "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+      },
+      "test_script": ".ci/test-base.sh",
+      "enabled": true
+    },
+    {
+      "name": "base-debug",
+      "tag_suffix": "-debug",
+      "dockerfiles": {
+        "linux/amd64": "Dockerfile.amd64",
+        "linux/arm64": "Dockerfile.arm64"
+      },
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "build_args": {
+        "UPSTREAM_IMAGE": "gcr.io/distroless/base-debian12",
+        "UPSTREAM_TAG": "debug",
+        "UPSTREAM_DIGEST": "sha256:fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+      },
+      "test_script": ".ci/test-base.sh",
+      "enabled": true
+    }
+  ]
+}

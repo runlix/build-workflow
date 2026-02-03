@@ -1,0 +1,48 @@
+# Test Dockerfile for service - AMD64 Debug variant
+# Uses debug base image (includes busybox shell)
+
+ARG BASE_IMAGE
+ARG BASE_TAG
+ARG BASE_DIGEST
+ARG APP_VERSION
+ARG APP_USER
+ARG APP_PORT
+ARG DEBUG_ENABLED
+
+FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
+
+# Debug variant includes shell and debugging tools
+COPY --chmod=0755 <<'EOF' /app/testapp
+#!/bin/sh
+echo "Test Application v${APP_VERSION} (DEBUG MODE)"
+echo "Running on AMD64"
+echo "User: ${APP_USER}"
+echo "Port: ${APP_PORT}"
+echo "Debug Enabled: ${DEBUG_ENABLED}"
+echo "Base Image: ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}"
+
+# Enhanced logging in debug mode
+while true; do
+  DATE=$(date)
+  echo "[$DATE] Health check received"
+  echo -e "HTTP/1.1 200 OK\n\nHealthy (Debug)" | nc -l -p ${APP_PORT}
+done
+EOF
+
+COPY --chmod=0644 <<EOF /app/metadata.json
+{
+  "app_version": "${APP_VERSION}",
+  "arch": "amd64",
+  "user": "${APP_USER}",
+  "port": "${APP_PORT}",
+  "base_image": "${BASE_IMAGE}",
+  "base_tag": "${BASE_TAG}",
+  "base_digest": "${BASE_DIGEST}",
+  "variant": "debug",
+  "debug_enabled": "${DEBUG_ENABLED}"
+}
+EOF
+
+EXPOSE ${APP_PORT}
+USER ${APP_USER}
+ENTRYPOINT ["/app/testapp"]

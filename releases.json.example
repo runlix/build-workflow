@@ -1,0 +1,34 @@
+{
+  "radarr": {
+    "version": "v5.2.1",
+    "sha": "abc1234def5678901234567890abcdef12345678",
+    "short_sha": "abc1234",
+    "timestamp": "2025-01-29T10:30:00Z",
+    "manifests": [
+      "v5.2.1",
+      "v5.2.1-debug",
+      "latest"
+    ]
+  },
+  "sonarr": {
+    "version": "v4.0.10",
+    "sha": "def5678abc1234567890abcdef123456789012ab",
+    "short_sha": "def5678",
+    "timestamp": "2025-01-28T18:45:00Z",
+    "manifests": [
+      "v4.0.10",
+      "v4.0.10-nightly",
+      "latest"
+    ]
+  },
+  "distroless": {
+    "version": null,
+    "sha": "9012345678abcdef1234567890abcdef12345678",
+    "short_sha": "9012345",
+    "timestamp": "2025-01-27T15:20:00Z",
+    "manifests": [
+      "9012345",
+      "9012345-debug"
+    ]
+  }
+}

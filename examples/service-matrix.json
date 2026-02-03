@@ -1,0 +1,43 @@
+{
+  "$schema": "../schema/docker-matrix-schema.json",
+  "version": "v5.2.1",
+  "base_image": {
+    "image": "ghcr.io/runlix/distroless",
+    "tag": "abc1234",
+    "digest": "sha256:abc123def456789abc123def456789abc123def456789abc123def456789abc1"
+  },
+  "variants": [
+    {
+      "name": "radarr-latest",
+      "tag_suffix": "",
+      "default": true,
+      "dockerfiles": {
+        "linux/amd64": "Dockerfile.amd64",
+        "linux/arm64": "Dockerfile.arm64"
+      },
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "build_args": {
+        "RADARR_VERSION": "5.2.1.8988",
+        "APP_USER": "radarr"
+      },
+      "test_script": ".ci/test-radarr.sh",
+      "enabled": true
+    },
+    {
+      "name": "radarr-debug",
+      "tag_suffix": "-debug",
+      "dockerfiles": {
+        "linux/amd64": "Dockerfile.amd64",
+        "linux/arm64": "Dockerfile.arm64"
+      },
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "build_args": {
+        "RADARR_VERSION": "5.2.1.8988",
+        "APP_USER": "radarr",
+        "DEBUG_MODE": "true"
+      },
+      "test_script": ".ci/test-radarr.sh",
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+# Example PR Validation Workflow
+# Place this file in your service repository at: .github/workflows/pr-validation.yml
+
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      # Trigger on changes to build configuration and Dockerfiles
+      - '.ci/docker-matrix.json'
+      - 'Dockerfile*'
+    paths-ignore:
+      # Don't trigger on documentation changes
+      - '**.md'
+      - 'docs/**'
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Skip image push (dry run mode for testing)'
+        required: false
+        default: false
+        type: boolean
+
+# Required permissions for PR validation workflow
+permissions:
+  contents: read        # Checkout code, read docker-matrix.json
+  packages: write       # Push images to GHCR
+  pull-requests: write  # Comment on PR with test failures/scan results
+  actions: read         # Read workflow artifacts from previous runs
+
+jobs:
+  validate:
+    # Call the reusable workflow from build-workflow repository
+    uses: runlix/build-workflow/.github/workflows/build-images-rebuild.yml@main
+    with:
+      pr_mode: true
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
+
+# Workflow behavior:
+# - Validates docker-matrix.json schema
+# - Builds all enabled variants × platforms in parallel
+# - Runs test scripts (if specified)
+# - Pushes PR images to GHCR with format: pr-{number}-{sha}{tag_suffix}-{arch}
+# - Comments on PR with build results
+# - Blocks merge if builds or tests fail
