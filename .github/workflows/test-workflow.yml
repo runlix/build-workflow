@@ -1,0 +1,217 @@
+# Test Workflow for build-images-rebuild.yml
+# Tests the reusable workflow with test fixtures
+
+name: Test Build Workflow
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-images-rebuild.yml'
+      - 'test-fixtures/**'
+      - 'schema/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-images-rebuild.yml'
+      - 'test-fixtures/**'
+      - 'schema/**'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of test to run'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - base-image
+          - service
+          - both
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  # Test with base image configuration
+  test-base-image:
+    if: github.event_name != 'workflow_dispatch' || inputs.test_type == 'base-image' || inputs.test_type == 'both'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy test fixtures to root
+        run: |
+          # Copy base image test fixtures to expected location
+          mkdir -p .ci
+          cp test-fixtures/base-image/docker-matrix.json .ci/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate base image schema
+        run: |
+          echo "Validating base image docker-matrix.json..."
+          ajv validate -s schema/docker-matrix-schema.json -d .ci/docker-matrix.json --strict=false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build base image (AMD64)
+        run: |
+          echo "Building base image for AMD64..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f test-fixtures/base-image/Dockerfile.amd64 \
+            --build-arg UPSTREAM_IMAGE=gcr.io/distroless/base-debian12 \
+            --build-arg UPSTREAM_TAG=latest \
+            --build-arg UPSTREAM_DIGEST=sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8 \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --load \
+            -t test-base-image:test-amd64 \
+            .
+
+      - name: Test base image
+        run: |
+          export IMAGE_TAG="test-base-image:test-amd64"
+          ./test-fixtures/base-image/test.sh
+
+      - name: Build debug base image (AMD64)
+        run: |
+          echo "Building debug base image for AMD64..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f test-fixtures/base-image/Dockerfile.debug.amd64 \
+            --build-arg UPSTREAM_IMAGE=gcr.io/distroless/base-debian12 \
+            --build-arg UPSTREAM_TAG=debug \
+            --build-arg UPSTREAM_DIGEST=sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --load \
+            -t test-base-image:test-debug-amd64 \
+            .
+
+      - name: Test debug base image
+        run: |
+          export IMAGE_TAG="test-base-image:test-debug-amd64"
+          ./test-fixtures/base-image/test-debug.sh
+
+  # Test with service configuration
+  test-service:
+    if: github.event_name != 'workflow_dispatch' || inputs.test_type == 'service' || inputs.test_type == 'both'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy test fixtures to root
+        run: |
+          # Copy service test fixtures to expected location
+          mkdir -p .ci
+          cp test-fixtures/service/docker-matrix.json .ci/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate service schema
+        run: |
+          echo "Validating service docker-matrix.json..."
+          ajv validate -s schema/docker-matrix-schema.json -d .ci/docker-matrix.json --strict=false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build service image (AMD64)
+        run: |
+          echo "Building service image for AMD64..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f test-fixtures/service/Dockerfile.amd64 \
+            --build-arg BASE_IMAGE=gcr.io/distroless/base-debian12 \
+            --build-arg BASE_TAG=test-abc1234 \
+            --build-arg BASE_DIGEST=sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8 \
+            --build-arg APP_VERSION=1.2.3 \
+            --build-arg APP_USER=testapp \
+            --build-arg APP_PORT=8080 \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.version=v1.2.3" \
+            --load \
+            -t test-service:v1.2.3-amd64 \
+            .
+
+      - name: Test service image
+        run: |
+          export IMAGE_TAG="test-service:v1.2.3-amd64"
+          ./test-fixtures/service/test.sh
+
+      - name: Build debug service image (AMD64)
+        run: |
+          echo "Building debug service image for AMD64..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -f test-fixtures/service/Dockerfile.debug.amd64 \
+            --build-arg BASE_IMAGE=gcr.io/distroless/base-debian12 \
+            --build-arg BASE_TAG=test-abc1234-debug \
+            --build-arg BASE_DIGEST=sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8 \
+            --build-arg APP_VERSION=1.2.3 \
+            --build-arg APP_USER=testapp \
+            --build-arg APP_PORT=8080 \
+            --build-arg DEBUG_ENABLED=true \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.version=v1.2.3" \
+            --load \
+            -t test-service:v1.2.3-debug-amd64 \
+            .
+
+      - name: Test debug service image
+        run: |
+          export IMAGE_TAG="test-service:v1.2.3-debug-amd64"
+          ./test-fixtures/service/test-debug.sh
+
+  # Summary job
+  test-summary:
+    needs: [test-base-image, test-service]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          echo "Test Results:"
+          echo "============="
+          echo "Base Image: ${{ needs.test-base-image.result }}"
+          echo "Service: ${{ needs.test-service.result }}"
+
+          if [ "${{ needs.test-base-image.result }}" != "success" ] || [ "${{ needs.test-service.result }}" != "success" ]; then
+            echo ""
+            echo "❌ Some tests failed"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All tests passed"
