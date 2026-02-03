@@ -89,7 +89,7 @@ jobs:
             -f test-fixtures/base-image/Dockerfile.amd64 \
             --build-arg UPSTREAM_IMAGE=gcr.io/distroless/base-debian12 \
             --build-arg UPSTREAM_TAG=latest \
-            --build-arg UPSTREAM_DIGEST=sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8 \
+            --build-arg UPSTREAM_DIGEST=sha256:347a41e7f263ea7f7aba1735e5e5b1439d9e41a9f09179229f8c13ea98ae94cf \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
@@ -110,7 +110,7 @@ jobs:
             -f test-fixtures/base-image/Dockerfile.debug.amd64 \
             --build-arg UPSTREAM_IMAGE=gcr.io/distroless/base-debian12 \
             --build-arg UPSTREAM_TAG=debug \
-            --build-arg UPSTREAM_DIGEST=sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef \
+            --build-arg UPSTREAM_DIGEST=sha256:e8075f7da06319e4ac863d31fa11354003c809ef9f1b52fe32ef39e876ac16c5 \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
@@ -176,8 +176,8 @@ jobs:
             --platform linux/amd64 \
             -f test-fixtures/service/Dockerfile.amd64 \
             --build-arg BASE_IMAGE=gcr.io/distroless/base-debian12 \
-            --build-arg BASE_TAG=test-abc1234 \
-            --build-arg BASE_DIGEST=sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8 \
+            --build-arg BASE_TAG=latest \
+            --build-arg BASE_DIGEST=sha256:347a41e7f263ea7f7aba1735e5e5b1439d9e41a9f09179229f8c13ea98ae94cf \
             --build-arg APP_VERSION=1.2.3 \
             --build-arg APP_USER=testapp \
             --build-arg APP_PORT=8080 \
@@ -201,8 +201,8 @@ jobs:
             --platform linux/amd64 \
             -f test-fixtures/service/Dockerfile.debug.amd64 \
             --build-arg BASE_IMAGE=gcr.io/distroless/base-debian12 \
-            --build-arg BASE_TAG=test-abc1234-debug \
-            --build-arg BASE_DIGEST=sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8 \
+            --build-arg BASE_TAG=debug \
+            --build-arg BASE_DIGEST=sha256:e8075f7da06319e4ac863d31fa11354003c809ef9f1b52fe32ef39e876ac16c5 \
             --build-arg APP_VERSION=1.2.3 \
             --build-arg APP_USER=testapp \
             --build-arg APP_PORT=8080 \
