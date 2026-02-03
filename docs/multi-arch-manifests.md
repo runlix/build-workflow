@@ -12,18 +12,18 @@ Each variant/architecture combination is built separately and pushed with a plat
 
 **Distroless (SHA-based, no version):**
 ```
-stable-amd64-6a29080
-stable-arm64-6a29080
-debug-amd64-6a29080
-debug-arm64-6a29080
+6a29080-stable-amd64-6a29080
+6a29080-stable-arm64-6a29080
+6a29080-debug-amd64-6a29080
+6a29080-debug-arm64-6a29080
 ```
 
 **Radarr (versioned):**
 ```
-6.0.4.10291-stable-amd64-def5678
-6.0.4.10291-stable-arm64-def5678
-6.0.4.10291-debug-amd64-def5678
-6.0.4.10291-debug-arm64-def5678
+v6.0.4.10291-stable-amd64-def5678
+v6.0.4.10291-stable-arm64-def5678
+v6.0.4.10291-debug-amd64-def5678
+v6.0.4.10291-debug-arm64-def5678
 ```
 
 ### 2. Manifest Creation Phase (Release Only)
@@ -31,19 +31,19 @@ debug-arm64-6a29080
 The workflow groups platform images by their **manifest tag** (version + suffix) and creates multi-arch manifests:
 
 **Distroless:**
-- Manifest `stable` → combines `stable-amd64-6a29080` + `stable-arm64-6a29080`
-- Manifest `debug` → combines `debug-amd64-6a29080` + `debug-arm64-6a29080`
+- Manifest `6a29080-stable` → combines `6a29080-stable-amd64-6a29080` + `6a29080-stable-arm64-6a29080`
+- Manifest `6a29080-debug` → combines `6a29080-debug-amd64-6a29080` + `6a29080-debug-arm64-6a29080`
 
 **Radarr:**
-- Manifest `6.0.4.10291-stable` → combines `6.0.4.10291-stable-amd64-def5678` + `6.0.4.10291-stable-arm64-def5678`
-- Manifest `6.0.4.10291-debug` → combines `6.0.4.10291-debug-amd64-def5678` + `6.0.4.10291-debug-arm64-def5678`
+- Manifest `v6.0.4.10291-stable` → combines `v6.0.4.10291-stable-amd64-def5678` + `v6.0.4.10291-stable-arm64-def5678`
+- Manifest `v6.0.4.10291-debug` → combines `v6.0.4.10291-debug-amd64-def5678` + `v6.0.4.10291-debug-arm64-def5678`
 
 ### 3. Cleanup Phase
 
 After manifests are created, the temporary platform-specific tags are deleted. Only the multi-arch manifests remain:
 
-**Distroless final tags:** `stable`, `debug`
-**Radarr final tags:** `6.0.4.10291-stable`, `6.0.4.10291-debug`
+**Distroless final tags:** `6a29080-stable`, `6a29080-debug`
+**Radarr final tags:** `v6.0.4.10291-stable`, `v6.0.4.10291-debug`
 
 ## Tag Format Specification
 
@@ -51,23 +51,23 @@ After manifests are created, the temporary platform-specific tags are deleted. O
 Built during promote-or-build job, deleted after manifest creation:
 ```
 <version>-<suffix>-<arch>-<sha>  # Versioned services
-<suffix>-<arch>-<sha>            # SHA-based services
+<sha>-<suffix>-<arch>-<sha>      # SHA-based services (SHA used as version)
 ```
 
 Examples:
-- `6.0.4.10291-stable-amd64-def5678`
-- `stable-arm64-6a29080`
+- `v6.0.4.10291-stable-amd64-def5678`
+- `6a29080-stable-arm64-6a29080`
 
 ### Manifest Tags (Permanent)
 Created by multi-arch manifest job, user-facing:
 ```
 <version>-<suffix>  # Versioned services
-<suffix>            # SHA-based services
+<sha>-<suffix>      # SHA-based services
 ```
 
 Examples:
-- `6.0.4.10291-stable`
-- `debug`
+- `v6.0.4.10291-stable`
+- `6a29080-debug`
 
 ## Implementation Details
 
