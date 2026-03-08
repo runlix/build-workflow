@@ -3,14 +3,104 @@
   "extends": [
     "config:recommended"
   ],
+  "dependencyDashboard": true,
+  "dependencyDashboardApproval": false,
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 10,
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "GitHub Actions",
       "pinDigests": true,
       "automerge": false,
-      "schedule": ["before 4am on Monday"],
       "commitMessageTopic": "{{depName}} GitHub Action"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "Docker build args and matrix images",
+      "pinDigests": true,
+      "automerge": false
+    },
+    {
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "groupName": "Dockerfiles",
+      "pinDigests": true,
+      "automerge": false
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "groupName": "Application versions",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update base_image.image/tag/digest in docker-matrix files",
+      "managerFilePatterns": [
+        "(^|/)docker-matrix\\.json$",
+        "(^|/)(base-image-matrix|service-matrix)\\.json$"
+      ],
+      "matchStrings": [
+        "\"base_image\"\\s*:\\s*\\{[\\s\\S]*?\"image\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"tag\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"digest\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update UPSTREAM_IMAGE/UPSTREAM_TAG/UPSTREAM_DIGEST in matrix build_args",
+      "managerFilePatterns": [
+        "(^|/)docker-matrix\\.json$",
+        "(^|/)(base-image-matrix|service-matrix)\\.json$"
+      ],
+      "matchStrings": [
+        "\"UPSTREAM_IMAGE\"\\s*:\\s*\"(?<depName>[^\"]+)\"\\s*,\\s*\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"\\s*,\\s*\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update BASE_IMAGE/BASE_TAG/BASE_DIGEST in workflow build args",
+      "managerFilePatterns": [
+        "^\\.github/workflows/test-workflow\\.yml$"
+      ],
+      "matchStrings": [
+        "--build-arg BASE_IMAGE=(?<depName>[^\\s]+)\\s*[\\r\\n]+\\s*--build-arg BASE_TAG=(?<currentValue>[^\\s]+)\\s*[\\r\\n]+\\s*--build-arg BASE_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})",
+        "--build-arg UPSTREAM_IMAGE=(?<depName>[^\\s]+)\\s*[\\r\\n]+\\s*--build-arg UPSTREAM_TAG=(?<currentValue>[^\\s]+)\\s*[\\r\\n]+\\s*--build-arg UPSTREAM_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update Radarr version in example service matrix",
+      "managerFilePatterns": [
+        "^examples/service-matrix\\.json$"
+      ],
+      "matchStrings": [
+        "\"RADARR_VERSION\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "Radarr/Radarr",
+      "datasourceTemplate": "github-releases"
     }
   ]
 }
