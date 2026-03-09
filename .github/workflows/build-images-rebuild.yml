@@ -298,6 +298,12 @@ jobs:
       - name: Checkout calling repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Normalize service name
+        run: |
+          SERVICE_NAME_LC=$(echo "${SERVICE_NAME}" | tr '[:upper:]' '[:lower:]')
+          echo "SERVICE_NAME=$SERVICE_NAME_LC" >> $GITHUB_ENV
+          echo "Using normalized service name: $SERVICE_NAME_LC"
+
       - name: Generate release tag
         id: release-tag
         if: ${{ !inputs.pr_mode }}
@@ -491,6 +497,12 @@ jobs:
     steps:
       - name: Checkout calling repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Normalize service name
+        run: |
+          SERVICE_NAME_LC=$(echo "${SERVICE_NAME}" | tr '[:upper:]' '[:lower:]')
+          echo "SERVICE_NAME=$SERVICE_NAME_LC" >> $GITHUB_ENV
+          echo "Using normalized service name: $SERVICE_NAME_LC"
 
       - name: Download all artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
@@ -700,6 +712,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Normalize service name
+        run: |
+          SERVICE_NAME_LC=$(echo "${SERVICE_NAME}" | tr '[:upper:]' '[:lower:]')
+          echo "SERVICE_NAME=$SERVICE_NAME_LC" >> $GITHUB_ENV
+          echo "Using normalized service name: $SERVICE_NAME_LC"
 
       - name: Setup crane
         run: |
