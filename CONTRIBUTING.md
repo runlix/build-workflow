@@ -30,7 +30,7 @@ There are several ways you can contribute:
 2. **Suggest enhancements** - Propose new features or improvements
 3. **Submit fixes** - Fix bugs or implement features via pull requests
 4. **Improve documentation** - Help make our docs clearer and more comprehensive
-5. **Help others** - Answer questions in issues and discussions
+5. **Help others** - Answer questions in issues and review open pull requests
 
 ## Development Setup
 
@@ -76,12 +76,8 @@ docker buildx version
 If you modify the JSON schema:
 
 ```bash
-# Validate schema syntax
-ajv compile -s schema/docker-matrix-schema.json
-
-# Test against fixtures
-ajv validate -s schema/docker-matrix-schema.json -d test-fixtures/service/docker-matrix.json
-ajv validate -s schema/docker-matrix-schema.json -d test-fixtures/base-image/docker-matrix.json
+# Validate schema syntax, examples, and fixtures
+bash commands/validate-schema.sh
 ```
 
 ### 2. Test Workflow Changes
@@ -89,6 +85,9 @@ ajv validate -s schema/docker-matrix-schema.json -d test-fixtures/base-image/doc
 If you modify workflows:
 
 ```bash
+# Inspect inputs, secrets, permissions, jobs, and tag behavior
+bash commands/inspect-workflow-surface.sh
+
 # Run test workflow locally (requires GitHub CLI)
 gh workflow run test-workflow.yml --ref YOUR-BRANCH
 
@@ -122,6 +121,7 @@ Check documentation for:
 - Working links
 - Up-to-date examples
 - Clear explanations
+- Alignment with `.github/workflows/build-images-rebuild.yml` and `schema/docker-matrix-schema.json`
 
 ## Submitting Changes
 
@@ -263,7 +263,7 @@ Use the feature request template when creating an issue.
 
 - **Documentation**: Check [docs/](./docs/) directory
 - **Issues**: Search [existing issues](https://github.com/runlix/build-workflow/issues)
-- **Discussions**: Use [GitHub Discussions](https://github.com/runlix/build-workflow/discussions)
+- **Pull Requests**: Review [open pull requests](https://github.com/runlix/build-workflow/pulls)
 
 ## Recognition
 

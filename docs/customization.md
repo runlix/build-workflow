@@ -69,7 +69,7 @@ Place this file at `.ci/docker-matrix.json` in your service repository.
 - **Type:** String
 - **When to use:** Service repositories with semantic versioning
 - **When to omit:** Base image repositories (use SHA-based versioning)
-- **Requirements:** If present, exactly one variant must have `default: true`
+- **Requirements:** Optional. Omit it for SHA-based base image repositories.
 
 **Example:**
 ```json
@@ -106,7 +106,6 @@ Each variant defines a different build configuration (e.g., standard, debug, alp
   {
     "name": "radarr-latest",
     "tag_suffix": "",
-    "default": true,
     "enabled": true,
     "platforms": ["linux/amd64", "linux/arm64"],
     "dockerfiles": {
@@ -127,8 +126,7 @@ Each variant defines a different build configuration (e.g., standard, debug, alp
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
 | `name` | Yes | String | Unique identifier for this variant |
-| `tag_suffix` | Yes | String | Appended to version/SHA (e.g., `""`, `"-debug"`, `"-alpine"`) |
-| `default` | Conditional | Boolean | Exactly one variant must be `true` if `version` field is present |
+| `tag_suffix` | Yes | String | User-facing suffix for final tags (e.g., `""`, `"debug"`, `"alpine"`) |
 | `enabled` | No | Boolean | Set to `false` to skip building this variant (default: `true`) |
 | `platforms` | Yes | Array | List of platforms to build (e.g., `["linux/amd64", "linux/arm64"]`) |
 | `dockerfiles` | Yes | Object | Platform-to-Dockerfile mapping |
@@ -138,8 +136,8 @@ Each variant defines a different build configuration (e.g., standard, debug, alp
 #### Tag Suffix Rules
 
 - Must be unique across variants when combined with version/SHA
-- Starts with `-` for non-default variants (e.g., `"-debug"`)
-- Empty string `""` for default variant
+- Use `""` for the primary versioned service tag
+- Use explicit suffixes such as `debug` or `alpine` without a leading dash
 - Automatically appended to `base_image.tag` when injecting `BASE_TAG`
 
 **Example collision (invalid):**
@@ -354,7 +352,7 @@ Temporarily disable a variant without removing it:
   {
     "name": "experimental",
     "enabled": false,  // This variant will be skipped
-    "tag_suffix": "-experimental",
+    "tag_suffix": "experimental",
     ...
   }
 ]

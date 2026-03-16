@@ -167,7 +167,7 @@ Add multiple variants for different build configurations:
     },
     {
       "name": "radarr-debug",
-      "tag_suffix": "-debug",
+      "tag_suffix": "debug",
       "platforms": ["linux/amd64", "linux/arm64"],
       "dockerfiles": {
         "linux/amd64": "Dockerfile.debug.amd64",
