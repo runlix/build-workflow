@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/build-images-rebuild.yml'
+      - 'examples/**'
       - 'test-fixtures/**'
       - 'schema/**'
   push:
@@ -14,6 +15,7 @@ on:
       - main
     paths:
       - '.github/workflows/build-images-rebuild.yml'
+      - 'examples/**'
       - 'test-fixtures/**'
       - 'schema/**'
   workflow_dispatch:
@@ -31,23 +33,13 @@ on:
 permissions:
   contents: read
   packages: write
-  pull-requests: write
-  actions: read
 
 jobs:
-  # Test with base image configuration
-  test-base-image:
-    if: github.event_name != 'workflow_dispatch' || inputs.test_type == 'base-image' || inputs.test_type == 'both'
+  validate-config-contracts:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Copy test fixtures to root
-        run: |
-          # Copy base image test fixtures to expected location
-          mkdir -p .ci
-          cp test-fixtures/base-image/docker-matrix.json .ci/
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -70,10 +62,71 @@ jobs:
             ajv validate -s schema/docker-matrix-schema.json -d "$file" --strict=false
           done
 
-      - name: Validate base image schema
+      - name: Validate tag rendering contract
         run: |
-          echo "Validating base image docker-matrix.json..."
-          ajv validate -s schema/docker-matrix-schema.json -d .ci/docker-matrix.json --strict=false
+          set -euo pipefail
+
+          echo "Validating manifest and base tag rendering..."
+          for file in examples/base-image-matrix.json examples/service-matrix.json test-fixtures/base-image/docker-matrix.json test-fixtures/service/docker-matrix.json; do
+            VERSION=$(jq -r '.version // ""' "$file")
+            BASE_TAG=$(jq -r '.base_image.tag // ""' "$file")
+
+            jq -c '.variants[]' "$file" | while read -r variant; do
+              NAME=$(echo "$variant" | jq -r '.name')
+              SUFFIX=$(echo "$variant" | jq -r '.tag_suffix')
+
+              if [[ "$SUFFIX" == -* ]]; then
+                echo "Suffix for $file / $NAME must not start with '-'"
+                exit 1
+              fi
+
+              if [ -z "$VERSION" ] && [ -z "$SUFFIX" ]; then
+                echo "Versionless config $file / $NAME must use a non-empty tag_suffix"
+                exit 1
+              fi
+
+              if [ -n "$VERSION" ]; then
+                MANIFEST_TAG="$VERSION"
+                if [ -n "$SUFFIX" ]; then
+                  MANIFEST_TAG="${VERSION}-${SUFFIX}"
+                fi
+              else
+                MANIFEST_TAG="$SUFFIX"
+              fi
+
+              if [[ "$MANIFEST_TAG" == *"--"* ]] || [[ "$MANIFEST_TAG" == *- ]]; then
+                echo "Invalid manifest tag rendered for $file / $NAME: $MANIFEST_TAG"
+                exit 1
+              fi
+
+              if [ -n "$BASE_TAG" ]; then
+                INJECTED_BASE_TAG="$BASE_TAG"
+                if [ -n "$SUFFIX" ]; then
+                  INJECTED_BASE_TAG="${BASE_TAG}-${SUFFIX}"
+                fi
+
+                if [[ "$INJECTED_BASE_TAG" == *"--"* ]] || [[ "$INJECTED_BASE_TAG" == *- ]]; then
+                  echo "Invalid injected base tag rendered for $file / $NAME: $INJECTED_BASE_TAG"
+                  exit 1
+                fi
+              fi
+            done
+          done
+
+  # Test with base image configuration
+  test-base-image:
+    needs: validate-config-contracts
+    if: github.event_name != 'workflow_dispatch' || inputs.test_type == 'base-image' || inputs.test_type == 'both'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Copy test fixtures to root
+        run: |
+          # Copy base image test fixtures to expected location
+          mkdir -p .ci
+          cp test-fixtures/base-image/docker-matrix.json .ci/
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
@@ -125,6 +178,7 @@ jobs:
 
   # Test with service configuration
   test-service:
+    needs: validate-config-contracts
     if: github.event_name != 'workflow_dispatch' || inputs.test_type == 'service' || inputs.test_type == 'both'
     runs-on: ubuntu-latest
     steps:
@@ -136,32 +190,6 @@ jobs:
           # Copy service test fixtures to expected location
           mkdir -p .ci
           cp test-fixtures/service/docker-matrix.json .ci/
-
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        with:
-          node-version: '20'
-
-      - name: Install ajv-cli
-        run: npm install -g ajv-cli ajv-formats
-
-      - name: Validate schema structure
-        run: |
-          echo "Validating schema structure..."
-          ajv compile -s schema/docker-matrix-schema.json --strict=false
-
-      - name: Validate all example files
-        run: |
-          echo "Validating examples and test fixtures..."
-          for file in examples/base-image-matrix.json examples/service-matrix.json test-fixtures/base-image/docker-matrix.json test-fixtures/service/docker-matrix.json; do
-            echo "  Checking $file"
-            ajv validate -s schema/docker-matrix-schema.json -d "$file" --strict=false
-          done
-
-      - name: Validate service schema
-        run: |
-          echo "Validating service docker-matrix.json..."
-          ajv validate -s schema/docker-matrix-schema.json -d .ci/docker-matrix.json --strict=false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
@@ -222,7 +250,7 @@ jobs:
 
   # Summary job
   test-summary:
-    needs: [test-base-image, test-service]
+    needs: [validate-config-contracts, test-base-image, test-service]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -230,10 +258,11 @@ jobs:
         run: |
           echo "Test Results:"
           echo "============="
+          echo "Config Contracts: ${{ needs.validate-config-contracts.result }}"
           echo "Base Image: ${{ needs.test-base-image.result }}"
           echo "Service: ${{ needs.test-service.result }}"
 
-          if [ "${{ needs.test-base-image.result }}" != "success" ] || [ "${{ needs.test-service.result }}" != "success" ]; then
+          if [ "${{ needs.validate-config-contracts.result }}" != "success" ] || [ "${{ needs.test-base-image.result }}" != "success" ] || [ "${{ needs.test-service.result }}" != "success" ]; then
             echo ""
             echo "❌ Some tests failed"
             exit 1

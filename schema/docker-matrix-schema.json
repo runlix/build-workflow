@@ -50,7 +50,8 @@
           },
           "tag_suffix": {
             "type": "string",
-            "description": "User-facing variant identifier for final tags (e.g., 'stable', 'debug', 'nonroot'). No leading dash."
+            "description": "User-facing variant identifier for final tags (for example: '', 'debug', 'nonroot'). No leading dash.",
+            "pattern": "^$|^[a-z0-9]+([._-][a-z0-9]+)*$"
           },
           "dockerfiles": {
             "type": "object",
@@ -109,5 +110,27 @@
     }
   },
   "required": ["variants"],
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "required": ["version"]
+        }
+      },
+      "then": {
+        "properties": {
+          "variants": {
+            "items": {
+              "properties": {
+                "tag_suffix": {
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

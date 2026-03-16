@@ -16,18 +16,11 @@ on:
       - 'docs/**'
 
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Skip image push (dry run mode for testing)'
-        required: false
-        default: false
-        type: boolean
 
 # Required permissions for PR validation workflow
 permissions:
   contents: read        # Checkout code, read docker-matrix.json
   pull-requests: write  # Comment on PR with test failures/scan results
-  actions: read         # Read workflow artifacts from previous runs
 
 jobs:
   validate:
@@ -35,7 +28,6 @@ jobs:
     uses: runlix/build-workflow/.github/workflows/build-images-rebuild.yml@main
     with:
       pr_mode: true
-      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
     secrets: inherit
 
 # Workflow behavior:
@@ -45,4 +37,4 @@ jobs:
 # - Scans images for vulnerabilities with Trivy
 # - Comments on PR with build and test results
 # - **NOTE**: Images are NOT pushed to registry in PR mode
-# - Blocks merge if builds, tests, or critical vulnerabilities fail
+# - Security scans are informational unless you add an explicit failure policy
