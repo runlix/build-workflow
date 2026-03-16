@@ -65,8 +65,8 @@ Base-image repositories omit `version` and `base_image`.
 
 ## Tag Rules
 
-- `tag_suffix` is a raw suffix value, not `-debug`.
-- Recommended values are explicit names such as `stable`, `debug`, and `minimal`.
+- Prefer raw suffix values such as `stable`, `debug`, and `minimal`.
+- Legacy values like `-debug` are normalized by the workflow.
 - Empty suffix is still accepted for compatibility, but public examples in this repo use explicit suffixes.
 - There is no per-variant `default` field.
 

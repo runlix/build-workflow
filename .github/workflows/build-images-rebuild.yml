@@ -235,16 +235,17 @@ jobs:
                   ),
                   dockerfile: .dockerfiles[$platform],
                   tag_suffix: .tag_suffix,
+                  normalized_tag_suffix: (.tag_suffix | sub("^-" ; "")),
                   test_script: (.test_script // ""),
                   build_args: (
                     .build_args +
                     (if $base_img != "" then {
                       BASE_IMAGE: $base_img,
                       BASE_TAG: (
-                        if .tag_suffix == "" then
+                        if (.tag_suffix | sub("^-" ; "")) == "" then
                           $base_tag
                         else
-                          ($base_tag + "-" + .tag_suffix)
+                          ($base_tag + "-" + (.tag_suffix | sub("^-" ; "")))
                         end
                       ),
                       BASE_DIGEST: $base_digest
@@ -316,19 +317,31 @@ jobs:
         run: |
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          TAG_SUFFIX="${{ matrix.tag_suffix }}"
+          TAG_SUFFIX="${{ matrix.normalized_tag_suffix }}"
           BASE_REF="$VERSION"
+
+          join_tag() {
+            local result=""
+            local part
+
+            for part in "$@"; do
+              if [ -n "$part" ]; then
+                if [ -n "$result" ]; then
+                  result="${result}-${part}"
+                else
+                  result="$part"
+                fi
+              fi
+            done
+
+            printf '%s\n' "$result"
+          }
 
           if [ -z "$BASE_REF" ]; then
             BASE_REF="$SHORT_SHA"
           fi
 
-          # Generate platform tag (temporary), omitting empty suffixes.
-          if [ -n "$TAG_SUFFIX" ]; then
-            PLATFORM_TAG="${BASE_REF}-${TAG_SUFFIX}-${{ matrix.arch }}-${SHORT_SHA}"
-          else
-            PLATFORM_TAG="${BASE_REF}-${{ matrix.arch }}-${SHORT_SHA}"
-          fi
+          PLATFORM_TAG=$(join_tag "$BASE_REF" "$TAG_SUFFIX" "${{ matrix.arch }}" "$SHORT_SHA")
 
           if [ -n "$VERSION" ]; then
             echo "Platform tag (versioned): $PLATFORM_TAG"
@@ -364,7 +377,24 @@ jobs:
         id: tag
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          TAG_SUFFIX="${{ matrix.tag_suffix }}"
+          TAG_SUFFIX="${{ matrix.normalized_tag_suffix }}"
+
+          join_tag() {
+            local result=""
+            local part
+
+            for part in "$@"; do
+              if [ -n "$part" ]; then
+                if [ -n "$result" ]; then
+                  result="${result}-${part}"
+                else
+                  result="$part"
+                fi
+              fi
+            done
+
+            printf '%s\n' "$result"
+          }
 
           if ${{ inputs.pr_mode }}; then
             # PR mode: pr-<pr_number>-<version?>-<suffix?>-<arch>-<sha>
@@ -372,17 +402,9 @@ jobs:
             VERSION="${{ needs.parse-matrix.outputs.version }}"
 
             if [ -n "$VERSION" ]; then
-              if [ -n "$TAG_SUFFIX" ]; then
-                TAG_VALUE="pr-${PR_NUM}-${VERSION}-${TAG_SUFFIX}-${{ matrix.arch }}-${SHORT_SHA}"
-              else
-                TAG_VALUE="pr-${PR_NUM}-${VERSION}-${{ matrix.arch }}-${SHORT_SHA}"
-              fi
+              TAG_VALUE=$(join_tag "pr" "$PR_NUM" "$VERSION" "$TAG_SUFFIX" "${{ matrix.arch }}" "$SHORT_SHA")
             else
-              if [ -n "$TAG_SUFFIX" ]; then
-                TAG_VALUE="pr-${PR_NUM}-${TAG_SUFFIX}-${{ matrix.arch }}-${SHORT_SHA}"
-              else
-                TAG_VALUE="pr-${PR_NUM}-${{ matrix.arch }}-${SHORT_SHA}"
-              fi
+              TAG_VALUE=$(join_tag "pr" "$PR_NUM" "$TAG_SUFFIX" "${{ matrix.arch }}" "$SHORT_SHA")
             fi
 
             IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${TAG_VALUE}"
@@ -783,6 +805,23 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           BASE_REF="$VERSION"
 
+          join_tag() {
+            local result=""
+            local part
+
+            for part in "$@"; do
+              if [ -n "$part" ]; then
+                if [ -n "$result" ]; then
+                  result="${result}-${part}"
+                else
+                  result="$part"
+                fi
+              fi
+            done
+
+            printf '%s\n' "$result"
+          }
+
           if [ -z "$BASE_REF" ]; then
             BASE_REF="$SHORT_SHA"
           fi
@@ -806,12 +845,7 @@ jobs:
             echo "Tag Suffix: $TAG_SUFFIX"
             echo ""
 
-            # Determine manifest tag, omitting empty suffixes.
-            if [ -n "$TAG_SUFFIX" ]; then
-              MANIFEST_TAG="${BASE_REF}-${TAG_SUFFIX}"
-            else
-              MANIFEST_TAG="${BASE_REF}"
-            fi
+            MANIFEST_TAG=$(join_tag "$BASE_REF" "$TAG_SUFFIX")
 
             echo "Target manifest tag: $MANIFEST_TAG"
 

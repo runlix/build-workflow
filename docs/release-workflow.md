@@ -23,6 +23,7 @@ jobs:
 ## Tag Outputs
 
 Recommended `tag_suffix` values are explicit names such as `stable` and `debug`.
+Legacy leading-dash values are normalized before tags are assembled.
 
 - platform tag, versioned repo: `v5.2.1-stable-amd64-abc1234`
 - platform tag, SHA-based repo: `abc1234-stable-amd64-abc1234`

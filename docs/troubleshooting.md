@@ -18,7 +18,8 @@ Then check for:
 
 ### Tags Look Wrong
 
-`tag_suffix` should be a raw suffix such as `stable` or `debug`, not `-debug`.
+Prefer raw suffixes such as `stable` or `debug`.
+Legacy values like `-debug` are normalized, but new examples should avoid them.
 
 Expected examples:
 

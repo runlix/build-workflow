@@ -50,7 +50,7 @@
           },
           "tag_suffix": {
             "type": "string",
-            "description": "User-facing variant identifier for final tags (e.g., 'stable', 'debug', 'nonroot'). Use raw suffix values without a leading dash; empty string is supported for compatibility."
+            "description": "User-facing variant identifier for final tags (e.g., 'stable', 'debug', 'nonroot'). Prefer raw suffix values without a leading dash; legacy leading-dash values are normalized by the workflow."
           },
           "dockerfiles": {
             "type": "object",

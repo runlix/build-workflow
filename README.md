@@ -77,9 +77,8 @@ The source of truth is `.ci/docker-matrix.json` validated by [`schema/docker-mat
 
 ## Tag Contract
 
-`tag_suffix` is a raw suffix value with no leading dash.
-Recommended examples use explicit values such as `stable`, `debug`, and `minimal`.
-An empty suffix is still supported for compatibility, but it is not the primary convention in this repo.
+Prefer raw `tag_suffix` values such as `stable`, `debug`, and `minimal`.
+The workflow also normalizes legacy values like `-debug`, and an empty suffix remains supported.
 
 Generated tags omit empty segments automatically:
 

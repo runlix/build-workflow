@@ -27,6 +27,7 @@ gh workflow run test-workflow.yml --ref YOUR-BRANCH -f test_type=both
 - example and fixture matrices still validate
 - versioned tags are clean: `v5.2.1-stable-amd64-abc1234`
 - SHA-based tags are clean: `abc1234-stable-amd64-abc1234`
+- legacy suffixes like `-debug` normalize to the same clean tag output
 - empty-suffix compatibility still works without doubled or trailing hyphens
 - `BASE_TAG` is normalized correctly
 - PR comments and release artifacts still appear

@@ -59,8 +59,8 @@ permissions:
 
 ## Tag Semantics
 
-- `tag_suffix` is raw, not `-debug`
 - explicit suffixes such as `stable` and `debug` are the recommended convention
+- legacy suffixes such as `-debug` are normalized before tag generation
 - empty suffix is supported, and empty segments are omitted from generated tags
 
 ## Example

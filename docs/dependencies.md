@@ -30,7 +30,7 @@ bash commands/check-maintainer-drift.sh
 
 ## Contract Notes
 
-- `tag_suffix` is a raw suffix string.
+- `tag_suffix` is preferably a raw suffix string; legacy leading-dash values are normalized.
 - explicit suffixes such as `stable` and `debug` are the preferred examples.
 - empty suffix remains supported, but docs and public examples should not depend on it.
 - there is no supported per-variant `default` field.

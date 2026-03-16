@@ -32,7 +32,7 @@ Supported per-variant fields:
 | Field | Required | Notes |
 | --- | --- | --- |
 | `name` | yes | unique identifier |
-| `tag_suffix` | yes | raw suffix such as `stable` or `debug` |
+| `tag_suffix` | yes | preferred raw suffix such as `stable` or `debug`; legacy `-debug` style values are normalized |
 | `dockerfiles` | yes | map of platform to Dockerfile |
 | `platforms` | yes | supported platforms |
 | `build_args` | no | literal string args only |
@@ -44,7 +44,7 @@ There is no supported `default` field.
 ## Tag Behavior
 
 - Docs and examples in this repo use explicit suffixes such as `stable` and `debug`.
-- Empty suffix remains valid, but generated tags omit empty segments automatically.
+- Legacy leading-dash suffixes and empty suffixes remain valid; generated tags omit empty segments automatically.
 - `BASE_TAG` uses the same normalization rule.
 
 Examples:

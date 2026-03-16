@@ -24,8 +24,8 @@ Release mode rebuilds from the caller repo's `release` branch, pushes platform t
 
 ## Tagging Model
 
-`tag_suffix` is a raw suffix value with no leading dash.
-Recommended variants use explicit suffixes such as `stable` and `debug`.
+Prefer raw `tag_suffix` values such as `stable` and `debug`.
+Legacy values like `-debug` are normalized before tag generation.
 
 Generated tags omit empty segments automatically:
 
