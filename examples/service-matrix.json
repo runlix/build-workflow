@@ -2,14 +2,14 @@
   "$schema": "../schema/docker-matrix-schema.json",
   "version": "v5.2.1",
   "base_image": {
-    "image": "ghcr.io/runlix/distroless",
+    "image": "ghcr.io/runlix/distroless-runtime",
     "tag": "abc1234",
     "digest": "sha256:abc123def456789abc123def456789abc123def456789abc123def456789abc1"
   },
   "variants": [
     {
-      "name": "radarr-latest",
-      "tag_suffix": "",
+      "name": "radarr-stable",
+      "tag_suffix": "stable",
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
         "linux/arm64": "Dockerfile.arm64"
@@ -24,7 +24,7 @@
     },
     {
       "name": "radarr-debug",
-      "tag_suffix": "-debug",
+      "tag_suffix": "debug",
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
         "linux/arm64": "Dockerfile.arm64"

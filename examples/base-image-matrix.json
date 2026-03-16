@@ -2,8 +2,8 @@
   "$schema": "../schema/docker-matrix-schema.json",
   "variants": [
     {
-      "name": "base-latest",
-      "tag_suffix": "",
+      "name": "base-stable",
+      "tag_suffix": "stable",
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
         "linux/arm64": "Dockerfile.arm64"
@@ -19,7 +19,7 @@
     },
     {
       "name": "base-debug",
-      "tag_suffix": "-debug",
+      "tag_suffix": "debug",
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
         "linux/arm64": "Dockerfile.arm64"

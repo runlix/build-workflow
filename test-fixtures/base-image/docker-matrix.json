@@ -3,7 +3,7 @@
   "variants": [
     {
       "name": "distroless-base",
-      "tag_suffix": "",
+      "tag_suffix": "stable",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -21,7 +21,7 @@
     },
     {
       "name": "distroless-debug",
-      "tag_suffix": "-debug",
+      "tag_suffix": "debug",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
