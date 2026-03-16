@@ -70,6 +70,65 @@ jobs:
             ajv validate -s schema/docker-matrix-schema.json -d "$file" --strict=false
           done
 
+      - name: Validate tag normalization examples
+        run: |
+          normalize_base_tag() {
+            local base_tag="$1"
+            local suffix="$2"
+
+            if [ -n "$suffix" ]; then
+              echo "${base_tag}-${suffix}"
+            else
+              echo "$base_tag"
+            fi
+          }
+
+          release_platform_tag() {
+            local version="$1"
+            local suffix="$2"
+            local arch="$3"
+            local short_sha="$4"
+            local base_ref="$version"
+
+            if [ -z "$base_ref" ]; then
+              base_ref="$short_sha"
+            fi
+
+            if [ -n "$suffix" ]; then
+              echo "${base_ref}-${suffix}-${arch}-${short_sha}"
+            else
+              echo "${base_ref}-${arch}-${short_sha}"
+            fi
+          }
+
+          manifest_tag() {
+            local version="$1"
+            local suffix="$2"
+            local short_sha="$3"
+            local base_ref="$version"
+
+            if [ -z "$base_ref" ]; then
+              base_ref="$short_sha"
+            fi
+
+            if [ -n "$suffix" ]; then
+              echo "${base_ref}-${suffix}"
+            else
+              echo "${base_ref}"
+            fi
+          }
+
+          [ "$(normalize_base_tag "abc1234" "")" = "abc1234" ]
+          [ "$(normalize_base_tag "abc1234" "debug")" = "abc1234-debug" ]
+          [ "$(release_platform_tag "v1.2.3" "" "amd64" "def5678")" = "v1.2.3-amd64-def5678" ]
+          [ "$(release_platform_tag "v1.2.3" "debug" "arm64" "def5678")" = "v1.2.3-debug-arm64-def5678" ]
+          [ "$(release_platform_tag "" "" "amd64" "6a29080")" = "6a29080-amd64-6a29080" ]
+          [ "$(release_platform_tag "" "stable" "arm64" "6a29080")" = "6a29080-stable-arm64-6a29080" ]
+          [ "$(manifest_tag "v1.2.3" "" "def5678")" = "v1.2.3" ]
+          [ "$(manifest_tag "v1.2.3" "debug" "def5678")" = "v1.2.3-debug" ]
+          [ "$(manifest_tag "" "" "6a29080")" = "6a29080" ]
+          [ "$(manifest_tag "" "stable" "6a29080")" = "6a29080-stable" ]
+
       - name: Validate base image schema
         run: |
           echo "Validating base image docker-matrix.json..."

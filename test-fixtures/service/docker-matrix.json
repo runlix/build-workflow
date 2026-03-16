@@ -2,14 +2,14 @@
   "$schema": "../../schema/docker-matrix-schema.json",
   "version": "v1.2.3",
   "base_image": {
-    "image": "ghcr.io/runlix/distroless",
+    "image": "ghcr.io/runlix/distroless-runtime",
     "tag": "test-abc1234",
     "digest": "sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8"
   },
   "variants": [
     {
-      "name": "testapp-latest",
-      "tag_suffix": "",
+      "name": "testapp-stable",
+      "tag_suffix": "stable",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -27,7 +27,7 @@
     },
     {
       "name": "testapp-debug",
-      "tag_suffix": "-debug",
+      "tag_suffix": "debug",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -46,7 +46,7 @@
     },
     {
       "name": "testapp-minimal",
-      "tag_suffix": "-minimal",
+      "tag_suffix": "minimal",
       "enabled": false,
       "platforms": [
         "linux/amd64"

@@ -212,7 +212,7 @@ jobs:
           BASE_DIGEST="${{ steps.extract.outputs.base_digest }}"
 
           # Expand variants × platforms into matrix
-          # Auto-inject BASE_IMAGE, BASE_TAG (with tag_suffix appended), BASE_DIGEST
+          # Auto-inject BASE_IMAGE, BASE_TAG (normalized with optional suffix), BASE_DIGEST
           # Auto-select runner based on architecture for performance
           MATRIX=$(jq -c \
             --arg base_img "$BASE_IMAGE" \
@@ -235,12 +235,19 @@ jobs:
                   ),
                   dockerfile: .dockerfiles[$platform],
                   tag_suffix: .tag_suffix,
+                  normalized_tag_suffix: (.tag_suffix | sub("^-" ; "")),
                   test_script: (.test_script // ""),
                   build_args: (
                     .build_args +
                     (if $base_img != "" then {
                       BASE_IMAGE: $base_img,
-                      BASE_TAG: ($base_tag + "-" + .tag_suffix),
+                      BASE_TAG: (
+                        if (.tag_suffix | sub("^-" ; "")) == "" then
+                          $base_tag
+                        else
+                          ($base_tag + "-" + (.tag_suffix | sub("^-" ; "")))
+                        end
+                      ),
                       BASE_DIGEST: $base_digest
                     } else {} end)
                   )
@@ -310,15 +317,35 @@ jobs:
         run: |
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG_SUFFIX="${{ matrix.normalized_tag_suffix }}"
+          BASE_REF="$VERSION"
 
-          # Generate platform tag (temporary)
-          # Format: <version>-<suffix>-<arch>-<sha> or <suffix>-<arch>-<sha>
+          join_tag() {
+            local result=""
+            local part
+
+            for part in "$@"; do
+              if [ -n "$part" ]; then
+                if [ -n "$result" ]; then
+                  result="${result}-${part}"
+                else
+                  result="$part"
+                fi
+              fi
+            done
+
+            printf '%s\n' "$result"
+          }
+
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF="$SHORT_SHA"
+          fi
+
+          PLATFORM_TAG=$(join_tag "$BASE_REF" "$TAG_SUFFIX" "${{ matrix.arch }}" "$SHORT_SHA")
+
           if [ -n "$VERSION" ]; then
-            PLATFORM_TAG="${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
             echo "Platform tag (versioned): $PLATFORM_TAG"
           else
-            # Base images without version use SHA at end
-            PLATFORM_TAG="${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
             echo "Platform tag (SHA-based): $PLATFORM_TAG"
           fi
 
@@ -350,17 +377,37 @@ jobs:
         id: tag
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG_SUFFIX="${{ matrix.normalized_tag_suffix }}"
+
+          join_tag() {
+            local result=""
+            local part
+
+            for part in "$@"; do
+              if [ -n "$part" ]; then
+                if [ -n "$result" ]; then
+                  result="${result}-${part}"
+                else
+                  result="$part"
+                fi
+              fi
+            done
+
+            printf '%s\n' "$result"
+          }
 
           if ${{ inputs.pr_mode }}; then
-            # PR mode: pr-<pr_number>-<version>-<suffix>-<arch>-<sha>
+            # PR mode: pr-<pr_number>-<version?>-<suffix?>-<arch>-<sha>
             PR_NUM=${{ github.event.pull_request.number }}
             VERSION="${{ needs.parse-matrix.outputs.version }}"
 
             if [ -n "$VERSION" ]; then
-              IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+              TAG_VALUE=$(join_tag "pr" "$PR_NUM" "$VERSION" "$TAG_SUFFIX" "${{ matrix.arch }}" "$SHORT_SHA")
             else
-              IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
+              TAG_VALUE=$(join_tag "pr" "$PR_NUM" "$TAG_SUFFIX" "${{ matrix.arch }}" "$SHORT_SHA")
             fi
+
+            IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${TAG_VALUE}"
           else
             # Release mode rebuild: use platform tag from release-tag step
             PLATFORM_TAG="${{ steps.release-tag.outputs.platform_tag }}"
@@ -756,6 +803,28 @@ jobs:
 
           VERSION="${{ needs.parse-matrix.outputs.version }}"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          BASE_REF="$VERSION"
+
+          join_tag() {
+            local result=""
+            local part
+
+            for part in "$@"; do
+              if [ -n "$part" ]; then
+                if [ -n "$result" ]; then
+                  result="${result}-${part}"
+                else
+                  result="$part"
+                fi
+              fi
+            done
+
+            printf '%s\n' "$result"
+          }
+
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF="$SHORT_SHA"
+          fi
 
           # Extract unique tag suffixes from matrix
           TAG_SUFFIXES=$(echo '${{ needs.parse-matrix.outputs.matrix }}' | \
@@ -776,19 +845,12 @@ jobs:
             echo "Tag Suffix: $TAG_SUFFIX"
             echo ""
 
-            # Determine manifest tag
-            # Format: <version>-<suffix> or <suffix>
-            if [ -n "$VERSION" ]; then
-              MANIFEST_TAG="${VERSION}-${TAG_SUFFIX}"
-            else
-              MANIFEST_TAG="${TAG_SUFFIX}"
-            fi
+            MANIFEST_TAG=$(join_tag "$BASE_REF" "$TAG_SUFFIX")
 
             echo "Target manifest tag: $MANIFEST_TAG"
 
-            # Collect ALL platform images with this manifest tag (across all architectures)
-            # Platform tags have format: <version>-<suffix>-<arch>-<sha> or <suffix>-<arch>-<sha>
-            # So they start with the manifest tag followed by a dash
+            # Collect ALL platform images with this manifest tag (across all architectures).
+            # Platform tags always start with the normalized manifest tag followed by a dash.
             PLATFORM_IMAGES=()
             for tag_file in platform-tags/platform-tag-*.txt; do
               if [ -f "$tag_file" ]; then
