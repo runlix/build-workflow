@@ -1,7 +1,6 @@
-# Reusable Workflow for Multi-Architecture Docker Image Builds
-# This workflow is called by service repositories for PR validation and releases
-#
-# Release mode behavior: Always rebuilds images from release branch for correctness
+# Reusable workflow for multi-architecture Docker image validation and publishing.
+# PR mode validates the merged result without pushing.
+# Release mode rebuilds from the release branch and publishes fresh images.
 #
 # Usage from service repository:
 #   uses: runlix/build-workflow/.github/workflows/build-images-rebuild.yml@main
@@ -41,14 +40,13 @@ on:
 env:
   REGISTRY: ghcr.io
   REGISTRY_ORG: runlix
+  CRANE_VERSION: v0.20.3
 
-# Permissions required by this workflow
-# Note: Calling workflow must grant these permissions via 'secrets: inherit'
+# Permissions required by this workflow.
 permissions:
   contents: write       # Update releases.json in main branch (release mode only)
   packages: write       # Push images to GHCR, delete platform tags
   pull-requests: write  # Comment on PR with build results (PR mode only)
-  actions: read         # Query workflow artifacts and PR status
 
 jobs:
   # Job 1: Parse and validate docker-matrix.json
@@ -56,9 +54,21 @@ jobs:
   parse-matrix:
     runs-on: ubuntu-latest
     outputs:
+      checkout_ref: ${{ steps.context.outputs.checkout_ref }}
+      source_sha: ${{ steps.context.outputs.source_sha }}
+      source_short_sha: ${{ steps.context.outputs.source_short_sha }}
       matrix: ${{ steps.expand.outputs.matrix }}
       version: ${{ steps.extract.outputs.version }}
     steps:
+      - name: Resolve source context
+        id: context
+        run: |
+          echo "checkout_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+          echo "source_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "source_short_sha=$(echo "${{ github.sha }}" | cut -c1-7)" >> $GITHUB_OUTPUT
+          echo "Using source ref: ${{ github.ref }}"
+          echo "Using source sha: ${{ github.sha }}"
+
       - name: Validate required secrets
         run: |
           echo "🔐 Validating required secrets..."
@@ -88,9 +98,7 @@ jobs:
       - name: Checkout calling repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          # For PR mode: checkout PR head SHA
-          # For release mode: checkout release branch
-          ref: ${{ inputs.pr_mode && github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ steps.context.outputs.checkout_ref }}
 
       - name: Setup Node.js for schema validation
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -211,9 +219,6 @@ jobs:
           BASE_TAG="${{ steps.extract.outputs.base_tag }}"
           BASE_DIGEST="${{ steps.extract.outputs.base_digest }}"
 
-          # Expand variants × platforms into matrix
-          # Auto-inject BASE_IMAGE, BASE_TAG (with tag_suffix appended), BASE_DIGEST
-          # Auto-select runner based on architecture for performance
           MATRIX=$(jq -c \
             --arg base_img "$BASE_IMAGE" \
             --arg base_tag "$BASE_TAG" \
@@ -240,7 +245,13 @@ jobs:
                     .build_args +
                     (if $base_img != "" then {
                       BASE_IMAGE: $base_img,
-                      BASE_TAG: ($base_tag + "-" + .tag_suffix),
+                      BASE_TAG: (
+                        if .tag_suffix == "" then
+                          $base_tag
+                        else
+                          $base_tag + "-" + .tag_suffix
+                        end
+                      ),
                       BASE_DIGEST: $base_digest
                     } else {} end)
                   )
@@ -273,15 +284,14 @@ jobs:
           if [ -n "$VERSION" ]; then
             echo "📦 Release mode: Versioned tags ($VERSION)"
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            echo "📦 Release mode: SHA-based tags ($SHORT_SHA)"
+            echo "📦 Release mode: SHA-based tags (${{ steps.context.outputs.source_short_sha }})"
           fi
 
   # Job 2: Build images (matrix strategy)
   # Runs in parallel for each variant+platform combination
   # PR mode: Build and test only (no push)
   # Release mode: Build, test, and push
-  promote-or-build:
+  build-images:
     needs: parse-matrix
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60  # Reduced from 120 - sufficient for most builds
@@ -297,6 +307,8 @@ jobs:
     steps:
       - name: Checkout calling repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.parse-matrix.outputs.checkout_ref }}
 
       - name: Normalize service name
         run: |
@@ -309,19 +321,22 @@ jobs:
         if: ${{ !inputs.pr_mode }}
         run: |
           VERSION="${{ needs.parse-matrix.outputs.version }}"
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG_SUFFIX="${{ matrix.tag_suffix }}"
+          SHORT_SHA="${{ needs.parse-matrix.outputs.source_short_sha }}"
 
-          # Generate platform tag (temporary)
-          # Format: <version>-<suffix>-<arch>-<sha> or <suffix>-<arch>-<sha>
           if [ -n "$VERSION" ]; then
-            PLATFORM_TAG="${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
-            echo "Platform tag (versioned): $PLATFORM_TAG"
+            MANIFEST_TAG="$VERSION"
+            if [ -n "$TAG_SUFFIX" ]; then
+              MANIFEST_TAG="${VERSION}-${TAG_SUFFIX}"
+            fi
           else
-            # Base images without version use SHA at end
-            PLATFORM_TAG="${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
-            echo "Platform tag (SHA-based): $PLATFORM_TAG"
+            MANIFEST_TAG="$TAG_SUFFIX"
           fi
 
+          PLATFORM_TAG="${MANIFEST_TAG}-${{ matrix.arch }}-${SHORT_SHA}"
+          echo "Manifest tag: $MANIFEST_TAG"
+          echo "Platform tag: $PLATFORM_TAG"
+          echo "manifest_tag=$MANIFEST_TAG" >> $GITHUB_OUTPUT
           echo "platform_tag=$PLATFORM_TAG" >> $GITHUB_OUTPUT
 
       - name: Log in to GHCR (release mode only)
@@ -342,27 +357,16 @@ jobs:
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: /tmp/.buildx-cache
-          key: buildx-${{ matrix.variant_name }}-${{ matrix.platform }}-${{ github.sha }}
+          key: buildx-${{ matrix.variant_name }}-${{ matrix.platform }}-${{ needs.parse-matrix.outputs.source_sha }}
           restore-keys: |
             buildx-${{ matrix.variant_name }}-${{ matrix.platform }}-
 
       - name: Generate image tag
         id: tag
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-
           if ${{ inputs.pr_mode }}; then
-            # PR mode: pr-<pr_number>-<version>-<suffix>-<arch>-<sha>
-            PR_NUM=${{ github.event.pull_request.number }}
-            VERSION="${{ needs.parse-matrix.outputs.version }}"
-
-            if [ -n "$VERSION" ]; then
-              IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${VERSION}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
-            else
-              IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:pr-${PR_NUM}-${{ matrix.tag_suffix }}-${{ matrix.arch }}-${SHORT_SHA}"
-            fi
+            IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:local-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant_name }}-${{ matrix.arch }}"
           else
-            # Release mode rebuild: use platform tag from release-tag step
             PLATFORM_TAG="${{ steps.release-tag.outputs.platform_tag }}"
             IMAGE_TAG="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PLATFORM_TAG}"
           fi
@@ -384,7 +388,7 @@ jobs:
             --platform ${{ matrix.platform }} \
             -f ${{ matrix.dockerfile }} \
             $BUILD_ARGS \
-            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.revision=${{ needs.parse-matrix.outputs.source_sha }}" \
             --label "org.opencontainers.image.created=${BUILD_DATE}" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             $([ -n "$VERSION" ] && echo "--label org.opencontainers.image.version=$VERSION" || echo "") \
@@ -448,21 +452,6 @@ jobs:
           path: platform-tag-${{ matrix.variant_name }}-${{ matrix.arch }}.txt
           retention-days: 1
 
-      - name: Report failure to PR
-        if: failure() && inputs.pr_mode
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `❌ **Build Failed**: ${{ matrix.variant_name }} / ${{ matrix.arch }}\n\n` +
-                    `**Platform**: \`${{ matrix.platform }}\`\n` +
-                    `**Dockerfile**: \`${{ matrix.dockerfile }}\`\n\n` +
-                    `[View logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
-            })
-
       - name: Upload scan artifacts
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
@@ -473,14 +462,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Capture image digest
-        if: success()
-        id: digest
-        run: |
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.IMAGE_TAG }} | cut -d'@' -f2)
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
-          echo "Image: ${{ env.IMAGE_TAG }}@$DIGEST"
-
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache
@@ -489,7 +470,7 @@ jobs:
   # Job 3: Collect results and create summary
   # Posts PR comments, generates manifest artifacts
   summary:
-    needs: [parse-matrix, promote-or-build]
+    needs: [parse-matrix, build-images]
     runs-on: ubuntu-latest
     if: always()  # Run even if builds fail to report results
     env:
@@ -497,6 +478,8 @@ jobs:
     steps:
       - name: Checkout calling repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.parse-matrix.outputs.checkout_ref }}
 
       - name: Normalize service name
         run: |
@@ -564,8 +547,7 @@ jobs:
       - name: Check build status
         id: status
         run: |
-          # Check if promote-or-build job succeeded
-          if [ "${{ needs.promote-or-build.result }}" == "success" ]; then
+          if [ "${{ needs.build-images.result }}" == "success" ]; then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "status_emoji=✅" >> $GITHUB_OUTPUT
             echo "status_text=All builds succeeded" >> $GITHUB_OUTPUT
@@ -579,16 +561,12 @@ jobs:
         if: inputs.pr_mode
         id: comment
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          PR_NUM=${{ github.event.pull_request.number }}
-
-          # Build comment body
           cat > comment.md <<'EOF'
           ${{ steps.status.outputs.status_emoji }} **Docker Build Report**
 
           **Status**: ${{ steps.status.outputs.status_text }}
           **PR**: #${{ github.event.pull_request.number }}
-          **Commit**: `${{ github.sha }}`
+          **Commit**: `${{ needs.parse-matrix.outputs.source_sha }}`
 
           EOF
 
@@ -616,7 +594,11 @@ jobs:
           VULNEOF
           fi
 
-          # Add workflow link
+          cat >> comment.md <<'NOTE'
+
+          Security scans are informational in this workflow.
+          NOTE
+
           cat >> comment.md <<'LINKEOF'
 
           ---
@@ -684,7 +666,7 @@ jobs:
   # Job 4: Create multi-arch manifests (release mode only)
   # Collects platform tags and creates permanent manifest lists
   create-manifests:
-    needs: [parse-matrix, promote-or-build]
+    needs: [parse-matrix, build-images]
     if: ${{ !inputs.pr_mode }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -693,6 +675,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.parse-matrix.outputs.checkout_ref }}
 
       - name: Normalize service name
         run: |
@@ -717,10 +701,7 @@ jobs:
               ;;
           esac
 
-          echo "Installing crane for Linux $CRANE_ARCH..."
-
-          # Get latest release
-          CRANE_VERSION=$(curl -s https://api.github.com/repos/google/go-containerregistry/releases/latest | jq -r .tag_name)
+          echo "Installing crane ${CRANE_VERSION} for Linux $CRANE_ARCH..."
 
           # Download and install
           curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${CRANE_ARCH}.tar.gz" | \
@@ -755,45 +736,35 @@ jobs:
           set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
           VERSION="${{ needs.parse-matrix.outputs.version }}"
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
 
-          # Extract unique tag suffixes from matrix
           TAG_SUFFIXES=$(echo '${{ needs.parse-matrix.outputs.matrix }}' | \
             jq -r '[.[] | .tag_suffix] | unique | .[]')
 
           echo "🔨 Creating multi-arch manifests:"
           echo ""
 
-          # Create manifests-created.txt for tracking
           touch manifests-created.txt
 
-          # Track success/failure
-          MANIFEST_SUCCESS=true
-
-          # For each unique tag suffix, create a multi-arch manifest
           echo "$TAG_SUFFIXES" | while read TAG_SUFFIX; do
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Tag Suffix: $TAG_SUFFIX"
             echo ""
 
-            # Determine manifest tag
-            # Format: <version>-<suffix> or <suffix>
             if [ -n "$VERSION" ]; then
-              MANIFEST_TAG="${VERSION}-${TAG_SUFFIX}"
+              MANIFEST_TAG="$VERSION"
+              if [ -n "$TAG_SUFFIX" ]; then
+                MANIFEST_TAG="${VERSION}-${TAG_SUFFIX}"
+              fi
             else
               MANIFEST_TAG="${TAG_SUFFIX}"
             fi
 
             echo "Target manifest tag: $MANIFEST_TAG"
 
-            # Collect ALL platform images with this manifest tag (across all architectures)
-            # Platform tags have format: <version>-<suffix>-<arch>-<sha> or <suffix>-<arch>-<sha>
-            # So they start with the manifest tag followed by a dash
             PLATFORM_IMAGES=()
             for tag_file in platform-tags/platform-tag-*.txt; do
               if [ -f "$tag_file" ]; then
                 PLATFORM_TAG=$(cat "$tag_file")
-                # Check if platform tag starts with manifest tag + dash
                 if [[ "$PLATFORM_TAG" == "${MANIFEST_TAG}-"* ]]; then
                   FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${PLATFORM_TAG}"
                   PLATFORM_IMAGES+=("$FULL_IMAGE")
@@ -879,7 +850,7 @@ jobs:
           cd main-branch
 
           VERSION="${{ needs.parse-matrix.outputs.version }}"
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          SHORT_SHA="${{ needs.parse-matrix.outputs.source_short_sha }}"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           MANIFESTS=$(cat ../manifests-created.txt | jq -R -s 'split("\n") | map(select(length > 0))')
 
@@ -894,7 +865,7 @@ jobs:
           RELEASES=$(echo "$RELEASES" | jq \
             --arg service "$SERVICE_NAME" \
             --arg version "$VERSION" \
-            --arg sha "${{ github.sha }}" \
+            --arg sha "${{ needs.parse-matrix.outputs.source_sha }}" \
             --arg short_sha "$SHORT_SHA" \
             --arg timestamp "$TIMESTAMP" \
             --argjson manifests "$MANIFESTS" \
@@ -933,7 +904,7 @@ jobs:
             echo "No changes to commit"
           else
             VERSION="${{ needs.parse-matrix.outputs.version }}"
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            SHORT_SHA="${{ needs.parse-matrix.outputs.source_short_sha }}"
 
             if [ -n "$VERSION" ]; then
               COMMIT_MSG="Release: $SERVICE_NAME $VERSION @ $SHORT_SHA"
@@ -962,7 +933,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           VERSION="${{ needs.parse-matrix.outputs.version }}"
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          SHORT_SHA="${{ needs.parse-matrix.outputs.source_short_sha }}"
           MANIFESTS=$(cat manifests-created.txt | tr '\n' ', ' | sed 's/,$//')
 
           # Mask secrets in logs (GitHub Actions security best practice)
@@ -994,7 +965,7 @@ jobs:
 
           *Service:* \`$SERVICE_NAME\`
           $VERSION_LINE
-          *Commit:* [\`$SHORT_SHA\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          *Commit:* [\`$SHORT_SHA\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ needs.parse-matrix.outputs.source_sha }})
 
           *Manifests Created:*
           \`$MANIFESTS\`
@@ -1057,11 +1028,10 @@ jobs:
           if [ -n "$VERSION" ]; then
             echo "Version: $VERSION"
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            echo "Version: $SHORT_SHA (SHA-based)"
+            echo "Version: ${{ needs.parse-matrix.outputs.source_short_sha }} (SHA-based)"
           fi
 
-          echo "Commit: ${{ github.sha }}"
+          echo "Commit: ${{ needs.parse-matrix.outputs.source_sha }}"
           echo ""
           echo "Created manifests:"
           cat manifests-created.txt | sed 's/^/  - /'
@@ -1074,8 +1044,6 @@ jobs:
           done
 
 # Workflow outputs:
-# - PR mode: Platform-specific images tagged pr-{number}-{version}-{suffix}-{arch}-{sha}
-#            (version omitted for SHA-based services)
-#            Images are built and tested but NOT pushed to registry
-# - Release mode: Rebuilds from release branch, creates multi-arch manifests
-#                 tagged {version}-{suffix} or {suffix} (SHA-based)
+# - PR mode: Local-only image tags used for build, test, and scan validation
+# - Release mode: Rebuilds from the release branch, publishes platform tags,
+#                 and creates multi-arch manifests tagged {version}[-suffix] or {suffix}

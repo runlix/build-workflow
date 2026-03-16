@@ -1,6 +1,6 @@
 # Build Workflow
 
-Reusable GitHub Actions workflows for building multi-architecture Docker images with automated PR validation and release promotion.
+Reusable GitHub Actions workflows for building multi-architecture Docker images with automated PR validation and post-merge publishing.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ See [Usage Guide](./docs/usage.md) for complete setup instructions.
 
 - **Multi-architecture builds**: Automatic AMD64 and ARM64 support
 - **PR validation**: Build and test on every PR (no registry push)
-- **Reliable releases**: Always rebuild from release branch for correctness
+- **Post-merge publishing**: Always rebuild from the release branch before pushing
 - **Declarative configuration**: Single JSON file defines all variants
 - **Automatic tagging**: Semantic versioning with variant suffixes
 - **Test integration**: Run custom test scripts on built images
@@ -69,16 +69,11 @@ See [Usage Guide](./docs/usage.md) for complete setup instructions.
 │   (no registry push)        │
 └──────────┬──────────────────┘
            │
-           │ ✅ Approved
+           │ ✅ Merged
            ▼
 ┌─────────────────────────────┐
-│   Merge to main             │
-│   (merge commit required)   │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│   Merge main → release      │
+│   Push to release branch    │
+│   (publish trigger)         │
 └──────────┬──────────────────┘
            │
            ▼
@@ -130,7 +125,7 @@ Declarative configuration file at `.ci/docker-matrix.json`:
 **Key features:**
 - Schema validation with clear error messages
 - Auto-injection of `BASE_IMAGE`, `BASE_TAG`, `BASE_DIGEST`
-- Automatic `tag_suffix` appending to base image tag
+- Automatic `tag_suffix` appending to base image tag when non-empty
 - Multiple variants with independent configurations
 - Per-platform Dockerfiles for architecture-specific optimizations
 
@@ -169,7 +164,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  actions: read
 
 jobs:
   validate:
@@ -189,11 +183,10 @@ on:
 permissions:
   contents: write
   packages: write
-  actions: read
 
 concurrency:
   group: release-${{ github.repository }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -215,13 +208,17 @@ This provides:
 - Lower costs (reduced storage and bandwidth)
 
 ### Release Mode
-**Platform tags** (temporary): `{version}{tag_suffix}-{arch}-{sha}`
+`tag_suffix` values do not include a leading dash. Use `""` for the default versioned service tag, or explicit suffixes such as `stable` and `debug`.
+
+**Platform tags** (temporary): `{manifest_tag}-{arch}-{sha}`
 - `v5.2.1-amd64-abc1234`
 - `v5.2.1-debug-amd64-abc1234`
+- `stable-amd64-abc1234`
 
-**Multi-arch manifests** (permanent): `{version}{tag_suffix}`
+**Multi-arch manifests** (permanent): `{version}[-tag_suffix]` or `{tag_suffix}`
 - `v5.2.1` (variant with empty tag_suffix)
-- `v5.2.1-debug` (variant with "-debug" tag_suffix)
+- `v5.2.1-debug` (variant with `debug` tag_suffix)
+- `stable` (versionless base image variant)
 
 ## Documentation
 
@@ -288,7 +285,6 @@ See [Branch Protection Guide](./docs/branch-protection.md) for complete setup.
 permissions:
   contents: read        # Checkout code
   pull-requests: write  # Comment on PRs
-  actions: read         # Read artifacts
 ```
 
 **Release** needs:
@@ -296,13 +292,12 @@ permissions:
 permissions:
   contents: write       # Update releases.json
   packages: write       # Push/delete images
-  actions: read         # Read artifacts
 ```
 
 ### Branch Structure
 
-- `main` - Development branch (receives PRs)
-- `release` - Release branch (triggers releases)
+- `release` - Build and publish branch (merged PRs trigger releases)
+- `main` - Metadata or default branch, if your repository uses a split-branch model
 
 ## Contributing
 

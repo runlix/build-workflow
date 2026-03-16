@@ -24,7 +24,7 @@
     },
     {
       "name": "radarr-debug",
-      "tag_suffix": "-debug",
+      "tag_suffix": "debug",
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
         "linux/arm64": "Dockerfile.arm64"
