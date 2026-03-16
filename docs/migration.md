@@ -143,7 +143,6 @@ Create `.ci/docker-matrix.json`:
     {
       "name": "YOURSERVICE-latest",
       "tag_suffix": "",
-      "default": true,
       "platforms": ["linux/amd64", "linux/arm64"],
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
@@ -473,13 +472,11 @@ FROM busybox AS builder
     {
       "name": "service-latest",
       "tag_suffix": "",
-      "default": true,
       ...
     },
     {
       "name": "service-debug",
-      "tag_suffix": "-debug",
-      "default": false,
+      "tag_suffix": "debug",
       ...
     }
   ]

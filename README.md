@@ -46,7 +46,7 @@ See [Usage Guide](./docs/usage.md) for complete setup instructions.
 - Build from wrapped base images
 - Multiple variants (standard, debug)
 
-**Base Image Repositories** (e.g., distroless):
+**Base Image Repositories** (e.g., distroless-runtime):
 - Use SHA-based versioning (`abc1234`)
 - Wrap upstream images
 - Foundation for service images
@@ -106,7 +106,6 @@ Declarative configuration file at `.ci/docker-matrix.json`:
     {
       "name": "radarr-latest",
       "tag_suffix": "",
-      "default": true,
       "platforms": ["linux/amd64", "linux/arm64"],
       "dockerfiles": {
         "linux/amd64": "Dockerfile.amd64",
@@ -172,6 +171,8 @@ jobs:
       pr_mode: true
     secrets: inherit
 ```
+
+`@main` is used in these examples because this repository does not currently publish git tags. If you need an immutable dependency, pin the reusable workflow to a specific commit SHA instead.
 
 **Release** (`.github/workflows/release.yml`):
 ```yaml
@@ -310,14 +311,19 @@ permissions:
 3. Update examples: `examples/`
 4. Update docs: `docs/`
 5. Test with fixtures: `test-fixtures/`
-6. Run validation: `gh workflow run test-workflow.yml`
+6. Run validation helpers:
+   - `bash commands/inspect-workflow-surface.sh`
+   - `bash commands/validate-schema.sh`
+   - `gh workflow run test-workflow.yml`
 
 ### Testing
 
 ```bash
-# Validate schema changes
-npm install -g ajv-cli ajv-formats
-ajv validate -s schema/docker-matrix-schema.json -d test-fixtures/*/docker-matrix.json
+# Inspect the reusable workflow surface
+bash commands/inspect-workflow-surface.sh
+
+# Validate schema, examples, and fixtures
+bash commands/validate-schema.sh
 
 # Test workflow locally (requires act or GitHub-hosted runner)
 gh workflow run test-workflow.yml --ref your-branch
@@ -326,8 +332,9 @@ gh workflow run test-workflow.yml --ref your-branch
 ## Support
 
 - **Issues**: https://github.com/runlix/build-workflow/issues
-- **Discussions**: https://github.com/runlix/build-workflow/discussions
+- **Pull Requests**: https://github.com/runlix/build-workflow/pulls
 - **Documentation**: https://github.com/runlix/build-workflow/tree/main/docs
+- **Security**: https://github.com/runlix/build-workflow/blob/main/SECURITY.md
 
 ## License
 
@@ -335,6 +342,6 @@ MIT License - see [LICENSE](./LICENSE) file for details.
 
 ## Related Projects
 
-- [runlix/distroless](https://github.com/runlix/distroless) - Base images
+- [runlix/distroless-runtime](https://github.com/runlix/distroless-runtime) - Base image repository
 - [runlix/radarr](https://github.com/runlix/radarr) - Example service using this workflow
 - [runlix/sonarr](https://github.com/runlix/sonarr) - Example service using this workflow
