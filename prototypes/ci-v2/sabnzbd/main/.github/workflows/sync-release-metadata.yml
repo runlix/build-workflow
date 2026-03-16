@@ -1,0 +1,63 @@
+name: Sync Release Metadata
+
+on:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  sync:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+
+      - name: Checkout build workflow tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: runlix/build-workflow
+          ref: main
+          path: .tooling
+
+      - name: Download release metadata artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts
+          gh run download "${{ github.event.workflow_run.id }}" \
+            --repo "${{ github.repository }}" \
+            --name release-metadata \
+            --dir artifacts
+          jq empty artifacts/release-metadata.json > /dev/null
+
+      - name: Write releases.json
+        run: |
+          .tooling/prototypes/ci-v2/scripts/write-releases-json.sh \
+            artifacts/release-metadata.json \
+            releases.json
+
+      - name: Commit metadata update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases.json
+
+          if git diff --staged --quiet; then
+            echo "No metadata changes to commit"
+            exit 0
+          fi
+
+          version="$(jq -r '.version' releases.json)"
+          short_sha="$(jq -r '.short_sha' releases.json)"
+
+          git commit -m "Release: sabnzbd ${version} @ ${short_sha}"
+          git push
