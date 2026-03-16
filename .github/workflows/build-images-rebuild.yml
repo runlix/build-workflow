@@ -429,7 +429,6 @@ jobs:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
-          exponential_backoff: true  # Exponential backoff: 30s, 60s, 120s
           command: docker push ${{ env.IMAGE_TAG }}
 
       - name: Save platform tag for manifest creation
@@ -464,13 +463,14 @@ jobs:
                     `[View logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
             })
 
-      - name: Upload failure artifacts
-        if: failure()
+      - name: Upload scan artifacts
+        if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: failure-${{ matrix.variant_name }}-${{ matrix.arch }}
+          name: trivy-results-${{ matrix.variant_name }}-${{ matrix.arch }}
           path: |
             trivy-results-${{ matrix.variant_name }}-${{ matrix.arch }}.sarif
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Capture image digest
@@ -508,6 +508,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts/
+          merge-multiple: true
 
       - name: List downloaded artifacts
         run: |
@@ -535,7 +536,7 @@ jobs:
             VULN_COUNT=$(find artifacts/ -name "trivy-results-*.sarif" 2>/dev/null | wc -l)
 
             # Parse each SARIF file for CVE counts by severity
-            for sarif in artifacts/failure-*/trivy-results-*.sarif; do
+            for sarif in artifacts/trivy-results-*.sarif; do
               if [ -f "$sarif" ]; then
                 # Count by severity level
                 # SARIF format: .runs[].results[] with .level property
@@ -666,31 +667,11 @@ jobs:
               console.log('Created new PR comment');
             }
 
-      - name: Release mode summary
-        if: ${{ !inputs.pr_mode }}
-        run: |
-          echo "🚀 Release Summary"
-          echo "=================="
-          echo ""
-          echo "Service: $SERVICE_NAME"
-
-          VERSION="${{ needs.parse-matrix.outputs.version }}"
-          if [ -n "$VERSION" ]; then
-            echo "Version: $VERSION"
-          else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            echo "Version: $SHORT_SHA (SHA-based)"
-          fi
-
-          echo "Commit: ${{ github.sha }}"
-          echo ""
-          echo "Platform images will be collected by create-manifests job"
-          echo "Manifests will be created after all platforms complete"
-
       - name: Summary output
         run: |
           echo "📊 Build Summary"
           echo "================"
+          echo "Service: $SERVICE_NAME"
           echo "Status: ${{ steps.status.outputs.status_text }}"
           echo "Vulnerability Scans: ${{ steps.vulns.outputs.vuln_file_count }}"
           echo ""
