@@ -210,6 +210,8 @@ This provides:
 ### Release Mode
 `tag_suffix` values do not include a leading dash. Use `""` for the default versioned service tag, or explicit suffixes such as `stable` and `debug`.
 
+Release mode reruns the rebuild and publish path, then verifies the published manifest tags. Full app tests and Trivy remain in PR mode by default.
+
 **Platform tags** (temporary): `{manifest_tag}-{arch}-{sha}`
 - `v5.2.1-amd64-abc1234`
 - `v5.2.1-debug-amd64-abc1234`

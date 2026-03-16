@@ -401,7 +401,7 @@ jobs:
           echo "✅ Built: $IMAGE_TAG"
 
       - name: Run tests
-        if: matrix.test_script != ''
+        if: inputs.pr_mode && matrix.test_script != ''
         timeout-minutes: 10
         run: |
           echo "Running test script: ${{ matrix.test_script }}"
@@ -412,6 +412,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
 
       - name: Scan for vulnerabilities
+        if: inputs.pr_mode
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0+
         continue-on-error: true
         with:
@@ -453,7 +454,7 @@ jobs:
           retention-days: 1
 
       - name: Upload scan artifacts
-        if: always()
+        if: inputs.pr_mode && always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: trivy-results-${{ matrix.variant_name }}-${{ matrix.arch }}
@@ -467,12 +468,11 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
-  # Job 3: Collect results and create summary
-  # Posts PR comments, generates manifest artifacts
+  # Job 3: Collect results and create a PR summary.
   summary:
     needs: [parse-matrix, build-images]
     runs-on: ubuntu-latest
-    if: always()  # Run even if builds fail to report results
+    if: ${{ always() && inputs.pr_mode }}
     env:
       SERVICE_NAME: ${{ github.event.repository.name }}
     steps:
@@ -793,6 +793,44 @@ jobs:
 
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ All manifests created successfully"
+
+      - name: Verify published manifests
+        run: |
+          set -euo pipefail
+
+          echo "🔎 Verifying published manifest tags..."
+
+          while read -r MANIFEST_TAG; do
+            [ -n "$MANIFEST_TAG" ] || continue
+
+            FULL_IMAGE="${REGISTRY}/${REGISTRY_ORG}/${SERVICE_NAME}:${MANIFEST_TAG}"
+            echo "Checking: $FULL_IMAGE"
+
+            DIGEST=$(crane digest "$FULL_IMAGE")
+            echo "  Digest: $DIGEST"
+
+            MANIFEST_JSON=$(crane manifest "$FULL_IMAGE")
+            EXPECTED_ARCHES=$(for tag_file in platform-tags/platform-tag-*.txt; do
+              [ -f "$tag_file" ] || continue
+              PLATFORM_TAG=$(cat "$tag_file")
+              if [[ "$PLATFORM_TAG" == "${MANIFEST_TAG}-"* ]]; then
+                echo "$PLATFORM_TAG" | rev | cut -d- -f2 | rev
+              fi
+            done | sort -u)
+
+            if [ -z "$EXPECTED_ARCHES" ]; then
+              echo "❌ No expected architectures discovered for $MANIFEST_TAG"
+              exit 1
+            fi
+
+            for arch in $EXPECTED_ARCHES; do
+              if ! echo "$MANIFEST_JSON" | jq -e --arg arch "$arch" 'any(.manifests[]?; .platform.architecture == $arch)' > /dev/null; then
+                echo "❌ Missing architecture '$arch' in manifest $MANIFEST_TAG"
+                exit 1
+              fi
+              echo "  ✅ Found architecture: $arch"
+            done
+          done < manifests-created.txt
 
       - name: Cleanup platform tags
         continue-on-error: true
