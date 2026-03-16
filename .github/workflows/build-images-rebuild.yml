@@ -93,7 +93,7 @@ jobs:
           ref: ${{ inputs.pr_mode && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup Node.js for schema validation
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: '20'
 
@@ -408,7 +408,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
 
       - name: Scan for vulnerabilities
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1+
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0+
         continue-on-error: true
         with:
           image-ref: ${{ env.IMAGE_TAG }}
