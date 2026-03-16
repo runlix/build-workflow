@@ -3,6 +3,58 @@
   "extends": [
     "config:recommended"
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update distroless upstream image references in base-image matrices",
+      "managerFilePatterns": [
+        "/^examples\\/base-image-matrix\\.json$/",
+        "/^test-fixtures\\/base-image\\/docker-matrix\\.json$/"
+      ],
+      "matchStrings": [
+        "\"UPSTREAM_IMAGE\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update base image references in service matrices",
+      "managerFilePatterns": [
+        "/^examples\\/service-matrix\\.json$/",
+        "/^test-fixtures\\/service\\/docker-matrix\\.json$/"
+      ],
+      "matchStrings": [
+        "\"base_image\"\\s*:\\s*\\{[\\s\\S]*?\"image\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"tag\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"digest\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update distroless upstream image references in test workflow",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
+      ],
+      "matchStrings": [
+        "--build-arg\\s+UPSTREAM_IMAGE=(?<depName>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update service base image references in test workflow",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
+      ],
+      "matchStrings": [
+        "--build-arg\\s+BASE_IMAGE=(?<depName>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+BASE_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+BASE_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
@@ -11,6 +63,22 @@
       "automerge": false,
       "schedule": ["before 4am on Monday"],
       "commitMessageTopic": "{{depName}} GitHub Action"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["gcr.io/distroless/base-debian12"],
+      "groupName": "Distroless Upstream Docker Images",
+      "automerge": false,
+      "schedule": ["before 4am on Monday"]
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/runlix/distroless"],
+      "groupName": "Runlix Base Docker Images",
+      "automerge": false,
+      "schedule": ["before 4am on Monday"]
     }
   ]
 }
