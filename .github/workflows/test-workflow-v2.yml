@@ -1,0 +1,136 @@
+name: Test CI v2 Workflows
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/plan-v2-internal.yml'
+      - '.github/workflows/pr-validation-v2.yml'
+      - '.github/workflows/release-v2.yml'
+      - '.github/workflows/sync-release-metadata-v2.yml'
+      - '.github/workflows/test-workflow-v2.yml'
+      - 'docs/ci-v2.md'
+      - 'examples/ci-v2/**'
+      - 'schema/ci-config-v2.schema.json'
+      - 'test-fixtures/v2/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/plan-v2-internal.yml'
+      - '.github/workflows/pr-validation-v2.yml'
+      - '.github/workflows/release-v2.yml'
+      - '.github/workflows/sync-release-metadata-v2.yml'
+      - '.github/workflows/test-workflow-v2.yml'
+      - 'docs/ci-v2.md'
+      - 'examples/ci-v2/**'
+      - 'schema/ci-config-v2.schema.json'
+      - 'test-fixtures/v2/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-v2-contracts:
+    name: validate-v2-contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        shell: bash
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate CI v2 schema structure
+        shell: bash
+        run: ajv compile -s schema/ci-config-v2.schema.json --spec=draft2020 --strict=false
+
+      - name: Validate CI v2 examples and fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for file in \
+            examples/ci-v2/base-image-config.json \
+            examples/ci-v2/service-config.json \
+            test-fixtures/v2/base-image/.ci/config.json \
+            test-fixtures/v2/service/.ci/config.json
+          do
+            echo "Validating $file"
+            ajv validate -s schema/ci-config-v2.schema.json -d "$file" --spec=draft2020 --strict=false
+          done
+
+      - name: Validate release metadata transform contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq empty test-fixtures/v2/release-metadata/release-metadata.json > /dev/null
+          jq empty test-fixtures/v2/release-metadata/releases.expected.json > /dev/null
+
+          jq '{
+            version,
+            sha,
+            short_sha,
+            published_at,
+            tags
+          }' test-fixtures/v2/release-metadata/release-metadata.json > /tmp/releases.actual.json
+
+          diff -u \
+            test-fixtures/v2/release-metadata/releases.expected.json \
+            /tmp/releases.actual.json
+
+  test-v2-base-image:
+    name: test-v2-base-image
+    needs: validate-v2-contracts
+    uses: ./.github/workflows/pr-validation-v2.yml
+    with:
+      config-path: test-fixtures/v2/base-image/.ci/config.json
+      context-dir: test-fixtures/v2/base-image
+
+  test-v2-service:
+    name: test-v2-service
+    needs: validate-v2-contracts
+    uses: ./.github/workflows/pr-validation-v2.yml
+    with:
+      config-path: test-fixtures/v2/service/.ci/config.json
+      context-dir: test-fixtures/v2/service
+
+  test-summary:
+    name: test-summary
+    needs:
+      - validate-v2-contracts
+      - test-v2-base-image
+      - test-v2-service
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Summarize CI v2 workflow tests
+        shell: bash
+        env:
+          VALIDATE_RESULT: ${{ needs.validate-v2-contracts.result }}
+          BASE_IMAGE_RESULT: ${{ needs.test-v2-base-image.result }}
+          SERVICE_RESULT: ${{ needs.test-v2-service.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## CI v2 Workflow Test Summary"
+            echo ""
+            echo "- Contract validation: \`$VALIDATE_RESULT\`"
+            echo "- Base-image fixture PR validation: \`$BASE_IMAGE_RESULT\`"
+            echo "- Service fixture PR validation: \`$SERVICE_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for result in "$VALIDATE_RESULT" "$BASE_IMAGE_RESULT" "$SERVICE_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "CI v2 workflow tests failed" >&2
+              exit 1
+            fi
+          done

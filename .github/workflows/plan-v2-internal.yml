@@ -1,0 +1,205 @@
+name: CI v2 Internal Plan
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        description: Path to the CI v2 config file in the caller repository.
+        required: false
+        default: .ci/config.json
+        type: string
+    outputs:
+      matrix:
+        description: Expanded build matrix for enabled targets.
+        value: ${{ jobs.plan.outputs.matrix }}
+      short_sha:
+        description: Short source SHA for tag rendering.
+        value: ${{ jobs.plan.outputs.short_sha }}
+      source_sha:
+        description: Full source SHA of the triggering revision.
+        value: ${{ jobs.plan.outputs.source_sha }}
+      published_at:
+        description: Publish timestamp used for release metadata.
+        value: ${{ jobs.plan.outputs.published_at }}
+      image_name:
+        description: Canonical image name from the CI config.
+        value: ${{ jobs.plan.outputs.image_name }}
+      version:
+        description: Optional version from the CI config.
+        value: ${{ jobs.plan.outputs.version }}
+      manifest_tags:
+        description: Comma-separated final manifest tags for enabled targets.
+        value: ${{ jobs.plan.outputs.manifest_tags }}
+      enabled_target_count:
+        description: Number of enabled targets in the CI config.
+        value: ${{ jobs.plan.outputs.enabled_target_count }}
+
+jobs:
+  plan:
+    name: plan
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      short_sha: ${{ steps.context.outputs.short_sha }}
+      source_sha: ${{ steps.context.outputs.source_sha }}
+      published_at: ${{ steps.context.outputs.published_at }}
+      image_name: ${{ steps.validate.outputs.image_name }}
+      version: ${{ steps.validate.outputs.version }}
+      manifest_tags: ${{ steps.validate.outputs.manifest_tags }}
+      enabled_target_count: ${{ steps.validate.outputs.enabled_target_count }}
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Resolve source context
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          published_at="${{ github.event.head_commit.timestamp }}"
+          if [ -z "$published_at" ] || [ "$published_at" = "null" ]; then
+            published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          fi
+
+          {
+            echo "source_sha=${GITHUB_SHA}"
+            echo "short_sha=${GITHUB_SHA::7}"
+            echo "published_at=$published_at"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate CI config
+        id: validate
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "$CONFIG_PATH" ]; then
+            echo "Config file not found: $CONFIG_PATH" >&2
+            exit 1
+          fi
+
+          jq empty "$CONFIG_PATH" > /dev/null
+
+          jq -e '
+            (.image | type == "string" and length > 0) and
+            ((has("version") | not) or (.version | type == "string" and length > 0)) and
+            (.targets | type == "array" and length > 0) and
+            all(.targets[];
+              (.name | type == "string" and test("^[a-z0-9-]+$")) and
+              (.tag | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+              (.arch == "amd64" or .arch == "arm64") and
+              (.dockerfile | type == "string" and length > 0) and
+              (.base_ref | type == "string" and test("^.+:.+@sha256:[a-f0-9]{64}$")) and
+              ((.test // "") | type == "string") and
+              ((.enabled // true) | type == "boolean") and
+              ((.build_args // {}) | type == "object") and
+              all((.build_args // {}) | to_entries[]?;
+                (.key | test("^[A-Z_][A-Z0-9_]*$")) and
+                (.value | type == "string")
+              )
+            )
+          ' "$CONFIG_PATH" > /dev/null
+
+          duplicate_names="$(jq -r '.targets[].name' "$CONFIG_PATH" | sort | uniq -d)"
+          if [ -n "$duplicate_names" ]; then
+            echo "Duplicate target names detected:" >&2
+            echo "$duplicate_names" >&2
+            exit 1
+          fi
+
+          duplicate_tag_arch_pairs="$(
+            jq -r '.targets[] | select(.enabled // true) | [.tag, .arch] | @tsv' "$CONFIG_PATH" |
+              sort |
+              uniq -d
+          )"
+          if [ -n "$duplicate_tag_arch_pairs" ]; then
+            echo "Duplicate enabled tag/arch pairs detected:" >&2
+            echo "$duplicate_tag_arch_pairs" >&2
+            exit 1
+          fi
+
+          while IFS=$'\t' read -r target_name dockerfile test_script; do
+            if [ ! -f "$dockerfile" ]; then
+              echo "Target '$target_name' references a missing Dockerfile: $dockerfile" >&2
+              exit 1
+            fi
+
+            if [ -n "$test_script" ] && [ ! -f "$test_script" ]; then
+              echo "Target '$target_name' references a missing test script: $test_script" >&2
+              exit 1
+            fi
+          done < <(
+            jq -r '.targets[] | select(.enabled // true) | [.name, .dockerfile, (.test // "")] | @tsv' "$CONFIG_PATH"
+          )
+
+          enabled_count="$(jq '[.targets[] | select(.enabled // true)] | length' "$CONFIG_PATH")"
+          if [ "$enabled_count" -eq 0 ]; then
+            echo "At least one target must be enabled" >&2
+            exit 1
+          fi
+
+          manifest_tags="$(jq -r '[.targets[] | select(.enabled // true) | .tag] | unique | join(", ")' "$CONFIG_PATH")"
+          image_name="$(jq -r '.image' "$CONFIG_PATH")"
+          version_text="$(jq -r '.version // ""' "$CONFIG_PATH")"
+
+          {
+            echo "image_name=$image_name"
+            echo "version=$version_text"
+            echo "manifest_tags=$manifest_tags"
+            echo "enabled_target_count=$enabled_count"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Validated $enabled_count enabled target(s) for $image_name"
+          if [ -n "$version_text" ]; then
+            echo "Version: $version_text"
+          else
+            echo "Version: <omitted>"
+          fi
+          echo "Manifest tags: $manifest_tags"
+
+      - name: Plan build matrix
+        id: plan
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SHORT_SHA: ${{ steps.context.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          matrix="$(
+            jq -c --arg short_sha "$SHORT_SHA" '
+              . as $root
+              | [
+                  .targets[]
+                  | select(.enabled // true)
+                  | {
+                      name,
+                      image: $root.image,
+                      version: ($root.version // ""),
+                      tag,
+                      arch,
+                      platform: ("linux/" + .arch),
+                      runner: (
+                        if .arch == "arm64" then
+                          "ubuntu-24.04-arm"
+                        else
+                          "ubuntu-24.04"
+                        end
+                      ),
+                      dockerfile,
+                      base_ref,
+                      test: (.test // ""),
+                      build_args: (.build_args // {}),
+                      pr_local_tag: ("pr-" + $short_sha + "-" + .name),
+                      release_temp_tag: (.tag + "-" + .arch + "-" + $short_sha)
+                    }
+                ]
+            ' "$CONFIG_PATH"
+          )"
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
