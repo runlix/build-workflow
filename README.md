@@ -29,6 +29,8 @@ Starter files:
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
 
+`v2` is intentionally scoped to publishing `ghcr.io/runlix/...` images.
+
 The canonical `v2` guide is [docs/ci-v2.md](./docs/ci-v2.md).
 
 ## `v2` Interface
@@ -67,7 +69,7 @@ Release:
 3. builds and tests each enabled target
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
-6. uploads `release-metadata.json`
+6. uploads `release-metadata.json` as artifact `release-metadata`
 
 Metadata sync:
 

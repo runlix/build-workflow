@@ -13,6 +13,8 @@
 
 Service repositories should use thin wrapper workflows pinned to a merged full commit SHA.
 
+`v2` is intentionally scoped to publishing `ghcr.io/runlix/...` images.
+
 For PR validation wrappers, name the caller job `validate` so the aggregate check appears as `validate / summary`.
 
 ## Config
@@ -36,6 +38,7 @@ Generic examples live in:
 
 - `examples/ci-v2/service-config.json`
 - `examples/ci-v2/base-image-config.json`
+- `image` must be `ghcr.io/runlix/<name>`
 
 ## Workflow behavior
 
@@ -44,6 +47,8 @@ Wrapper examples live in:
 - `examples/pr-validation.yml`
 - `examples/release.yml`
 - `examples/sync-release-metadata.yml`
+
+Wrapper path filters should treat `.ci/*.sh` as build inputs, not `.ci/README.md`.
 
 Config examples live in:
 
@@ -66,7 +71,7 @@ Release:
 4. runs the target test if configured
 5. pushes one temporary single-arch image per target
 6. creates final multi-arch manifests
-7. uploads `release-metadata.json`
+7. uploads `release-metadata.json` as artifact `release-metadata`
 
 Metadata sync:
 
@@ -86,6 +91,7 @@ Metadata sync:
 - no runtime downloads for core logic except artifact retrieval from the triggering run
 - metadata sync is standardized on `release`, `main`, and `release-metadata`
 - real service wrappers should rely on default inputs unless they have a documented reason not to
+- docs and examples should reference merged full SHAs only
 
 ## Testing
 
