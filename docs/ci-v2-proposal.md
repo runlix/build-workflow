@@ -180,7 +180,7 @@ Exported composite actions:
 - `.github/actions/ci-v2/render-release-metadata`
 - `.github/actions/ci-v2/write-releases-json`
 
-This keeps workflow YAML small enough to understand in one pass, while the implementation logic stays in shell scripts that can also run locally.
+Each exported action packages its own runtime entrypoint under the action directory so downstream use does not depend on upward relative path traversal. Prototype scripts remain available for local validation and inspection.
 
 ## What Gets Simpler
 
