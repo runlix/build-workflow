@@ -7,8 +7,8 @@ It is intentionally not wired into the current reusable workflow. The goal is to
 ## Layout
 
 - `schema/`: draft schema for `.ci/config.json`
-- `scripts/`: shared bash tooling used by the exported composite actions
-- `.github/actions/ci-v2/`: reusable composite actions that package the v2 tooling for downstream repositories
+- `scripts/`: local prototype tooling for repo-side validation and inspection
+- `.github/actions/ci-v2/`: reusable composite actions with self-contained runtime entrypoints for downstream repositories
 - `examples/`: generic config examples for versioned services and versionless base-image repos
 
 The files in `examples/` illustrate config shape only. They are not self-contained checkouts and are not intended to pass the repo-aware validator without matching Dockerfiles and test scripts.
