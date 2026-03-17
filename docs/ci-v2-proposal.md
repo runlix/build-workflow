@@ -179,6 +179,8 @@ Internal composite actions:
 
 Action-local runtime scripts remain packaged under each action directory. Prototype scripts remain available only as thin local wrappers for repo-side inspection.
 
+Because reusable workflows do not receive their own pinned `uses:` ref as a runtime value, callers must pass the same full build-workflow SHA as an explicit `tooling-ref` input. That SHA is then used for the reusable workflow's internal checkout of build-workflow before it calls the internal composite actions.
+
 ## What Gets Simpler
 
 Removed from the default critical path:

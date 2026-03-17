@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       tooling-ref:
-        description: Full build-workflow commit SHA that should be used for internal action checkout.
+        description: Full build-workflow commit SHA used for internal action checkout. Callers should keep this equal to the reusable workflow ref in uses:.
         required: true
         type: string
       config-path:
