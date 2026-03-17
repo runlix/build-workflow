@@ -13,6 +13,8 @@
 
 Service repositories should use thin wrapper workflows pinned to a full commit SHA.
 
+For PR validation wrappers, name the caller job `validate` so the aggregate check appears as `validate / summary`.
+
 ## Config
 
 `v2` uses one explicit config file: `.ci/config.json`.
@@ -43,6 +45,7 @@ PR validation:
 2. renders the build matrix
 3. builds each enabled target locally
 4. runs the target test if configured
+5. emits a final `summary` job that is the aggregate PR gate
 
 Release:
 
