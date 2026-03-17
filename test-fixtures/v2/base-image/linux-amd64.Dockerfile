@@ -5,6 +5,11 @@ ARG VARIANT
 
 FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
 
+ARG BASE_IMAGE
+ARG BASE_TAG
+ARG BASE_DIGEST
+ARG VARIANT
+
 COPY --chmod=0644 <<EOF /etc/build-info
 {
   "arch": "amd64",
