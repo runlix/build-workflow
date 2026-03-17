@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   plan:
+    name: plan
     permissions:
       contents: read
     runs-on: ubuntu-24.04
@@ -162,6 +163,7 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
+    name: build
     permissions:
       contents: read
     needs: plan
@@ -257,3 +259,73 @@ jobs:
           echo "Running test script: $TEST_SCRIPT"
           chmod +x "$TEST_SCRIPT"
           "$TEST_SCRIPT"
+
+  summary:
+    name: summary
+    permissions:
+      contents: read
+    needs:
+      - plan
+      - build
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Generate validation summary
+        shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+          MATRIX_JSON: ${{ needs.plan.outputs.matrix }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## PR Validation Summary"
+            echo ""
+            echo "- Repository: \`$REPOSITORY\`"
+            if [ -n "${SHORT_SHA:-}" ]; then
+              echo "- Commit: \`$SHORT_SHA\`"
+            fi
+            echo "- Plan result: \`$PLAN_RESULT\`"
+            echo "- Build result: \`$BUILD_RESULT\`"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$PLAN_RESULT" = "success" ] && [ -n "${MATRIX_JSON:-}" ]; then
+            image_name="$(jq -r '.[0].image' <<< "$MATRIX_JSON")"
+            target_count="$(jq 'length' <<< "$MATRIX_JSON")"
+            manifest_tags="$(jq -r '[.[].tag] | unique | join(", ")' <<< "$MATRIX_JSON")"
+
+            {
+              echo "### Build Plan"
+              echo ""
+              echo "- Image: \`$image_name\`"
+              echo "- Enabled targets: \`$target_count\`"
+              echo "- Manifest tags: \`$manifest_tags\`"
+              echo ""
+              echo "| Target | Arch | Tag | Dockerfile | Test |"
+              echo "| --- | --- | --- | --- | --- |"
+              jq -r '
+                .[]
+                | "| \(.name) | \(.arch) | \(.tag) | \(.dockerfile) | "
+                  + (if (.test // "") == "" then "no" else "yes" end)
+                  + " |"
+              ' <<< "$MATRIX_JSON"
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "[View workflow run]($RUN_URL)" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "Validation or matrix planning failed." >&2
+            exit 1
+          fi
+
+          if [ "$BUILD_RESULT" != "success" ]; then
+            echo "One or more target builds or tests failed." >&2
+            exit 1
+          fi
