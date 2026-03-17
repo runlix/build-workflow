@@ -3,10 +3,6 @@ name: CI v2 PR Validation
 on:
   workflow_call:
     inputs:
-      tooling-ref:
-        description: Full build-workflow commit SHA used for internal action checkout. Callers should keep this equal to the reusable workflow ref in uses:.
-        required: true
-        type: string
       config-path:
         description: Path to the CI v2 config file in the caller repository.
         required: false
@@ -17,19 +13,6 @@ on:
         required: false
         default: .
         type: string
-      validate-legacy-matrix:
-        description: Whether to parse the legacy docker-matrix.json during rollout.
-        required: false
-        default: false
-        type: boolean
-      legacy-matrix-path:
-        description: Path to the legacy docker-matrix.json file in the caller repository.
-        required: false
-        default: ""
-        type: string
-
-permissions:
-  contents: read
 
 concurrency:
   group: pr-validation-${{ github.repository }}-${{ github.ref }}
@@ -37,6 +20,8 @@ concurrency:
 
 jobs:
   plan:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -45,35 +30,140 @@ jobs:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Checkout build workflow internals
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: runlix/build-workflow
-          ref: ${{ inputs.tooling-ref }}
-          path: .build-workflow
-          persist-credentials: false
-
       - name: Resolve source context
         id: context
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Validate CI config
-        uses: ./.build-workflow/.github/actions/ci-v2/validate-config
-        with:
-          config-path: ${{ inputs.config-path }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          set -euo pipefail
 
-      - name: Validate legacy matrix JSON
-        if: ${{ inputs.validate-legacy-matrix && inputs.legacy-matrix-path != '' }}
-        run: jq empty "${{ inputs.legacy-matrix-path }}" > /dev/null
+          if [ ! -f "$CONFIG_PATH" ]; then
+            echo "Config file not found: $CONFIG_PATH" >&2
+            exit 1
+          fi
+
+          jq empty "$CONFIG_PATH" > /dev/null
+
+          jq -e '
+            (.image | type == "string" and length > 0) and
+            ((has("version") | not) or (.version | type == "string" and length > 0)) and
+            (.targets | type == "array" and length > 0) and
+            all(.targets[];
+              (.name | type == "string" and test("^[a-z0-9-]+$")) and
+              (.tag | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+              (.arch == "amd64" or .arch == "arm64") and
+              (.dockerfile | type == "string" and length > 0) and
+              (.base_ref | type == "string" and test("^.+:.+@sha256:[a-f0-9]{64}$")) and
+              ((.test // "") | type == "string") and
+              ((.enabled // true) | type == "boolean") and
+              ((.build_args // {}) | type == "object") and
+              all((.build_args // {}) | to_entries[]?;
+                (.key | test("^[A-Z_][A-Z0-9_]*$")) and
+                (.value | type == "string")
+              )
+            )
+          ' "$CONFIG_PATH" > /dev/null
+
+          duplicate_names="$(jq -r '.targets[].name' "$CONFIG_PATH" | sort | uniq -d)"
+          if [ -n "$duplicate_names" ]; then
+            echo "Duplicate target names detected:" >&2
+            echo "$duplicate_names" >&2
+            exit 1
+          fi
+
+          duplicate_tag_arch_pairs="$(
+            jq -r '.targets[] | select(.enabled // true) | [.tag, .arch] | @tsv' "$CONFIG_PATH" |
+              sort |
+              uniq -d
+          )"
+          if [ -n "$duplicate_tag_arch_pairs" ]; then
+            echo "Duplicate enabled tag/arch pairs detected:" >&2
+            echo "$duplicate_tag_arch_pairs" >&2
+            exit 1
+          fi
+
+          while IFS=$'\t' read -r target_name dockerfile test_script; do
+            if [ ! -f "$dockerfile" ]; then
+              echo "Target '$target_name' references a missing Dockerfile: $dockerfile" >&2
+              exit 1
+            fi
+
+            if [ -n "$test_script" ] && [ ! -f "$test_script" ]; then
+              echo "Target '$target_name' references a missing test script: $test_script" >&2
+              exit 1
+            fi
+          done < <(
+            jq -r '.targets[] | select(.enabled // true) | [.name, .dockerfile, (.test // "")] | @tsv' "$CONFIG_PATH"
+          )
+
+          enabled_count="$(jq '[.targets[] | select(.enabled // true)] | length' "$CONFIG_PATH")"
+          if [ "$enabled_count" -eq 0 ]; then
+            echo "At least one target must be enabled" >&2
+            exit 1
+          fi
+
+          enabled_tags="$(jq -r '[.targets[] | select(.enabled // true) | .tag] | unique | join(", ")' "$CONFIG_PATH")"
+          image_name="$(jq -r '.image' "$CONFIG_PATH")"
+          version_text="$(jq -r '.version // ""' "$CONFIG_PATH")"
+
+          echo "Validated $enabled_count enabled target(s) for $image_name"
+          if [ -n "$version_text" ]; then
+            echo "Version: $version_text"
+          else
+            echo "Version: <omitted>"
+          fi
+          echo "Manifest tags: $enabled_tags"
 
       - name: Plan build matrix
         id: plan
-        uses: ./.build-workflow/.github/actions/ci-v2/plan-matrix
-        with:
-          config-path: ${{ inputs.config-path }}
-          short-sha: ${{ steps.context.outputs.short_sha }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SHORT_SHA: ${{ steps.context.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          matrix="$(
+            jq -c --arg short_sha "$SHORT_SHA" '
+              . as $root
+              | [
+                  .targets[]
+                  | select(.enabled // true)
+                  | {
+                      name,
+                      image: $root.image,
+                      version: ($root.version // ""),
+                      tag,
+                      arch,
+                      platform: ("linux/" + .arch),
+                      runner: (
+                        if .arch == "arm64" then
+                          "ubuntu-24.04-arm"
+                        else
+                          "ubuntu-24.04"
+                        end
+                      ),
+                      dockerfile,
+                      base_ref,
+                      test: (.test // ""),
+                      build_args: (.build_args // {}),
+                      pr_local_tag: ("pr-" + $short_sha + "-" + .name),
+                      release_temp_tag: (.tag + "-" + .arch + "-" + $short_sha)
+                    }
+                ]
+            ' "$CONFIG_PATH"
+          )"
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
+    permissions:
+      contents: read
     needs: plan
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -84,22 +174,86 @@ jobs:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Checkout build workflow internals
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: runlix/build-workflow
-          ref: ${{ inputs.tooling-ref }}
-          path: .build-workflow
-          persist-credentials: false
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Build target
-        uses: ./.build-workflow/.github/actions/ci-v2/build-target
-        with:
-          config-path: ${{ inputs.config-path }}
-          target-name: ${{ matrix.name }}
-          mode: pr
-          short-sha: ${{ needs.plan.outputs.short_sha }}
-          context-dir: ${{ inputs.context-dir }}
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+          VERSION: ${{ matrix.version }}
+          TARGET_NAME: ${{ matrix.name }}
+          ARCH: ${{ matrix.arch }}
+          PLATFORM: ${{ matrix.platform }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          BASE_REF: ${{ matrix.base_ref }}
+          BUILD_ARGS_JSON: ${{ toJson(matrix.build_args) }}
+          LOCAL_TAG: ${{ matrix.pr_local_tag }}
+          CONTEXT_DIR: ${{ inputs.context-dir }}
+        run: |
+          set -euo pipefail
+
+          build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          image_tag="${IMAGE_NAME}:${LOCAL_TAG}"
+
+          base_no_digest="${BASE_REF%@*}"
+          if [ "$base_no_digest" = "$BASE_REF" ]; then
+            echo "base_ref must include a digest: $BASE_REF" >&2
+            exit 1
+          fi
+
+          base_digest="${BASE_REF#*@}"
+          base_image="${base_no_digest%:*}"
+          base_tag="${base_no_digest##*:}"
+
+          build_args=(
+            --build-arg "BASE_IMAGE=$base_image"
+            --build-arg "BASE_TAG=$base_tag"
+            --build-arg "BASE_DIGEST=$base_digest"
+          )
+
+          while IFS=$'\t' read -r key value; do
+            [ -n "$key" ] || continue
+            build_args+=(--build-arg "$key=$value")
+          done < <(jq -r 'to_entries[]? | [.key, .value] | @tsv' <<< "$BUILD_ARGS_JSON")
+
+          label_args=(
+            --label "org.opencontainers.image.created=$build_date"
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}"
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          )
+          if [ -n "$VERSION" ]; then
+            label_args+=(--label "org.opencontainers.image.version=$VERSION")
+          fi
+
+          echo "Building target '$TARGET_NAME'"
+          echo "  Image: $image_tag"
+          echo "  Platform: $PLATFORM"
+          echo "  Dockerfile: $DOCKERFILE"
+
+          docker buildx build \
+            --platform "$PLATFORM" \
+            -f "$DOCKERFILE" \
+            "${build_args[@]}" \
+            "${label_args[@]}" \
+            --load \
+            -t "$image_tag" \
+            "$CONTEXT_DIR"
+
+          echo "IMAGE_TAG=$image_tag" >> "$GITHUB_ENV"
+          echo "PLATFORM=$PLATFORM" >> "$GITHUB_ENV"
+
+      - name: Run target test
+        if: ${{ matrix.test != '' }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          PLATFORM: ${{ env.PLATFORM }}
+          TEST_SCRIPT: ${{ matrix.test }}
+        run: |
+          set -euo pipefail
+
+          echo "Running test script: $TEST_SCRIPT"
+          chmod +x "$TEST_SCRIPT"
+          "$TEST_SCRIPT"
