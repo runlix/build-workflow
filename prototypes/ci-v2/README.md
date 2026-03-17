@@ -8,8 +8,9 @@ It is intentionally not wired into the current reusable workflow. The goal is to
 
 - `schema/`: draft schema for `.ci/config.json`
 - `scripts/`: shared bash tooling called by workflows
-- `sabnzbd/release/`: proposed `release` branch surface for the pilot service
-- `sabnzbd/main/`: proposed `main` branch surface for metadata sync
+- `examples/`: generic config examples for versioned services and versionless base-image repos
+
+The files in `examples/` illustrate config shape only. They are not self-contained checkouts and are not intended to pass the repo-aware validator without matching Dockerfiles and test scripts.
 
 ## Design Rules
 
@@ -38,3 +39,9 @@ The prototype does not include:
 - vulnerability scanning
 
 Those can be layered on later as separate, optional workflows.
+
+## Intentional Omission
+
+This prototype does not embed a real service repository surface anymore.
+
+`build-workflow` should keep shared tooling and generic examples only. Real release-branch Dockerfiles, smoke tests, and repo-specific workflows belong in downstream repositories such as `distroless-runtime`.
