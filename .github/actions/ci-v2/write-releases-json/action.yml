@@ -15,6 +15,6 @@ runs:
     - name: Write releases.json
       shell: bash
       run: |
-        bash "${{ github.action_path }}/../../../prototypes/ci-v2/scripts/write-releases-json.sh" \
+        bash "${{ github.action_path }}/../../../../prototypes/ci-v2/scripts/write-releases-json.sh" \
           "${{ inputs.metadata-path }}" \
           "${{ inputs.releases-path }}"

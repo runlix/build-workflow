@@ -20,12 +20,12 @@ runs:
       shell: bash
       run: |
         if [ -n "${{ inputs.output-file }}" ]; then
-          bash "${{ github.action_path }}/../../../prototypes/ci-v2/scripts/create-manifests.sh" \
+          bash "${{ github.action_path }}/../../../../prototypes/ci-v2/scripts/create-manifests.sh" \
             "${{ inputs.config-path }}" \
             "${{ inputs.short-sha }}" \
             "${{ inputs.output-file }}"
         else
-          bash "${{ github.action_path }}/../../../prototypes/ci-v2/scripts/create-manifests.sh" \
+          bash "${{ github.action_path }}/../../../../prototypes/ci-v2/scripts/create-manifests.sh" \
             "${{ inputs.config-path }}" \
             "${{ inputs.short-sha }}"
         fi
