@@ -13,11 +13,6 @@ on:
         required: false
         default: .
         type: string
-      release-artifact-name:
-        description: Artifact name used for the rendered release metadata JSON.
-        required: false
-        default: release-metadata
-        type: string
 
 concurrency:
   group: release-${{ github.repository }}
@@ -197,22 +192,21 @@ jobs:
         env:
           IMAGE_NAME: ${{ needs.plan.outputs.image_name }}
           VERSION: ${{ needs.plan.outputs.version }}
-          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
-          PUBLISHED_AT: ${{ needs.plan.outputs.published_at }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           MATRIX_JSON: ${{ needs.plan.outputs.matrix }}
         run: |
           set -euo pipefail
 
           service_name="${IMAGE_NAME##*/}"
-          short_sha="$(printf '%s' "$SOURCE_SHA" | cut -c1-7)"
+          published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           tags_json="$(jq '[.[].tag] | unique' <<< "$MATRIX_JSON")"
 
           jq -n \
             --arg service "$service_name" \
             --arg version "$VERSION" \
-            --arg sha "$SOURCE_SHA" \
-            --arg short_sha "$short_sha" \
-            --arg published_at "$PUBLISHED_AT" \
+            --arg sha "$GITHUB_SHA" \
+            --arg short_sha "$SHORT_SHA" \
+            --arg published_at "$published_at" \
             --argjson tags "$tags_json" \
             '{
               service: $service,
@@ -226,6 +220,6 @@ jobs:
       - name: Upload release metadata
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: ${{ inputs.release-artifact-name }}
+          name: release-metadata
           path: release-metadata.json
           retention-days: 7

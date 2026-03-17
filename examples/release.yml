@@ -6,7 +6,7 @@ on:
       - release
     paths:
       - ".ci/config.json"
-      - ".ci/README.md"
+      - ".ci/*.sh"
       - "linux-*.Dockerfile"
       - ".github/workflows/release.yml"
   workflow_dispatch:

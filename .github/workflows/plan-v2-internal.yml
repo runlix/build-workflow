@@ -15,12 +15,6 @@ on:
       short_sha:
         description: Short source SHA for tag rendering.
         value: ${{ jobs.plan.outputs.short_sha }}
-      source_sha:
-        description: Full source SHA of the triggering revision.
-        value: ${{ jobs.plan.outputs.source_sha }}
-      published_at:
-        description: Publish timestamp used for release metadata.
-        value: ${{ jobs.plan.outputs.published_at }}
       image_name:
         description: Canonical image name from the CI config.
         value: ${{ jobs.plan.outputs.image_name }}
@@ -43,8 +37,6 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       short_sha: ${{ steps.context.outputs.short_sha }}
-      source_sha: ${{ steps.context.outputs.source_sha }}
-      published_at: ${{ steps.context.outputs.published_at }}
       image_name: ${{ steps.validate.outputs.image_name }}
       version: ${{ steps.validate.outputs.version }}
       manifest_tags: ${{ steps.validate.outputs.manifest_tags }}
@@ -59,15 +51,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          published_at="${{ github.event.head_commit.timestamp }}"
-          if [ -z "$published_at" ] || [ "$published_at" = "null" ]; then
-            published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          fi
-
           {
-            echo "source_sha=${GITHUB_SHA}"
             echo "short_sha=${GITHUB_SHA::7}"
-            echo "published_at=$published_at"
           } >> "$GITHUB_OUTPUT"
 
       - name: Validate CI config
@@ -86,7 +71,7 @@ jobs:
           jq empty "$CONFIG_PATH" > /dev/null
 
           jq -e '
-            (.image | type == "string" and length > 0) and
+            (.image | type == "string" and test("^ghcr\\.io/runlix/[a-z0-9]+([._-][a-z0-9]+)*$")) and
             ((has("version") | not) or (.version | type == "string" and length > 0)) and
             (.targets | type == "array" and length > 0) and
             all(.targets[];
