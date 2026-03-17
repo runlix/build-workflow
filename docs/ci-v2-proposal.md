@@ -160,18 +160,15 @@ This keeps the branch split clean:
 
 ## Shared Tooling
 
-The proposal keeps shared logic in `build-workflow` as bash scripts wrapped by composite actions.
+The proposal keeps shared logic in `build-workflow`, but separates the public and internal layers more clearly.
 
-Core scripts:
+Public reusable workflows:
 
-- `validate-config.sh`
-- `plan-matrix.sh`
-- `build-target.sh`
-- `create-manifests.sh`
-- `render-release-metadata.sh`
-- `write-releases-json.sh`
+- `.github/workflows/pr-validation-v2.yml`
+- `.github/workflows/release-v2.yml`
+- `.github/workflows/sync-release-metadata-v2.yml`
 
-Exported composite actions:
+Internal composite actions:
 
 - `.github/actions/ci-v2/validate-config`
 - `.github/actions/ci-v2/plan-matrix`
@@ -180,7 +177,7 @@ Exported composite actions:
 - `.github/actions/ci-v2/render-release-metadata`
 - `.github/actions/ci-v2/write-releases-json`
 
-Each exported action packages its own runtime entrypoint under the action directory so downstream use does not depend on upward relative path traversal. Prototype scripts remain available for local validation and inspection.
+Action-local runtime scripts remain packaged under each action directory. Prototype scripts remain available only as thin local wrappers for repo-side inspection.
 
 ## What Gets Simpler
 
@@ -207,7 +204,7 @@ Kept in the critical path:
 This repository should carry only shared CI v2 material:
 
 - schema
-- scripts
+- reusable workflows
 - composite actions
 - generic config examples
 - design documentation

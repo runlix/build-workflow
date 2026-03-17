@@ -7,7 +7,7 @@ It is intentionally not wired into the current reusable workflow. The goal is to
 ## Layout
 
 - `schema/`: draft schema for `.ci/config.json`
-- `scripts/`: local prototype tooling for repo-side validation and inspection
+- `scripts/`: local wrappers around the canonical action-local runtime scripts for repo-side validation and inspection
 - `.github/actions/ci-v2/`: reusable composite actions with self-contained runtime entrypoints for downstream repositories
 - `examples/`: generic config examples for versioned services and versionless base-image repos
 
@@ -49,13 +49,17 @@ This implementation does not embed a real service repository surface anymore.
 
 ## Consumption
 
-Downstream repositories should consume the exported composite actions directly from `build-workflow`, pinned to a full commit SHA.
+Downstream repositories should consume the exported reusable workflows directly from `build-workflow`, pinned to a full commit SHA.
 
 Example:
 
 ```yaml
-- name: Validate CI config
-  uses: runlix/build-workflow/.github/actions/ci-v2/validate-config@<full-sha>
-  with:
-    config-path: .ci/config.json
+jobs:
+  pr-validation:
+    uses: runlix/build-workflow/.github/workflows/pr-validation-v2.yml@<full-sha>
+    with:
+      tooling-ref: <full-sha>
+      config-path: .ci/config.json
 ```
+
+The low-level composite actions remain in this repository, but they are an internal implementation detail of the reusable workflows rather than the primary downstream interface.
