@@ -83,12 +83,12 @@ Example:
 
 ```json
 {
-  "image": "ghcr.io/runlix/sabnzbd",
-  "version": "4.5.5",
+  "image": "ghcr.io/runlix/example-service",
+  "version": "1.2.3",
   "targets": [
     {
       "name": "stable-amd64",
-      "tag": "4.5.5-stable",
+      "tag": "1.2.3-stable",
       "arch": "amd64",
       "dockerfile": "linux-amd64.Dockerfile",
       "base_ref": "ghcr.io/runlix/distroless-runtime:stable@sha256:...",
@@ -193,35 +193,28 @@ Kept in the critical path:
 - manifest publishing
 - deterministic metadata generation
 
-## Pilot Service
+## What Lives In `build-workflow`
 
-The first pilot is `sabnzbd`.
+This repository should carry only shared CI v2 material:
 
-Prototype branch layouts:
+- schema
+- scripts
+- generic config examples
+- design documentation
 
-- [`prototypes/ci-v2/sabnzbd/release/`](../prototypes/ci-v2/sabnzbd/release/.github/workflows/pr-validation.yml)
-- [`prototypes/ci-v2/sabnzbd/main/`](../prototypes/ci-v2/sabnzbd/main/.github/workflows/sync-release-metadata.yml)
-
-The pilot keeps the current release behavior conceptually:
-
-- `stable` and `debug` tags
-- `amd64` and `arm64`
-- one smoke test script
-- pinned distroless base references
-
-The difference is that the behavior is explicit in config and scripts rather than being expanded from a richer matrix abstraction in workflow YAML.
+It should not carry embedded release-branch surfaces for real services. Concrete repo integrations belong in downstream repositories.
 
 ## Migration Plan
 
 1. Keep the current reusable workflow as v1.
-2. Build the v2 scripts and pilot files in isolation.
+2. Build the v2 scripts and generic examples in isolation.
 3. Run one service through a full release cycle with v2.
 4. Compare:
    - readability
    - number of moving parts
    - failure debugging
    - metadata correctness
-5. If the pilot is clean, migrate the remaining services one repo at a time.
+5. If the first downstream integration is clean, migrate the remaining services one repo at a time.
 
 ## Non-Goals
 
