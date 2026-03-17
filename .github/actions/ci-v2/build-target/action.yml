@@ -25,7 +25,7 @@ runs:
     - name: Build target
       shell: bash
       run: |
-        bash "${{ github.action_path }}/../../../prototypes/ci-v2/scripts/build-target.sh" \
+        bash "${{ github.action_path }}/../../../../prototypes/ci-v2/scripts/build-target.sh" \
           "${{ inputs.config-path }}" \
           "${{ inputs.target-name }}" \
           "${{ inputs.mode }}" \
