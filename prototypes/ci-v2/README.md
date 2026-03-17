@@ -62,4 +62,6 @@ jobs:
       config-path: .ci/config.json
 ```
 
+Keep `tooling-ref` equal to the full SHA used in `uses:`. GitHub does not expose the called-workflow ref inside the reusable workflow, so the reusable workflow needs the same SHA passed explicitly for its internal action checkout.
+
 The low-level composite actions remain in this repository, but they are an internal implementation detail of the reusable workflows rather than the primary downstream interface.
