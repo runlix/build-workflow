@@ -2,26 +2,10 @@ name: CI v2 Sync Release Metadata
 
 on:
   workflow_call:
-    inputs:
-      release-artifact-name:
-        description: Artifact name used by the release workflow for release metadata.
-        required: false
-        default: release-metadata
-        type: string
-      release-branch:
-        description: Release branch that should sync metadata into the main branch.
-        required: false
-        default: release
-        type: string
-      main-branch:
-        description: Main branch that should receive metadata updates.
-        required: false
-        default: main
-        type: string
 
 jobs:
   sync:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == inputs.release-branch }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       actions: read
       contents: write
@@ -30,12 +14,12 @@ jobs:
       - name: Checkout metadata branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ inputs.main-branch }}
+          ref: main
 
       - name: Download release metadata artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ inputs.release-artifact-name }}
+          name: release-metadata
           path: artifacts
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -86,4 +70,4 @@ jobs:
             git commit -m "Release: ${SERVICE_NAME} @ ${short_sha}"
           fi
 
-          git push origin "HEAD:${{ inputs.main-branch }}"
+          git push origin HEAD:main

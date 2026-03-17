@@ -8,8 +8,8 @@
       "customType": "regex",
       "description": "Update distroless upstream image references in base-image matrices",
       "managerFilePatterns": [
-        "/^examples\\/base-image-matrix\\.json$/",
-        "/^test-fixtures\\/base-image\\/docker-matrix\\.json$/"
+        "/^examples\\/v1\\/base-image-matrix\\.json$/",
+        "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/"
       ],
       "matchStrings": [
         "\"UPSTREAM_IMAGE\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
@@ -21,8 +21,8 @@
       "customType": "regex",
       "description": "Update base image references in service matrices",
       "managerFilePatterns": [
-        "/^examples\\/service-matrix\\.json$/",
-        "/^test-fixtures\\/service\\/docker-matrix\\.json$/"
+        "/^examples\\/v1\\/service-matrix\\.json$/",
+        "/^test-fixtures\\/v1\\/service\\/docker-matrix\\.json$/"
       ],
       "matchStrings": [
         "\"base_image\"\\s*:\\s*\\{[\\s\\S]*?\"image\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"tag\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"digest\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""

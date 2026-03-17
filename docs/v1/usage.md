@@ -486,7 +486,7 @@ If builds fail:
 gh pr merge --merge  # Use merge commit (NOT squash!)
 ```
 
-**Critical:** Must use merge commit (see [branch-protection.md](../docs/branch-protection.md))
+**Critical:** Must use merge commit (see [branch-protection.md](./branch-protection.md))
 
 ### Step 2: Merge Main to Release
 
