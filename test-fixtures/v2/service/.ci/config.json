@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../../schema/ci-config-v2.schema.json",
+  "image": "ghcr.io/runlix/test-service-v2",
+  "version": "1.2.3",
+  "targets": [
+    {
+      "name": "stable-amd64",
+      "tag": "1.2.3-stable",
+      "arch": "amd64",
+      "dockerfile": "test-fixtures/v2/service/linux-amd64.Dockerfile",
+      "base_ref": "gcr.io/distroless/base-debian12:latest-amd64@sha256:d5f7dca58e3db53d1de502bd1a747ecb1110cf6b0773af129f951ee11e2e3ed4",
+      "test": "test-fixtures/v2/service/.ci/smoke-test.sh",
+      "build_args": {
+        "APP_VERSION": "1.2.3",
+        "APP_PORT": "8080",
+        "VARIANT": "stable"
+      }
+    },
+    {
+      "name": "debug-amd64",
+      "tag": "1.2.3-debug",
+      "arch": "amd64",
+      "dockerfile": "test-fixtures/v2/service/linux-amd64.Dockerfile",
+      "base_ref": "gcr.io/distroless/base-debian12:debug-amd64@sha256:390fbd1c6954d0499687c031097557bd0c3834df0a8f9ad76e5dd86ca8bc22f1",
+      "test": "test-fixtures/v2/service/.ci/smoke-test.sh",
+      "build_args": {
+        "APP_VERSION": "1.2.3",
+        "APP_PORT": "8080",
+        "VARIANT": "debug"
+      }
+    }
+  ]
+}

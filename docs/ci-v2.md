@@ -68,7 +68,19 @@ Metadata sync:
 
 - `v2` keeps `v1` untouched
 - reusable workflows are the public interface
+- `plan-v2-internal.yml` is an internal implementation detail for shared validation and matrix planning
 - no internal checkout of `build-workflow`
 - no second SHA input
 - no legacy `docker-matrix` support in `v2`
 - no runtime downloads for core logic except artifact retrieval from the triggering run
+
+## Testing
+
+`build-workflow` ships dedicated `v2` coverage in:
+
+- `.github/workflows/test-workflow-v2.yml`
+- `test-fixtures/v2/base-image`
+- `test-fixtures/v2/service`
+- `test-fixtures/v2/release-metadata`
+
+That coverage validates the schema/examples, exercises the PR reusable workflow against two fixture repos, and verifies the `release-metadata.json` to `releases.json` transform.
