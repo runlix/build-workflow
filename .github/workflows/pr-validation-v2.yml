@@ -1,0 +1,105 @@
+name: CI v2 PR Validation
+
+on:
+  workflow_call:
+    inputs:
+      tooling-ref:
+        description: Full build-workflow commit SHA that should be used for internal action checkout.
+        required: true
+        type: string
+      config-path:
+        description: Path to the CI v2 config file in the caller repository.
+        required: false
+        default: .ci/config.json
+        type: string
+      context-dir:
+        description: Docker build context directory in the caller repository.
+        required: false
+        default: .
+        type: string
+      validate-legacy-matrix:
+        description: Whether to parse the legacy docker-matrix.json during rollout.
+        required: false
+        default: false
+        type: boolean
+      legacy-matrix-path:
+        description: Path to the legacy docker-matrix.json file in the caller repository.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      short_sha: ${{ steps.context.outputs.short_sha }}
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Checkout build workflow internals
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: runlix/build-workflow
+          ref: ${{ inputs.tooling-ref }}
+          path: .build-workflow
+          persist-credentials: false
+
+      - name: Resolve source context
+        id: context
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate CI config
+        uses: ./.build-workflow/.github/actions/ci-v2/validate-config
+        with:
+          config-path: ${{ inputs.config-path }}
+
+      - name: Validate legacy matrix JSON
+        if: ${{ inputs.validate-legacy-matrix && inputs.legacy-matrix-path != '' }}
+        run: jq empty "${{ inputs.legacy-matrix-path }}" > /dev/null
+
+      - name: Plan build matrix
+        id: plan
+        uses: ./.build-workflow/.github/actions/ci-v2/plan-matrix
+        with:
+          config-path: ${{ inputs.config-path }}
+          short-sha: ${{ steps.context.outputs.short_sha }}
+
+  build:
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Checkout build workflow internals
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: runlix/build-workflow
+          ref: ${{ inputs.tooling-ref }}
+          path: .build-workflow
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build target
+        uses: ./.build-workflow/.github/actions/ci-v2/build-target
+        with:
+          config-path: ${{ inputs.config-path }}
+          target-name: ${{ matrix.name }}
+          mode: pr
+          short-sha: ${{ needs.plan.outputs.short_sha }}
+          context-dir: ${{ inputs.context-dir }}
