@@ -11,7 +11,7 @@
 - `.github/workflows/release-v2.yml`
 - `.github/workflows/sync-release-metadata-v2.yml`
 
-Service repositories should use thin wrapper workflows pinned to a full commit SHA.
+Service repositories should use thin wrapper workflows pinned to a merged full commit SHA.
 
 For PR validation wrappers, name the caller job `validate` so the aggregate check appears as `validate / summary`.
 
@@ -38,6 +38,17 @@ Generic examples live in:
 - `examples/ci-v2/base-image-config.json`
 
 ## Workflow behavior
+
+Wrapper examples live in:
+
+- `examples/pr-validation.yml`
+- `examples/release.yml`
+- `examples/sync-release-metadata.yml`
+
+Config examples live in:
+
+- `examples/ci-v2/service-config.json`
+- `examples/ci-v2/base-image-config.json`
 
 PR validation:
 
@@ -73,6 +84,8 @@ Metadata sync:
 - no second SHA input
 - no legacy `docker-matrix` support in `v2`
 - no runtime downloads for core logic except artifact retrieval from the triggering run
+- metadata sync is standardized on `release`, `main`, and `release-metadata`
+- real service wrappers should rely on default inputs unless they have a documented reason not to
 
 ## Testing
 
@@ -83,4 +96,4 @@ Metadata sync:
 - `test-fixtures/v2/service`
 - `test-fixtures/v2/release-metadata`
 
-That coverage validates the schema/examples, exercises the PR reusable workflow against two fixture repos, and verifies the `release-metadata.json` to `releases.json` transform.
+That coverage validates the schema/examples, exercises the PR reusable workflow against two fixture repos, verifies the artifact contract for `release-metadata.json`, and checks the `release-metadata.json` to `releases.json` transform.

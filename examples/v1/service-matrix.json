@@ -1,5 +1,5 @@
 {
-  "$schema": "../schema/docker-matrix-schema.json",
+  "$schema": "../../schema/docker-matrix-schema.json",
   "version": "v5.2.1",
   "base_image": {
     "image": "ghcr.io/runlix/distroless",
