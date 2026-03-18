@@ -1,275 +1,85 @@
-# Contributing to Build Workflow
+# Maintaining Build Workflow
 
-Thank you for your interest in contributing to the build-workflow project! This document provides guidelines and instructions for contributing.
+This repository is maintained for `runlix` image automation. The active path is `v2`; `v1` remains available only for legacy consumers.
 
-## Table of Contents
+## Change Types
 
-- [Code of Conduct](#code-of-conduct)
-- [How to Contribute](#how-to-contribute)
-- [Development Setup](#development-setup)
-- [Testing Your Changes](#testing-your-changes)
-- [Submitting Changes](#submitting-changes)
-- [Coding Standards](#coding-standards)
-- [Reporting Issues](#reporting-issues)
+- `v2` changes:
+  - reusable workflows in `.github/workflows/*-v2.yml`
+  - `schema/ci-config-v2.schema.json`
+  - `examples/ci-v2/`
+  - `examples/*.yml`
+  - `test-fixtures/v2/`
+  - `docs/ci-v2.md`
+- `v1` changes:
+  - `.github/workflows/build-images-rebuild.yml`
+  - `schema/docker-matrix-schema.json`
+  - `examples/v1/`
+  - `test-fixtures/v1/`
+  - `docs/v1/`
 
-## Code of Conduct
+## Local Checks
 
-By participating in this project, you agree to maintain a respectful and inclusive environment. Please:
-
-- Be respectful and considerate in your communication
-- Welcome newcomers and help them get started
-- Accept constructive criticism gracefully
-- Focus on what's best for the community
-- Show empathy towards other community members
-
-## How to Contribute
-
-There are several ways you can contribute:
-
-1. **Report bugs** - Open an issue describing the problem
-2. **Suggest enhancements** - Propose new features or improvements
-3. **Submit fixes** - Fix bugs or implement features via pull requests
-4. **Improve documentation** - Help make our docs clearer and more comprehensive
-5. **Help others** - Answer questions in issues and review open pull requests
-
-## Development Setup
-
-### Prerequisites
-
-- Git
-- GitHub account
-- Docker and Docker Buildx
-- Node.js 20+ (for schema validation)
-- `jq` for JSON processing
-- `ajv-cli` for schema validation
-
-### Fork and Clone
-
-1. Fork the repository on GitHub
-2. Clone your fork locally:
+Install the required tools once:
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/build-workflow.git
-cd build-workflow
-```
-
-3. Add the upstream repository:
-
-```bash
-git remote add upstream https://github.com/runlix/build-workflow.git
-```
-
-### Install Dependencies
-
-```bash
-# Install schema validation tools
 npm install -g ajv-cli ajv-formats
-
-# Verify Docker setup
-docker buildx version
 ```
 
-## Testing Your Changes
-
-### 1. Validate Schema Changes
-
-If you modify the JSON schema:
+Useful local checks:
 
 ```bash
-# Validate schema syntax, examples, and fixtures
+# Validate the active schemas, examples, and fixtures
 bash commands/validate-schema.sh
-```
 
-### 2. Test Workflow Changes
-
-If you modify workflows:
-
-```bash
-# Inspect inputs, secrets, permissions, jobs, and tag behavior
+# Inspect workflow inputs, outputs, permissions, and job surfaces
 bash commands/inspect-workflow-surface.sh
 
-# Run test workflow locally (requires GitHub CLI)
-gh workflow run test-workflow.yml --ref YOUR-BRANCH
-
-# Or test specific fixture
-gh workflow run test-workflow.yml --ref YOUR-BRANCH -f test_type=service
+# Lint workflow files
+actionlint .github/workflows/*.yml examples/*.yml examples/v1/*.yml
 ```
 
-### 3. Test with Real Service Repository
+## Testing Rules
 
-Create a test branch in a service repository (e.g., distroless-runtime):
-
-```yaml
-# .github/workflows/test-new-workflow.yml
-name: Test Build Workflow Changes
-on:
-  workflow_dispatch:
-
-jobs:
-  test:
-    uses: YOUR-USERNAME/build-workflow/.github/workflows/build-images-rebuild.yml@YOUR-BRANCH
-    with:
-      pr_mode: true
-      dry_run: true
-    secrets: inherit
-```
-
-### 4. Validate Documentation
-
-Check documentation for:
-- Correct Markdown syntax
-- Working links
-- Up-to-date examples
-- Clear explanations
-- Alignment with `.github/workflows/build-images-rebuild.yml` and `schema/docker-matrix-schema.json`
-
-## Submitting Changes
-
-### Branch Naming
-
-Use descriptive branch names:
-- `fix/issue-description` - Bug fixes
-- `feat/feature-description` - New features
-- `docs/documentation-description` - Documentation changes
-- `refactor/refactor-description` - Code refactoring
-- `test/test-description` - Test improvements
-
-### Commit Messages
-
-Write clear, descriptive commit messages:
-
-```
-Add concurrency control to build jobs
-
-- Prevents multiple builds from running simultaneously
-- Reduces resource contention on shared runners
-- Adds per-repository concurrency groups
-```
-
-Format:
-1. Summary line (50 chars or less)
-2. Blank line
-3. Detailed explanation (wrap at 72 chars)
-4. Reference issues: `Fixes #123` or `Relates to #456`
-
-### Pull Request Process
-
-1. **Update your branch** with latest upstream changes:
+For `v2` changes:
 
 ```bash
-git fetch upstream
-git rebase upstream/main
+# Contract workflow for v2
+gh workflow run test-workflow-v2.yml --ref YOUR-BRANCH
 ```
 
-2. **Test thoroughly** using the testing guidelines above
+Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
 
-3. **Update documentation** if you change:
-   - Workflow inputs/outputs
-   - Schema structure
-   - Configuration options
-   - Usage patterns
+- pin the canary wrappers to your branch SHA or preview tag
+- run PR validation on `release`
+- if release behavior changed, run the release flow and metadata sync path too
 
-4. **Open a pull request** with:
-   - Clear title describing the change
-   - Description of what changed and why
-   - Link to related issues
-   - Test results or screenshots if applicable
+For `v1` changes:
 
-5. **Respond to feedback** - Address review comments promptly
-
-### Pull Request Checklist
-
-Before submitting, ensure:
-
-- [ ] Code follows existing style and patterns
-- [ ] All tests pass locally
-- [ ] Schema changes are validated
-- [ ] Documentation is updated
-- [ ] Examples reflect any changes
-- [ ] Commit messages are clear
-- [ ] Branch is rebased on latest main
-- [ ] No merge conflicts exist
-
-## Coding Standards
-
-### Workflow Files (.yml)
-
-- Use 2-space indentation
-- Add comments explaining complex logic
-- Group related steps together
-- Use descriptive step names
-- Pin all actions to commit SHA hashes (not tags)
-- Include inline comments showing version (e.g., `# v4`)
-
-Example:
-```yaml
-- name: Checkout repository
-  uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-  with:
-    ref: ${{ inputs.ref }}
+```bash
+gh workflow run test-workflow.yml --ref YOUR-BRANCH
 ```
 
-### JSON Schema
+## Documentation Rules
 
-- Follow JSON Schema Draft 7 specification
-- Add clear descriptions for all properties
-- Include examples where helpful
-- Use pattern validation for strings
-- Provide informative error messages via `errorMessage`
+When behavior changes, update the docs in the same branch:
 
-### Documentation
+- `README.md` for the supported surface
+- `docs/ci-v2.md` for `v2`
+- `docs/v1/` only if legacy behavior changed
+- `examples/*.yml` and `examples/ci-v2/*.json` if the public contract changed
 
-- Use clear, concise language
-- Include code examples
-- Link to related documentation
-- Keep table of contents updated
-- Use proper Markdown formatting
-- Test all command examples
+Keep the docs aligned with the actual workflow contract:
 
-### Bash Scripts
+- `v2` is GHCR-only for `ghcr.io/runlix/<name>`
+- wrapper examples must use merged full SHAs
+- wrapper path filters should treat `.ci/*.sh` as build inputs
+- PR aggregate check is `validate / summary`
+- release uploads `release-metadata.json` as artifact `release-metadata`
 
-- Use `#!/bin/bash` shebang
-- Enable error handling: `set -euo pipefail`
-- Quote variables: `"$VAR"`
-- Use meaningful variable names
-- Add comments for complex logic
+## Before Pushing
 
-## Reporting Issues
-
-### Bug Reports
-
-When reporting bugs, include:
-
-1. **Description** - What happened vs. what you expected
-2. **Steps to reproduce** - Minimal steps to recreate the issue
-3. **Environment** - OS, Docker version, runner type
-4. **Logs** - Relevant error messages or workflow logs
-5. **Configuration** - Your `docker-matrix.json` (sanitized)
-
-Use the bug report template when creating an issue.
-
-### Feature Requests
-
-When suggesting features, include:
-
-1. **Use case** - What problem does this solve?
-2. **Proposed solution** - How should it work?
-3. **Alternatives** - Other approaches you considered
-4. **Examples** - Show how you'd use the feature
-
-Use the feature request template when creating an issue.
-
-## Questions?
-
-- **Documentation**: Check [docs/](./docs/) directory
-- **Issues**: Search [existing issues](https://github.com/runlix/build-workflow/issues)
-- **Pull Requests**: Review [open pull requests](https://github.com/runlix/build-workflow/pulls)
-
-## Recognition
-
-Contributors will be:
-- Listed in release notes for significant contributions
-- Credited in commit messages for their work
-- Appreciated for helping make this project better!
-
-Thank you for contributing to build-workflow! 🎉
+- run the relevant local checks
+- update fixtures/examples when the contract changes
+- confirm the docs match the actual YAML and schema
+- keep one concern per commit
