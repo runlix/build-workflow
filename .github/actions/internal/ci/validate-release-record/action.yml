@@ -1,0 +1,16 @@
+name: Validate Release Record
+description: Validate release metadata or releases.json content.
+
+inputs:
+  json-path:
+    description: Path to the JSON file to validate.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate release record
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/run.sh" \
+          "${{ inputs.json-path }}"

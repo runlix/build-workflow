@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-  echo "Usage: create-manifests.sh <config-path> <short-sha> [output-file]" >&2
+  echo "Usage: run.sh <config-path> <short-sha> [output-file]" >&2
   exit 1
 fi
 

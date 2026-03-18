@@ -28,6 +28,12 @@ Starter files:
 - schema: `schema/ci-config.schema.json`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
+Supported callers must use that same SHA in three places:
+
+- the reusable workflow `uses:` ref
+- the `build-workflow-ref` input
+- the raw GitHub `$schema` URL in `.ci/config.json`
+
 Do not use branch refs or preview tags in supported callers.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
@@ -49,7 +55,9 @@ Canonical assets:
 - config examples: `examples/ci/`
 - contract tests: `.github/workflows/test-ci.yml`
 - fixtures: `test-fixtures/ci/`
-- shared scripts: `scripts/ci/`
+- internal implementation: `.github/actions/internal/ci/`
+
+The internal composite actions are not the supported consumer API. Downstream repositories should call the public reusable workflows only.
 
 ## CI Behavior
 

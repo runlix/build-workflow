@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
-  echo "Usage: plan-matrix.sh <config-path> <short-sha>" >&2
+  echo "Usage: run.sh <config-path> <short-sha>" >&2
   exit 1
 fi
 

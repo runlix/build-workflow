@@ -3,11 +3,11 @@ name: Test CI Workflows
 on:
   pull_request:
     paths:
+      - '.github/actions/internal/ci/**'
       - '.github/workflows/pr-validation.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/sync-release-metadata.yml'
       - '.github/workflows/test-ci.yml'
-      - 'scripts/ci/**'
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'docs/ci.md'
@@ -23,11 +23,11 @@ on:
     branches:
       - main
     paths:
+      - '.github/actions/internal/ci/**'
       - '.github/workflows/pr-validation.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/sync-release-metadata.yml'
       - '.github/workflows/test-ci.yml'
-      - 'scripts/ci/**'
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'docs/ci.md'
@@ -102,16 +102,59 @@ jobs:
             --spec=draft2020 \
             --strict=false
 
-      - name: Validate release metadata transform contract
+      - name: Validate internal config action
+        id: validate-config
+        uses: ./.github/actions/internal/ci/validate-config
+        with:
+          config-path: test-fixtures/ci/service/.ci/config.json
+
+      - name: Plan internal matrix
+        id: plan-matrix
+        uses: ./.github/actions/internal/ci/plan-matrix
+        with:
+          config-path: test-fixtures/ci/service/.ci/config.json
+          short-sha: 1234567
+
+      - name: Assert matrix output
         shell: bash
+        env:
+          MATRIX_JSON: ${{ steps.plan-matrix.outputs.matrix }}
         run: |
           set -euo pipefail
 
-          bash scripts/ci/validate-release-record.sh test-fixtures/ci/release-metadata/release-metadata.json
-          bash scripts/ci/write-releases-json.sh \
-            test-fixtures/ci/release-metadata/release-metadata.json \
-            /tmp/releases.actual.json
-          bash scripts/ci/validate-release-record.sh /tmp/releases.actual.json
+          [ "$(jq 'length' <<< "$MATRIX_JSON")" -gt 0 ]
+          [ "$(jq -r '.[0].release_temp_tag' <<< "$MATRIX_JSON")" != "null" ]
+
+      - name: Render release metadata with internal action
+        id: render-metadata
+        uses: ./.github/actions/internal/ci/render-release-metadata
+        with:
+          config-path: test-fixtures/ci/service/.ci/config.json
+          source-sha: 1234567890abcdef1234567890abcdef12345678
+          published-at: 2026-03-18T00:00:00Z
+          output-path: /tmp/release-metadata.actual.json
+
+      - name: Validate rendered metadata
+        uses: ./.github/actions/internal/ci/validate-release-record
+        with:
+          json-path: ${{ steps.render-metadata.outputs.metadata-path }}
+
+      - name: Write releases.json with internal action
+        id: write-releases
+        uses: ./.github/actions/internal/ci/write-releases-json
+        with:
+          metadata-path: ${{ steps.render-metadata.outputs.metadata-path }}
+          releases-path: /tmp/releases.actual.json
+
+      - name: Validate generated releases.json
+        uses: ./.github/actions/internal/ci/validate-release-record
+        with:
+          json-path: ${{ steps.write-releases.outputs.releases-path }}
+
+      - name: Compare generated releases.json
+        shell: bash
+        run: |
+          set -euo pipefail
 
           diff -u \
             test-fixtures/ci/release-metadata/releases.expected.json \
@@ -129,26 +172,25 @@ jobs:
           rg -q 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' "$workflow_file"
           rg -q 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' "$workflow_file"
           rg -q 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' "$workflow_file"
+          rg -q 'build-workflow-ref' "$workflow_file"
 
-      - name: Verify reusable workflows are self-contained
+      - name: Verify public workflows use internal actions
         shell: bash
         run: |
           set -euo pipefail
 
-          if rg -n '\.build-workflow/|github\.workflow_ref|github\.workflow_sha' \
-            .github/workflows/pr-validation.yml \
-            .github/workflows/release.yml \
-            .github/workflows/sync-release-metadata.yml
-          then
-            echo "Reusable workflows must not depend on caller-scoped workflow context." >&2
-            exit 1
-          fi
+          rg -q '\./\.build-workflow/\.github/actions/internal/ci/validate-config' .github/workflows/pr-validation.yml
+          rg -q '\./\.build-workflow/\.github/actions/internal/ci/build-target' .github/workflows/pr-validation.yml
+          rg -q '\./\.build-workflow/\.github/actions/internal/ci/create-manifests' .github/workflows/release.yml
+          rg -q '\./\.build-workflow/\.github/actions/internal/ci/write-releases-json' .github/workflows/sync-release-metadata.yml
+          ! rg -n 'github\.workflow_ref|github\.workflow_sha|scripts/ci/' .github/workflows
 
   test-ci-base-image:
     name: test-ci-base-image
     needs: validate-ci-contracts
     uses: ./.github/workflows/pr-validation.yml
     with:
+      build-workflow-ref: ${{ github.sha }}
       config-path: test-fixtures/ci/base-image/.ci/config.json
       context-dir: test-fixtures/ci/base-image
 
@@ -157,6 +199,7 @@ jobs:
     needs: validate-ci-contracts
     uses: ./.github/workflows/pr-validation.yml
     with:
+      build-workflow-ref: ${{ github.sha }}
       config-path: test-fixtures/ci/service/.ci/config.json
       context-dir: test-fixtures/ci/service
 
@@ -167,6 +210,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/release.yml
     with:
+      build-workflow-ref: ${{ github.sha }}
       config-path: test-fixtures/ci/service/.ci/config.json
       context-dir: test-fixtures/ci/service
       publish: false
@@ -192,15 +236,21 @@ jobs:
           name: release-metadata
           path: downloaded-artifact
 
-      - name: Validate synthetic artifact contract
+      - name: Validate synthetic release metadata artifact
+        uses: ./.github/actions/internal/ci/validate-release-record
+        with:
+          json-path: downloaded-artifact/release-metadata.json
+
+      - name: Write synthetic releases.json
+        uses: ./.github/actions/internal/ci/write-releases-json
+        with:
+          metadata-path: downloaded-artifact/release-metadata.json
+          releases-path: /tmp/releases.from.artifact.json
+
+      - name: Compare synthetic artifact output
         shell: bash
         run: |
           set -euo pipefail
-
-          bash scripts/ci/validate-release-record.sh downloaded-artifact/release-metadata.json
-          bash scripts/ci/write-releases-json.sh \
-            downloaded-artifact/release-metadata.json \
-            /tmp/releases.from.artifact.json
 
           diff -u \
             test-fixtures/ci/release-metadata/releases.expected.json \

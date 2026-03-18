@@ -6,7 +6,7 @@ This repository is maintained for `runlix` image automation. The active path is 
 
 - `CI` changes:
   - reusable workflows in `.github/workflows/pr-validation.yml`, `.github/workflows/release.yml`, `.github/workflows/sync-release-metadata.yml`
-  - `scripts/ci/`
+  - `.github/actions/internal/ci/`
   - `schema/ci-config.schema.json`
   - `schema/release-metadata.schema.json`
   - `schema/releases.schema.json`
@@ -76,7 +76,7 @@ When behavior changes, update the docs in the same branch:
 Keep the docs aligned with the actual workflow contract:
 
 - `CI` is GHCR-only for `ghcr.io/runlix/<name>`
-- wrapper examples must use merged full SHAs
+- wrapper examples must use merged full SHAs in both `uses:` and `build-workflow-ref`
 - supported callers should not use branch refs or preview tags
 - wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs
 - PR aggregate check is `validate / summary`

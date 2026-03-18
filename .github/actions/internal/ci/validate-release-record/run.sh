@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: validate-release-record.sh <json-path>" >&2
+  echo "Usage: run.sh <json-path>" >&2
   exit 1
 fi
 

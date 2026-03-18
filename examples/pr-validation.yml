@@ -22,3 +22,5 @@ jobs:
     name: validate
     # Pin to a merged full SHA from runlix/build-workflow.
     uses: runlix/build-workflow/.github/workflows/pr-validation.yml@YOUR_BUILD_WORKFLOW_SHA
+    with:
+      build-workflow-ref: YOUR_BUILD_WORKFLOW_SHA

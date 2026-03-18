@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
-  echo "Usage: render-release-metadata.sh <config-path> <source-sha> <published-at>" >&2
+  echo "Usage: run.sh <config-path> <source-sha> <published-at>" >&2
   exit 1
 fi
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
-  echo "Usage: write-releases-json.sh <release-metadata.json> <releases.json>" >&2
+  echo "Usage: run.sh <release-metadata.json> <releases.json>" >&2
   exit 1
 fi
 

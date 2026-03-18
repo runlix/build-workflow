@@ -3,6 +3,10 @@ name: CI Release
 on:
   workflow_call:
     inputs:
+      build-workflow-ref:
+        description: Full commit SHA for the build-workflow revision to load internal actions from.
+        required: true
+        type: string
       config-path:
         description: Path to the CI config file in the caller repository.
         required: false
@@ -38,6 +42,25 @@ jobs:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Validate build-workflow ref
+        shell: bash
+        env:
+          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
+        run: |
+          set -euo pipefail
+
+          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
+            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
+            exit 1
+          }
+
+      - name: Checkout build-workflow tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: runlix/build-workflow
+          ref: ${{ inputs.build-workflow-ref }}
+          path: .build-workflow
+
       - name: Resolve source context
         id: context
         shell: bash
@@ -47,134 +70,16 @@ jobs:
 
       - name: Validate CI config
         id: validate
-        shell: bash
-        env:
-          CONFIG_PATH: ${{ inputs.config-path }}
-        run: |
-          set -euo pipefail
-
-          if [ ! -f "$CONFIG_PATH" ]; then
-            echo "Config file not found: $CONFIG_PATH" >&2
-            exit 1
-          fi
-
-          jq empty "$CONFIG_PATH" > /dev/null
-
-          jq -e '
-            (.image | type == "string" and test("^ghcr\\.io/runlix/[a-z0-9]+([._-][a-z0-9]+)*$")) and
-            ((has("version") | not) or (.version | type == "string" and length > 0)) and
-            (.targets | type == "array" and length > 0) and
-            all(.targets[];
-              (.name | type == "string" and test("^[a-z0-9-]+$")) and
-              (.tag | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
-              (.arch == "amd64" or .arch == "arm64") and
-              (.dockerfile | type == "string" and length > 0) and
-              (.base_ref | type == "string" and test("^.+:.+@sha256:[a-f0-9]{64}$")) and
-              ((.test // "") | type == "string") and
-              ((.enabled // true) | type == "boolean") and
-              ((.build_args // {}) | type == "object") and
-              all((.build_args // {}) | to_entries[]?;
-                (.key | test("^[A-Z_][A-Z0-9_]*$")) and
-                (.value | type == "string")
-              )
-            )
-          ' "$CONFIG_PATH" > /dev/null
-
-          duplicate_names="$(jq -r '.targets[].name' "$CONFIG_PATH" | sort | uniq -d)"
-          if [ -n "$duplicate_names" ]; then
-            echo "Duplicate target names detected:" >&2
-            echo "$duplicate_names" >&2
-            exit 1
-          fi
-
-          duplicate_tag_arch_pairs="$(
-            jq -r '.targets[] | select(.enabled // true) | [.tag, .arch] | @tsv' "$CONFIG_PATH" |
-              sort |
-              uniq -d
-          )"
-          if [ -n "$duplicate_tag_arch_pairs" ]; then
-            echo "Duplicate enabled tag/arch pairs detected:" >&2
-            echo "$duplicate_tag_arch_pairs" >&2
-            exit 1
-          fi
-
-          while IFS=$'\t' read -r target_name dockerfile test_script; do
-            if [ ! -f "$dockerfile" ]; then
-              echo "Target '$target_name' references a missing Dockerfile: $dockerfile" >&2
-              exit 1
-            fi
-
-            if [ -n "$test_script" ] && [ ! -f "$test_script" ]; then
-              echo "Target '$target_name' references a missing test script: $test_script" >&2
-              exit 1
-            fi
-          done < <(
-            jq -r '.targets[] | select(.enabled // true) | [.name, .dockerfile, (.test // "")] | @tsv' "$CONFIG_PATH"
-          )
-
-          enabled_count="$(jq '[.targets[] | select(.enabled // true)] | length' "$CONFIG_PATH")"
-          if [ "$enabled_count" -eq 0 ]; then
-            echo "At least one target must be enabled" >&2
-            exit 1
-          fi
-
-          image_name="$(jq -r '.image' "$CONFIG_PATH")"
-          version_text="$(jq -r '.version // ""' "$CONFIG_PATH")"
-          manifest_tags="$(jq -r '[.targets[] | select(.enabled // true) | .tag] | unique | join(", ")' "$CONFIG_PATH")"
-
-          {
-            printf 'image_name=%s\n' "$image_name"
-            printf 'version=%s\n' "$version_text"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "Validated $enabled_count enabled target(s) for $image_name"
-          if [ -n "$version_text" ]; then
-            echo "Version: $version_text"
-          else
-            echo "Version: <omitted>"
-          fi
-          echo "Manifest tags: $manifest_tags"
+        uses: ./.build-workflow/.github/actions/internal/ci/validate-config
+        with:
+          config-path: ${{ inputs.config-path }}
 
       - name: Plan build matrix
         id: plan
-        shell: bash
-        env:
-          CONFIG_PATH: ${{ inputs.config-path }}
-          SHORT_SHA: ${{ steps.context.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-
-          matrix="$(
-            jq -c --arg short_sha "$SHORT_SHA" '
-              . as $root
-              | [
-                  .targets[]
-                  | select(.enabled // true)
-                  | {
-                      name,
-                      image: $root.image,
-                      version: ($root.version // ""),
-                      tag,
-                      arch,
-                      platform: ("linux/" + .arch),
-                      runner: (
-                        if .arch == "arm64" then
-                          "ubuntu-24.04-arm"
-                        else
-                          "ubuntu-24.04"
-                        end
-                      ),
-                      dockerfile,
-                      base_ref,
-                      test: (.test // ""),
-                      build_args: (.build_args // {}),
-                      pr_local_tag: ("pr-" + $short_sha + "-" + .name),
-                      release_temp_tag: (.tag + "-" + .arch + "-" + $short_sha)
-                    }
-                ]
-            ' "$CONFIG_PATH"
-          )"
-          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+        uses: ./.build-workflow/.github/actions/internal/ci/plan-matrix
+        with:
+          config-path: ${{ inputs.config-path }}
+          short-sha: ${{ steps.context.outputs.short_sha }}
 
   build-and-push:
     name: build-and-push
@@ -191,6 +96,25 @@ jobs:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Validate build-workflow ref
+        shell: bash
+        env:
+          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
+        run: |
+          set -euo pipefail
+
+          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
+            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
+            exit 1
+          }
+
+      - name: Checkout build-workflow tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: runlix/build-workflow
+          ref: ${{ inputs.build-workflow-ref }}
+          path: .build-workflow
+
       - name: Log in to GHCR
         if: ${{ inputs.publish }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
@@ -204,88 +128,13 @@ jobs:
 
       - name: Build target
         id: build-target
-        shell: bash
-        env:
-          CONFIG_PATH: ${{ inputs.config-path }}
-          TARGET_NAME: ${{ matrix.name }}
-          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
-          CONTEXT_DIR: ${{ inputs.context-dir }}
-        run: |
-          set -euo pipefail
-
-          image_name="$(jq -r '.image' "$CONFIG_PATH")"
-          version_text="$(jq -r '.version // ""' "$CONFIG_PATH")"
-          target_json="$(
-            jq -c --arg name "$TARGET_NAME" '
-              .targets[]
-              | select((.enabled // true) and .name == $name)
-            ' "$CONFIG_PATH"
-          )"
-
-          if [ -z "$target_json" ]; then
-            echo "Enabled target not found: $TARGET_NAME" >&2
-            exit 1
-          fi
-
-          arch="$(printf '%s' "$target_json" | jq -r '.arch')"
-          dockerfile="$(printf '%s' "$target_json" | jq -r '.dockerfile')"
-          manifest_tag="$(printf '%s' "$target_json" | jq -r '.tag')"
-          base_ref="$(printf '%s' "$target_json" | jq -r '.base_ref')"
-          build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          platform="linux/$arch"
-          image_tag="${image_name}:${manifest_tag}-${arch}-${SHORT_SHA}"
-
-          base_no_digest="${base_ref%@*}"
-          if [ "$base_no_digest" = "$base_ref" ]; then
-            echo "base_ref must include a digest: $base_ref" >&2
-            exit 1
-          fi
-
-          base_digest="${base_ref#*@}"
-          base_image="${base_no_digest%:*}"
-          base_tag="${base_no_digest##*:}"
-
-          build_args=(
-            --build-arg "BASE_IMAGE=$base_image"
-            --build-arg "BASE_TAG=$base_tag"
-            --build-arg "BASE_DIGEST=$base_digest"
-          )
-
-          while IFS=$'\t' read -r key value; do
-            [ -n "$key" ] || continue
-            build_args+=(--build-arg "$key=$value")
-          done < <(
-            printf '%s' "$target_json" |
-              jq -r '(.build_args // {}) | to_entries[]? | [.key, .value] | @tsv'
-          )
-
-          label_args=(
-            --label "org.opencontainers.image.created=$build_date"
-            --label "org.opencontainers.image.revision=${GITHUB_SHA}"
-            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
-          )
-          if [ -n "$version_text" ]; then
-            label_args+=(--label "org.opencontainers.image.version=$version_text")
-          fi
-
-          echo "Building target '$TARGET_NAME'"
-          echo "  Image: $image_tag"
-          echo "  Platform: $platform"
-          echo "  Dockerfile: $dockerfile"
-
-          docker buildx build \
-            --platform "$platform" \
-            -f "$dockerfile" \
-            "${build_args[@]}" \
-            "${label_args[@]}" \
-            --load \
-            -t "$image_tag" \
-            "$CONTEXT_DIR"
-
-          {
-            printf 'image_tag=%s\n' "$image_tag"
-            printf 'platform=%s\n' "$platform"
-          } >> "$GITHUB_OUTPUT"
+        uses: ./.build-workflow/.github/actions/internal/ci/build-target
+        with:
+          config-path: ${{ inputs.config-path }}
+          target-name: ${{ matrix.name }}
+          mode: release
+          short-sha: ${{ needs.plan.outputs.short_sha }}
+          context-dir: ${{ inputs.context-dir }}
 
       - name: Run target test
         if: ${{ matrix.test != '' }}
@@ -324,6 +173,25 @@ jobs:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Validate build-workflow ref
+        shell: bash
+        env:
+          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
+        run: |
+          set -euo pipefail
+
+          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
+            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
+            exit 1
+          }
+
+      - name: Checkout build-workflow tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: runlix/build-workflow
+          ref: ${{ inputs.build-workflow-ref }}
+          path: .build-workflow
+
       - name: Log in to GHCR
         if: ${{ inputs.publish }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
@@ -336,88 +204,37 @@ jobs:
         if: ${{ inputs.publish }}
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
+      - name: Resolve publication timestamp
+        id: published-at
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'value=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
+
       - name: Create manifests
         if: ${{ inputs.publish }}
-        shell: bash
-        env:
-          CONFIG_PATH: ${{ inputs.config-path }}
-          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
-        run: |
-          set -euo pipefail
-
-          image_name="$(jq -r '.image' "$CONFIG_PATH")"
-
-          while IFS= read -r manifest_tag; do
-            [ -n "$manifest_tag" ] || continue
-
-            refs=()
-            while IFS=$'\t' read -r arch _target_name; do
-              refs+=("${image_name}:${manifest_tag}-${arch}-${SHORT_SHA}")
-            done < <(
-              jq -r --arg tag "$manifest_tag" '
-                .targets[]
-                | select((.enabled // true) and .tag == $tag)
-                | [.arch, .name]
-                | @tsv
-              ' "$CONFIG_PATH"
-            )
-
-            if [ "${#refs[@]}" -eq 0 ]; then
-              echo "No platform images discovered for manifest tag: $manifest_tag" >&2
-              exit 1
-            fi
-
-            echo "Creating manifest ${image_name}:${manifest_tag}"
-            docker buildx imagetools create -t "${image_name}:${manifest_tag}" "${refs[@]}"
-          done < <(jq -r '.targets[] | select(.enabled // true) | .tag' "$CONFIG_PATH" | sort -u)
+        uses: ./.build-workflow/.github/actions/internal/ci/create-manifests
+        with:
+          config-path: ${{ inputs.config-path }}
+          short-sha: ${{ needs.plan.outputs.short_sha }}
 
       - name: Render release metadata
-        shell: bash
-        env:
-          CONFIG_PATH: ${{ inputs.config-path }}
-        run: |
-          set -euo pipefail
-
-          published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-          version_text="$(jq -r '.version // ""' "$CONFIG_PATH")"
-          short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
-          tags_json="$(jq '[.targets[] | select(.enabled // true) | .tag] | unique' "$CONFIG_PATH")"
-
-          jq -n \
-            --arg version "$version_text" \
-            --arg sha "$GITHUB_SHA" \
-            --arg short_sha "$short_sha" \
-            --arg published_at "$published_at" \
-            --argjson tags "$tags_json" \
-            '{
-              version: (if $version == "" then null else $version end),
-              sha: $sha,
-              short_sha: $short_sha,
-              published_at: $published_at,
-              tags: $tags
-            }' > release-metadata.json
+        id: release-metadata
+        uses: ./.build-workflow/.github/actions/internal/ci/render-release-metadata
+        with:
+          config-path: ${{ inputs.config-path }}
+          source-sha: ${{ github.sha }}
+          published-at: ${{ steps.published-at.outputs.value }}
 
       - name: Validate release metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          jq empty release-metadata.json > /dev/null
-
-          jq -e '
-            ((.version == null) or (.version | type == "string" and length > 0)) and
-            (.sha | type == "string" and test("^[a-f0-9]{40}$")) and
-            (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
-            (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
-            (.tags | type == "array" and length > 0) and
-            all(.tags[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
-            ((.tags | unique | length) == (.tags | length))
-          ' release-metadata.json > /dev/null
+        uses: ./.build-workflow/.github/actions/internal/ci/validate-release-record
+        with:
+          json-path: ${{ steps.release-metadata.outputs.metadata-path }}
 
       - name: Upload release metadata
         if: ${{ inputs.publish }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: release-metadata
-          path: release-metadata.json
+          path: ${{ steps.release-metadata.outputs.metadata-path }}
           retention-days: 7
