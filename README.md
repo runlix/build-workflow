@@ -41,13 +41,15 @@ Public reusable workflows:
 - `.github/workflows/release-v2.yml`
 - `.github/workflows/sync-release-metadata-v2.yml`
 
-Internal reusable workflow:
+Internal reusable workflows:
 
 - `.github/workflows/plan-v2-internal.yml`
+- `.github/workflows/release-v2-internal.yml`
 
 Canonical `v2` assets:
 
 - schema: `schema/ci-config-v2.schema.json`
+- metadata schemas: `schema/release-metadata-v2.schema.json`, `schema/releases-v2.schema.json`
 - config examples: `examples/ci-v2/`
 - contract tests: `.github/workflows/test-workflow-v2.yml`
 - fixtures: `test-fixtures/v2/`
@@ -71,7 +73,7 @@ Release:
 5. creates final manifest tags
 6. uploads `release-metadata.json` as artifact `release-metadata`
 
-For `build-workflow`'s own fixture coverage, `release-v2.yml` also supports `publish: false` so the release path can be exercised without pushing to GHCR.
+`build-workflow` exercises dry-run release coverage through the internal workflow `.github/workflows/release-v2-internal.yml`.
 
 Metadata sync:
 

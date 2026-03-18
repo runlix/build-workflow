@@ -8,6 +8,7 @@ on:
     paths:
       - ".ci/config.json"
       - ".ci/*.sh"
+      - ".dockerignore"
       - "linux-*.Dockerfile"
       - ".github/workflows/pr-validation.yml"
       - ".github/workflows/release.yml"

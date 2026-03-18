@@ -33,6 +33,17 @@ jobs:
           test -f artifacts/release-metadata.json
           jq empty artifacts/release-metadata.json > /dev/null
 
+          jq -e '
+            (.service | type == "string" and test("^[a-z0-9]+([._-][a-z0-9]+)*$")) and
+            ((.version == null) or (.version | type == "string" and length > 0)) and
+            (.sha | type == "string" and test("^[a-f0-9]{40}$")) and
+            (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
+            (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
+            (.tags | type == "array" and length > 0) and
+            all(.tags[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+            ((.tags | unique | length) == (.tags | length))
+          ' artifacts/release-metadata.json > /dev/null
+
       - name: Write releases.json
         shell: bash
         run: |
@@ -44,6 +55,23 @@ jobs:
             published_at,
             tags
           }' artifacts/release-metadata.json > releases.json
+
+      - name: Validate releases.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq empty releases.json > /dev/null
+
+          jq -e '
+            ((.version == null) or (.version | type == "string" and length > 0)) and
+            (.sha | type == "string" and test("^[a-f0-9]{40}$")) and
+            (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
+            (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
+            (.tags | type == "array" and length > 0) and
+            all(.tags[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+            ((.tags | unique | length) == (.tags | length))
+          ' releases.json > /dev/null
 
       - name: Commit metadata update
         env:

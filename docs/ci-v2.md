@@ -30,9 +30,11 @@ Each enabled target is one build unit and declares:
 - optional test script
 - optional extra build args
 
-The canonical schema is:
+The canonical schemas are:
 
 - `schema/ci-config-v2.schema.json`
+- `schema/release-metadata-v2.schema.json`
+- `schema/releases-v2.schema.json`
 
 Generic examples live in:
 
@@ -49,7 +51,7 @@ Wrapper examples live in:
 - `examples/release.yml`
 - `examples/sync-release-metadata.yml`
 
-Wrapper path filters should treat `.ci/*.sh` as build inputs, not `.ci/README.md`.
+Wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs, not `.ci/README.md`.
 
 Config examples live in:
 
@@ -74,7 +76,7 @@ Release:
 6. creates final multi-arch manifests
 7. uploads `release-metadata.json` as artifact `release-metadata`
 
-`release-v2.yml` also supports `publish: false` for `build-workflow` contract tests. Real service wrappers should rely on the default `publish: true`.
+`build-workflow` uses the internal workflow `.github/workflows/release-v2-internal.yml` for dry-run contract coverage. Real service wrappers should only call the public `release-v2.yml`.
 
 Metadata sync:
 
@@ -88,13 +90,13 @@ Metadata sync:
 - `v2` keeps `v1` untouched
 - reusable workflows are the public interface
 - `plan-v2-internal.yml` is an internal implementation detail for shared validation and matrix planning
+- `release-v2-internal.yml` is an internal implementation detail for release dry-run coverage and shared release execution
 - no internal checkout of `build-workflow`
 - no second SHA input
 - no legacy `docker-matrix` support in `v2`
 - no runtime downloads for core logic except artifact retrieval from the triggering run
 - metadata sync is standardized on `release`, `main`, and `release-metadata`
 - real service wrappers should rely on default inputs unless they have a documented reason not to
-- `publish: false` is reserved for `build-workflow` contract tests; service wrappers should not set it
 - docs and examples should reference merged full SHAs only
 
 ## Testing
