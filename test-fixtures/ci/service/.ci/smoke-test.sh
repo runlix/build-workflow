@@ -20,7 +20,7 @@ fi
 temp_container="$(docker create "$IMAGE_TAG")"
 trap 'docker rm -f "$temp_container" >/dev/null 2>&1 || true' EXIT
 
-docker cp "$temp_container:/app/metadata.json" /tmp/service-metadata-v2.json
-jq -e '.app_version == "1.2.3"' /tmp/service-metadata-v2.json > /dev/null
-jq -e '.variant == "stable" or .variant == "debug"' /tmp/service-metadata-v2.json > /dev/null
-rm -f /tmp/service-metadata-v2.json
+docker cp "$temp_container:/app/metadata.json" /tmp/service-metadata-ci.json
+jq -e '.app_version == "1.2.3"' /tmp/service-metadata-ci.json > /dev/null
+jq -e '.variant == "stable" or .variant == "debug"' /tmp/service-metadata-ci.json > /dev/null
+rm -f /tmp/service-metadata-ci.json

@@ -17,6 +17,6 @@ test -n "$source"
 temp_container="$(docker create "$IMAGE_TAG")"
 trap 'docker rm -f "$temp_container" >/dev/null 2>&1 || true' EXIT
 
-docker cp "$temp_container:/etc/build-info" /tmp/build-info-v2.json
-jq -e '.variant == "stable" or .variant == "debug"' /tmp/build-info-v2.json > /dev/null
-rm -f /tmp/build-info-v2.json
+docker cp "$temp_container:/etc/build-info" /tmp/build-info-ci.json
+jq -e '.variant == "stable" or .variant == "debug"' /tmp/build-info-ci.json > /dev/null
+rm -f /tmp/build-info-ci.json

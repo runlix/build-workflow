@@ -1,0 +1,257 @@
+name: CI Release
+
+on:
+  workflow_call:
+    inputs:
+      config-path:
+        description: Path to the CI config file in the caller repository.
+        required: false
+        default: .ci/config.json
+        type: string
+      context-dir:
+        description: Docker build context directory in the caller repository.
+        required: false
+        default: .
+        type: string
+      publish:
+        description: Whether to push images and upload release metadata.
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: plan
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      short_sha: ${{ steps.context.outputs.short_sha }}
+      image_name: ${{ steps.validate.outputs.image_name }}
+      version: ${{ steps.validate.outputs.version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Resolve workflow source
+        id: workflow-source
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          workflow_repository="${WORKFLOW_REF%%/.github/workflows/*}"
+
+          {
+            printf 'repository=%s\n' "$workflow_repository"
+            printf 'sha=%s\n' "$WORKFLOW_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout workflow repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ steps.workflow-source.outputs.repository }}
+          ref: ${{ steps.workflow-source.outputs.sha }}
+          path: .build-workflow
+
+      - name: Resolve source context
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'short_sha=%s\n' "${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate CI config
+        id: validate
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          set -euo pipefail
+          bash .build-workflow/scripts/ci/validate-config.sh "$CONFIG_PATH"
+
+      - name: Plan build matrix
+        id: plan
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SHORT_SHA: ${{ steps.context.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          matrix="$(bash .build-workflow/scripts/ci/plan-matrix.sh "$CONFIG_PATH" "$SHORT_SHA")"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    name: build-and-push
+    permissions:
+      contents: read
+      packages: write
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Resolve workflow source
+        id: workflow-source
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          workflow_repository="${WORKFLOW_REF%%/.github/workflows/*}"
+
+          {
+            printf 'repository=%s\n' "$workflow_repository"
+            printf 'sha=%s\n' "$WORKFLOW_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout workflow repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ steps.workflow-source.outputs.repository }}
+          ref: ${{ steps.workflow-source.outputs.sha }}
+          path: .build-workflow
+
+      - name: Log in to GHCR
+        if: ${{ inputs.publish }}
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build target
+        id: build-target
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          TARGET_NAME: ${{ matrix.name }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+          CONTEXT_DIR: ${{ inputs.context-dir }}
+        run: |
+          set -euo pipefail
+          bash .build-workflow/scripts/ci/build-target.sh "$CONFIG_PATH" "$TARGET_NAME" release "$SHORT_SHA" "$CONTEXT_DIR"
+
+      - name: Run target test
+        if: ${{ matrix.test != '' }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.build-target.outputs.image_tag }}
+          PLATFORM: ${{ steps.build-target.outputs.platform }}
+          TEST_SCRIPT: ${{ matrix.test }}
+        run: |
+          set -euo pipefail
+
+          echo "Running test script: $TEST_SCRIPT"
+          chmod +x "$TEST_SCRIPT"
+          "$TEST_SCRIPT"
+
+      - name: Push target image
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ steps.build-target.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_TAG"
+
+  publish:
+    name: publish
+    permissions:
+      contents: read
+      packages: write
+    needs:
+      - plan
+      - build-and-push
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Resolve workflow source
+        id: workflow-source
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          workflow_repository="${WORKFLOW_REF%%/.github/workflows/*}"
+
+          {
+            printf 'repository=%s\n' "$workflow_repository"
+            printf 'sha=%s\n' "$WORKFLOW_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout workflow repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ steps.workflow-source.outputs.repository }}
+          ref: ${{ steps.workflow-source.outputs.sha }}
+          path: .build-workflow
+
+      - name: Log in to GHCR
+        if: ${{ inputs.publish }}
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: ${{ inputs.publish }}
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Create manifests
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          bash .build-workflow/scripts/ci/create-manifests.sh "$CONFIG_PATH" "$SHORT_SHA"
+
+      - name: Render release metadata
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          set -euo pipefail
+
+          published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          bash .build-workflow/scripts/ci/render-release-metadata.sh "$CONFIG_PATH" "$GITHUB_SHA" "$published_at" > release-metadata.json
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash .build-workflow/scripts/ci/validate-release-record.sh release-metadata.json
+
+      - name: Upload release metadata
+        if: ${{ inputs.publish }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: release-metadata
+          path: release-metadata.json
+          retention-days: 7
