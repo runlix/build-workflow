@@ -142,8 +142,6 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           IMAGE_NAME: ${{ needs.plan.outputs.image_name }}
-          TARGET_COUNT: ${{ needs.plan.outputs.enabled_target_count }}
-          MANIFEST_TAGS: ${{ needs.plan.outputs.manifest_tags }}
           MATRIX_JSON: ${{ needs.plan.outputs.matrix }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -163,12 +161,15 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$PLAN_RESULT" = "success" ] && [ -n "${MATRIX_JSON:-}" ]; then
+            target_count="$(jq 'length' <<< "$MATRIX_JSON")"
+            manifest_tags="$(jq -r '[.[].tag] | unique | join(", ")' <<< "$MATRIX_JSON")"
+
             {
               echo "### Build Plan"
               echo ""
               echo "- Image: \`$IMAGE_NAME\`"
-              echo "- Enabled targets: \`$TARGET_COUNT\`"
-              echo "- Manifest tags: \`$MANIFEST_TAGS\`"
+              echo "- Enabled targets: \`$target_count\`"
+              echo "- Manifest tags: \`$manifest_tags\`"
               echo ""
               echo "| Target | Arch | Tag | Dockerfile | Test |"
               echo "| --- | --- | --- | --- | --- |"

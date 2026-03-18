@@ -13,6 +13,11 @@ on:
         required: false
         default: .
         type: string
+      publish:
+        description: Whether to push images and publish manifests. Leave enabled for real release wrappers.
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: release-${{ github.repository }}
@@ -42,6 +47,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Log in to GHCR
+        if: ${{ inputs.publish }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
         with:
           registry: ghcr.io
@@ -133,6 +139,7 @@ jobs:
           "$TEST_SCRIPT"
 
       - name: Push target image
+        if: ${{ inputs.publish }}
         shell: bash
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
@@ -150,6 +157,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Log in to GHCR
+        if: ${{ inputs.publish }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
         with:
           registry: ghcr.io
@@ -157,9 +165,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
+        if: ${{ inputs.publish }}
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Create manifests
+        if: ${{ inputs.publish }}
         shell: bash
         env:
           IMAGE_NAME: ${{ needs.plan.outputs.image_name }}

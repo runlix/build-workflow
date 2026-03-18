@@ -71,6 +71,8 @@ Release:
 5. creates final manifest tags
 6. uploads `release-metadata.json` as artifact `release-metadata`
 
+For `build-workflow`'s own fixture coverage, `release-v2.yml` also supports `publish: false` so the release path can be exercised without pushing to GHCR.
+
 Metadata sync:
 
 1. runs from `main` after a successful `Release` workflow on `release`
