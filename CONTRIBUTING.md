@@ -54,7 +54,7 @@ gh workflow run test-workflow-v2.yml --ref YOUR-BRANCH
 
 Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
 
-- pin the canary wrappers to the branch SHA you are testing
+- pin the canary wrappers to the full commit SHA you are testing
 - run PR validation on `release`
 - if release behavior changed, run the release flow and metadata sync path too
 
@@ -77,6 +77,7 @@ Keep the docs aligned with the actual workflow contract:
 
 - `v2` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must use merged full SHAs
+- supported callers should not use branch refs or preview tags
 - wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs
 - PR aggregate check is `validate / summary`
 - release uploads `release-metadata.json` as artifact `release-metadata`

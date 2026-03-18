@@ -11,6 +11,31 @@ jobs:
       contents: write
     runs-on: ubuntu-24.04
     steps:
+      - name: Verify triggering workflow provenance
+        shell: bash
+        env:
+          TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
+          TRIGGER_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          TRIGGER_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          [ "$TRIGGER_WORKFLOW" = "Release" ] || {
+            echo "Unexpected triggering workflow: $TRIGGER_WORKFLOW" >&2
+            exit 1
+          }
+
+          [ "$TRIGGER_BRANCH" = "release" ] || {
+            echo "Unexpected triggering branch: $TRIGGER_BRANCH" >&2
+            exit 1
+          }
+
+          [ "$TRIGGER_REPOSITORY" = "$CURRENT_REPOSITORY" ] || {
+            echo "Unexpected triggering repository: $TRIGGER_REPOSITORY" >&2
+            exit 1
+          }
+
       - name: Checkout metadata branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -26,6 +51,9 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Validate release metadata
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -33,10 +61,12 @@ jobs:
           test -f artifacts/release-metadata.json
           jq empty artifacts/release-metadata.json > /dev/null
 
-          jq -e '
-            (.service | type == "string" and test("^[a-z0-9]+([._-][a-z0-9]+)*$")) and
+          jq -e \
+            --arg repository_name "$REPOSITORY_NAME" \
+            --arg head_sha "$HEAD_SHA" '
+            (.service | type == "string" and test("^[a-z0-9]+([._-][a-z0-9]+)*$") and . == $repository_name) and
             ((.version == null) or (.version | type == "string" and length > 0)) and
-            (.sha | type == "string" and test("^[a-f0-9]{40}$")) and
+            (.sha | type == "string" and test("^[a-f0-9]{40}$") and . == $head_sha) and
             (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
             (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
             (.tags | type == "array" and length > 0) and
