@@ -1,0 +1,232 @@
+name: Test CI Workflows
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pr-validation.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/sync-release-metadata.yml'
+      - '.github/workflows/test-ci.yml'
+      - 'scripts/ci/**'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'docs/ci.md'
+      - 'examples/pr-validation.yml'
+      - 'examples/release.yml'
+      - 'examples/sync-release-metadata.yml'
+      - 'examples/ci/**'
+      - 'schema/ci-config.schema.json'
+      - 'schema/release-metadata.schema.json'
+      - 'schema/releases.schema.json'
+      - 'test-fixtures/ci/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/pr-validation.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/sync-release-metadata.yml'
+      - '.github/workflows/test-ci.yml'
+      - 'scripts/ci/**'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'docs/ci.md'
+      - 'examples/pr-validation.yml'
+      - 'examples/release.yml'
+      - 'examples/sync-release-metadata.yml'
+      - 'examples/ci/**'
+      - 'schema/ci-config.schema.json'
+      - 'schema/release-metadata.schema.json'
+      - 'schema/releases.schema.json'
+      - 'test-fixtures/ci/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-ci-contracts:
+    name: validate-ci-contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        shell: bash
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate schema structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for schema in \
+            schema/ci-config.schema.json \
+            schema/release-metadata.schema.json \
+            schema/releases.schema.json
+          do
+            echo "Compiling $schema"
+            ajv compile -s "$schema" --spec=draft2020 --strict=false
+          done
+
+      - name: Validate examples and fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for file in \
+            examples/ci/base-image-config.json \
+            examples/ci/service-config.json \
+            test-fixtures/ci/base-image/.ci/config.json \
+            test-fixtures/ci/service/.ci/config.json
+          do
+            echo "Validating $file"
+            ajv validate -s schema/ci-config.schema.json -d "$file" --spec=draft2020 --strict=false
+          done
+
+          ajv validate \
+            -s schema/release-metadata.schema.json \
+            -d test-fixtures/ci/release-metadata/release-metadata.json \
+            --spec=draft2020 \
+            --strict=false
+
+          ajv validate \
+            -s schema/releases.schema.json \
+            -d test-fixtures/ci/release-metadata/releases.expected.json \
+            --spec=draft2020 \
+            --strict=false
+
+      - name: Validate release metadata transform contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash scripts/ci/validate-release-record.sh test-fixtures/ci/release-metadata/release-metadata.json
+          bash scripts/ci/write-releases-json.sh \
+            test-fixtures/ci/release-metadata/release-metadata.json \
+            /tmp/releases.actual.json
+          bash scripts/ci/validate-release-record.sh /tmp/releases.actual.json
+
+          diff -u \
+            test-fixtures/ci/release-metadata/releases.expected.json \
+            /tmp/releases.actual.json
+
+      - name: Verify sync workflow provenance guards
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          workflow_file=".github/workflows/sync-release-metadata.yml"
+
+          rg -q 'TRIGGER_WORKFLOW: \$\{\{ github\.event\.workflow_run\.name \}\}' "$workflow_file"
+          rg -q 'TRIGGER_BRANCH: \$\{\{ github\.event\.workflow_run\.head_branch \}\}' "$workflow_file"
+          rg -q 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' "$workflow_file"
+          rg -q 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' "$workflow_file"
+          rg -q 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' "$workflow_file"
+
+  test-ci-base-image:
+    name: test-ci-base-image
+    needs: validate-ci-contracts
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      config-path: test-fixtures/ci/base-image/.ci/config.json
+      context-dir: test-fixtures/ci/base-image
+
+  test-ci-service:
+    name: test-ci-service
+    needs: validate-ci-contracts
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      config-path: test-fixtures/ci/service/.ci/config.json
+      context-dir: test-fixtures/ci/service
+
+  test-ci-release-dry-run:
+    name: test-ci-release-dry-run
+    needs: validate-ci-contracts
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release.yml
+    with:
+      config-path: test-fixtures/ci/service/.ci/config.json
+      context-dir: test-fixtures/ci/service
+      publish: false
+
+  test-ci-metadata-artifact:
+    name: test-ci-metadata-artifact
+    needs: validate-ci-contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Upload synthetic release metadata artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: release-metadata
+          path: test-fixtures/ci/release-metadata/release-metadata.json
+          retention-days: 1
+
+      - name: Download synthetic release metadata artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-metadata
+          path: downloaded-artifact
+
+      - name: Validate synthetic artifact contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash scripts/ci/validate-release-record.sh downloaded-artifact/release-metadata.json
+          bash scripts/ci/write-releases-json.sh \
+            downloaded-artifact/release-metadata.json \
+            /tmp/releases.from.artifact.json
+
+          diff -u \
+            test-fixtures/ci/release-metadata/releases.expected.json \
+            /tmp/releases.from.artifact.json
+
+  test-summary:
+    name: test-summary
+    needs:
+      - validate-ci-contracts
+      - test-ci-base-image
+      - test-ci-service
+      - test-ci-release-dry-run
+      - test-ci-metadata-artifact
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Summarize CI workflow tests
+        shell: bash
+        env:
+          VALIDATE_RESULT: ${{ needs.validate-ci-contracts.result }}
+          BASE_IMAGE_RESULT: ${{ needs.test-ci-base-image.result }}
+          SERVICE_RESULT: ${{ needs.test-ci-service.result }}
+          RELEASE_DRY_RUN_RESULT: ${{ needs.test-ci-release-dry-run.result }}
+          METADATA_RESULT: ${{ needs.test-ci-metadata-artifact.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## CI Workflow Test Summary"
+            echo ""
+            echo "- Contract validation: \`$VALIDATE_RESULT\`"
+            echo "- Base-image fixture PR validation: \`$BASE_IMAGE_RESULT\`"
+            echo "- Service fixture PR validation: \`$SERVICE_RESULT\`"
+            echo "- Release fixture dry run: \`$RELEASE_DRY_RUN_RESULT\`"
+            echo "- Metadata artifact contract: \`$METADATA_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for result in "$VALIDATE_RESULT" "$BASE_IMAGE_RESULT" "$SERVICE_RESULT" "$RELEASE_DRY_RUN_RESULT" "$METADATA_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "CI workflow tests failed" >&2
+              exit 1
+            fi
+          done

@@ -1,13 +1,13 @@
 # Build Workflow
 
-`build-workflow` now has two tracks:
+`build-workflow` has one supported interface and one legacy interface:
 
-- `v2`: the supported reusable-workflow interface for new repositories
+- `CI`: the supported reusable-workflow contract for new repositories
 - `v1`: the legacy `docker-matrix` workflow surface kept for existing consumers
 
-If you are starting fresh, use `v2`.
+If you are starting fresh, use `CI`.
 
-## Quick Start (`v2`)
+## Quick Start
 
 Recommended repository shape:
 
@@ -23,39 +23,35 @@ main branch:
 
 Starter files:
 
-- config examples: `examples/ci-v2/service-config.json` and `examples/ci-v2/base-image-config.json`
+- config examples: `examples/ci/service-config.json` and `examples/ci/base-image-config.json`
 - wrapper workflows: `examples/pr-validation.yml`, `examples/release.yml`, `examples/sync-release-metadata.yml`
-- schema: `schema/ci-config-v2.schema.json`
+- schema: `schema/ci-config.schema.json`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
-Do not use branch refs or preview tags in supported `v2` callers.
+Do not use branch refs or preview tags in supported callers.
 
-`v2` is intentionally scoped to publishing `ghcr.io/runlix/...` images.
+The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
-The canonical `v2` guide is [docs/ci-v2.md](./docs/ci-v2.md).
+The canonical guide is [docs/ci.md](./docs/ci.md).
 
-## `v2` Interface
+## CI Interface
 
 Public reusable workflows:
 
-- `.github/workflows/pr-validation-v2.yml`
-- `.github/workflows/release-v2.yml`
-- `.github/workflows/sync-release-metadata-v2.yml`
+- `.github/workflows/pr-validation.yml`
+- `.github/workflows/release.yml`
+- `.github/workflows/sync-release-metadata.yml`
 
-Internal reusable workflows:
+Canonical assets:
 
-- `.github/workflows/plan-v2-internal.yml`
-- `.github/workflows/release-v2-internal.yml`
+- schema: `schema/ci-config.schema.json`
+- metadata schemas: `schema/release-metadata.schema.json`, `schema/releases.schema.json`
+- config examples: `examples/ci/`
+- contract tests: `.github/workflows/test-ci.yml`
+- fixtures: `test-fixtures/ci/`
+- shared scripts: `scripts/ci/`
 
-Canonical `v2` assets:
-
-- schema: `schema/ci-config-v2.schema.json`
-- metadata schemas: `schema/release-metadata-v2.schema.json`, `schema/releases-v2.schema.json`
-- config examples: `examples/ci-v2/`
-- contract tests: `.github/workflows/test-workflow-v2.yml`
-- fixtures: `test-fixtures/v2/`
-
-## `v2` Behavior
+## CI Behavior
 
 PR validation:
 
@@ -74,13 +70,11 @@ Release:
 5. creates final manifest tags
 6. uploads `release-metadata.json` as artifact `release-metadata`
 
-`build-workflow` exercises dry-run release coverage through the internal workflow `.github/workflows/release-v2-internal.yml`.
-
 Metadata sync:
 
 1. runs from `main` after a successful `Release` workflow on `release`
 2. downloads `release-metadata.json`
-3. verifies the triggering workflow and metadata provenance
+3. verifies the triggering workflow provenance
 4. writes `releases.json`
 5. commits only when the metadata changed
 

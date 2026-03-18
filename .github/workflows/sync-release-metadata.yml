@@ -1,4 +1,4 @@
-name: CI v2 Sync Release Metadata
+name: CI Sync Release Metadata
 
 on:
   workflow_call:
@@ -41,6 +41,29 @@ jobs:
         with:
           ref: main
 
+      - name: Resolve workflow source
+        id: workflow-source
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          workflow_repository="${WORKFLOW_REF%%/.github/workflows/*}"
+
+          {
+            printf 'repository=%s\n' "$workflow_repository"
+            printf 'sha=%s\n' "$WORKFLOW_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout workflow repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ steps.workflow-source.outputs.repository }}
+          ref: ${{ steps.workflow-source.outputs.sha }}
+          path: .build-workflow
+
       - name: Download release metadata artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -51,57 +74,31 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Validate release metadata
-        env:
-          REPOSITORY_NAME: ${{ github.event.repository.name }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
-          test -f artifacts/release-metadata.json
-          jq empty artifacts/release-metadata.json > /dev/null
+          bash .build-workflow/scripts/ci/validate-release-record.sh artifacts/release-metadata.json
 
-          jq -e \
-            --arg repository_name "$REPOSITORY_NAME" \
-            --arg head_sha "$HEAD_SHA" '
-            (.service | type == "string" and test("^[a-z0-9]+([._-][a-z0-9]+)*$") and . == $repository_name) and
-            ((.version == null) or (.version | type == "string" and length > 0)) and
-            (.sha | type == "string" and test("^[a-f0-9]{40}$") and . == $head_sha) and
-            (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
-            (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
-            (.tags | type == "array" and length > 0) and
-            all(.tags[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
-            ((.tags | unique | length) == (.tags | length))
-          ' artifacts/release-metadata.json > /dev/null
+          metadata_sha="$(jq -r '.sha' artifacts/release-metadata.json)"
+          [ "$metadata_sha" = "$HEAD_SHA" ] || {
+            echo "Release metadata SHA does not match triggering workflow SHA" >&2
+            exit 1
+          }
 
       - name: Write releases.json
         shell: bash
         run: |
           set -euo pipefail
-          jq '{
-            version,
-            sha,
-            short_sha,
-            published_at,
-            tags
-          }' artifacts/release-metadata.json > releases.json
+          bash .build-workflow/scripts/ci/write-releases-json.sh artifacts/release-metadata.json releases.json
 
       - name: Validate releases.json
         shell: bash
         run: |
           set -euo pipefail
-
-          jq empty releases.json > /dev/null
-
-          jq -e '
-            ((.version == null) or (.version | type == "string" and length > 0)) and
-            (.sha | type == "string" and test("^[a-f0-9]{40}$")) and
-            (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
-            (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
-            (.tags | type == "array" and length > 0) and
-            all(.tags[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
-            ((.tags | unique | length) == (.tags | length))
-          ' releases.json > /dev/null
+          bash .build-workflow/scripts/ci/validate-release-record.sh releases.json
 
       - name: Commit metadata update
         env:

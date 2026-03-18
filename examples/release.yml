@@ -19,4 +19,4 @@ permissions:
 jobs:
   release:
     # Pin to a merged full SHA from runlix/build-workflow.
-    uses: runlix/build-workflow/.github/workflows/release-v2.yml@YOUR_BUILD_WORKFLOW_SHA
+    uses: runlix/build-workflow/.github/workflows/release.yml@YOUR_BUILD_WORKFLOW_SHA

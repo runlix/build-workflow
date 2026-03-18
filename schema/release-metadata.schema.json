@@ -1,12 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Runlix Release Metadata v2",
+  "title": "Runlix Release Metadata",
   "type": "object",
   "properties": {
-    "service": {
-      "type": "string",
-      "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$"
-    },
     "version": {
       "type": [
         "string",
@@ -37,7 +33,6 @@
     }
   },
   "required": [
-    "service",
     "version",
     "sha",
     "short_sha",

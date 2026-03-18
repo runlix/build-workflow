@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Runlix Releases v2",
+  "title": "Runlix Releases",
   "type": "object",
   "properties": {
     "version": {

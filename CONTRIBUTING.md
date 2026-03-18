@@ -1,18 +1,19 @@
 # Maintaining Build Workflow
 
-This repository is maintained for `runlix` image automation. The active path is `v2`; `v1` remains available only for legacy consumers.
+This repository is maintained for `runlix` image automation. The active path is the versionless `CI` contract; `v1` remains available only for legacy consumers.
 
 ## Change Types
 
-- `v2` changes:
-  - reusable workflows in `.github/workflows/*-v2.yml`
-  - `schema/ci-config-v2.schema.json`
-  - `schema/release-metadata-v2.schema.json`
-  - `schema/releases-v2.schema.json`
-  - `examples/ci-v2/`
+- `CI` changes:
+  - reusable workflows in `.github/workflows/pr-validation.yml`, `.github/workflows/release.yml`, `.github/workflows/sync-release-metadata.yml`
+  - `scripts/ci/`
+  - `schema/ci-config.schema.json`
+  - `schema/release-metadata.schema.json`
+  - `schema/releases.schema.json`
+  - `examples/ci/`
   - `examples/*.yml`
-  - `test-fixtures/v2/`
-  - `docs/ci-v2.md`
+  - `test-fixtures/ci/`
+  - `docs/ci.md`
 - `v1` changes:
   - `.github/workflows/build-images-rebuild.yml`
   - `schema/docker-matrix-schema.json`
@@ -32,9 +33,9 @@ Useful local checks:
 
 ```bash
 # Validate the active schemas, examples, and fixtures
-ajv compile -s schema/ci-config-v2.schema.json --spec=draft2020 --strict=false
-ajv compile -s schema/release-metadata-v2.schema.json --spec=draft2020 --strict=false
-ajv compile -s schema/releases-v2.schema.json --spec=draft2020 --strict=false
+ajv compile -s schema/ci-config.schema.json --spec=draft2020 --strict=false
+ajv compile -s schema/release-metadata.schema.json --spec=draft2020 --strict=false
+ajv compile -s schema/releases.schema.json --spec=draft2020 --strict=false
 
 # Lint workflow files
 actionlint .github/workflows/*.yml examples/*.yml examples/v1/*.yml
@@ -45,11 +46,10 @@ git diff --check
 
 ## Testing Rules
 
-For `v2` changes:
+For `CI` changes:
 
 ```bash
-# Contract workflow for v2
-gh workflow run test-workflow-v2.yml --ref YOUR-BRANCH
+gh workflow run test-ci.yml --ref YOUR-BRANCH
 ```
 
 Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
@@ -69,13 +69,13 @@ gh workflow run test-workflow.yml --ref YOUR-BRANCH
 When behavior changes, update the docs in the same branch:
 
 - `README.md` for the supported surface
-- `docs/ci-v2.md` for `v2`
+- `docs/ci.md` for the supported contract
 - `docs/v1/` only if legacy behavior changed
-- `examples/*.yml` and `examples/ci-v2/*.json` if the public contract changed
+- `examples/*.yml` and `examples/ci/*.json` if the public contract changed
 
 Keep the docs aligned with the actual workflow contract:
 
-- `v2` is GHCR-only for `ghcr.io/runlix/<name>`
+- `CI` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must use merged full SHAs
 - supported callers should not use branch refs or preview tags
 - wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs

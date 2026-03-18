@@ -1,5 +1,4 @@
 {
-  "service": "test-service-v2",
   "version": "1.2.3",
   "sha": "1234567890abcdef1234567890abcdef12345678",
   "short_sha": "1234567",
