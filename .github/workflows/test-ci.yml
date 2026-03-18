@@ -130,6 +130,20 @@ jobs:
           rg -q 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' "$workflow_file"
           rg -q 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' "$workflow_file"
 
+      - name: Verify reusable workflows are self-contained
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if rg -n '\.build-workflow/|github\.workflow_ref|github\.workflow_sha' \
+            .github/workflows/pr-validation.yml \
+            .github/workflows/release.yml \
+            .github/workflows/sync-release-metadata.yml
+          then
+            echo "Reusable workflows must not depend on caller-scoped workflow context." >&2
+            exit 1
+          fi
+
   test-ci-base-image:
     name: test-ci-base-image
     needs: validate-ci-contracts

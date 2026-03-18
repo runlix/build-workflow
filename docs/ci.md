@@ -69,7 +69,7 @@ Metadata sync:
 
 - reusable workflows are the public interface
 - shared shell logic lives under `scripts/ci/`
-- reusable workflows check out the workflow repository at `github.workflow_sha` before running shared scripts
+- reusable workflows must stay self-contained at runtime because the `github` context in a called workflow is associated with the caller repository
 - no branch refs or preview tags in supported callers
 - no legacy `docker-matrix` compatibility in the supported interface
 - metadata sync is standardized on `Release`, `release`, `main`, and `release-metadata`
