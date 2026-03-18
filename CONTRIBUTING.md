@@ -7,6 +7,8 @@ This repository is maintained for `runlix` image automation. The active path is 
 - `v2` changes:
   - reusable workflows in `.github/workflows/*-v2.yml`
   - `schema/ci-config-v2.schema.json`
+  - `schema/release-metadata-v2.schema.json`
+  - `schema/releases-v2.schema.json`
   - `examples/ci-v2/`
   - `examples/*.yml`
   - `test-fixtures/v2/`
@@ -30,13 +32,15 @@ Useful local checks:
 
 ```bash
 # Validate the active schemas, examples, and fixtures
-bash commands/validate-schema.sh
-
-# Inspect workflow inputs, outputs, permissions, and job surfaces
-bash commands/inspect-workflow-surface.sh
+ajv compile -s schema/ci-config-v2.schema.json --spec=draft2020 --strict=false
+ajv compile -s schema/release-metadata-v2.schema.json --spec=draft2020 --strict=false
+ajv compile -s schema/releases-v2.schema.json --spec=draft2020 --strict=false
 
 # Lint workflow files
 actionlint .github/workflows/*.yml examples/*.yml examples/v1/*.yml
+
+# Check for whitespace and patch-format problems
+git diff --check
 ```
 
 ## Testing Rules
@@ -50,7 +54,7 @@ gh workflow run test-workflow-v2.yml --ref YOUR-BRANCH
 
 Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
 
-- pin the canary wrappers to your branch SHA or preview tag
+- pin the canary wrappers to the branch SHA you are testing
 - run PR validation on `release`
 - if release behavior changed, run the release flow and metadata sync path too
 
@@ -73,7 +77,7 @@ Keep the docs aligned with the actual workflow contract:
 
 - `v2` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must use merged full SHAs
-- wrapper path filters should treat `.ci/*.sh` as build inputs
+- wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs
 - PR aggregate check is `validate / summary`
 - release uploads `release-metadata.json` as artifact `release-metadata`
 
