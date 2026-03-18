@@ -74,6 +74,8 @@ Release:
 6. creates final multi-arch manifests
 7. uploads `release-metadata.json` as artifact `release-metadata`
 
+`release-v2.yml` also supports `publish: false` for `build-workflow` contract tests. Real service wrappers should rely on the default `publish: true`.
+
 Metadata sync:
 
 1. runs from `main` on successful `Release`
@@ -92,6 +94,7 @@ Metadata sync:
 - no runtime downloads for core logic except artifact retrieval from the triggering run
 - metadata sync is standardized on `release`, `main`, and `release-metadata`
 - real service wrappers should rely on default inputs unless they have a documented reason not to
+- `publish: false` is reserved for `build-workflow` contract tests; service wrappers should not set it
 - docs and examples should reference merged full SHAs only
 
 ## Testing

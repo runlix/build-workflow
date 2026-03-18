@@ -108,6 +108,18 @@ jobs:
       config-path: test-fixtures/v2/service/.ci/config.json
       context-dir: test-fixtures/v2/service
 
+  test-v2-release-dry-run:
+    name: test-v2-release-dry-run
+    permissions:
+      contents: read
+      packages: write
+    needs: validate-v2-contracts
+    uses: ./.github/workflows/release-v2.yml
+    with:
+      config-path: test-fixtures/v2/service/.ci/config.json
+      context-dir: test-fixtures/v2/service
+      publish: false
+
   test-v2-metadata-artifact:
     name: test-v2-metadata-artifact
     needs: validate-v2-contracts
@@ -154,6 +166,7 @@ jobs:
       - validate-v2-contracts
       - test-v2-base-image
       - test-v2-service
+      - test-v2-release-dry-run
       - test-v2-metadata-artifact
     if: ${{ always() }}
     runs-on: ubuntu-24.04
@@ -164,6 +177,7 @@ jobs:
           VALIDATE_RESULT: ${{ needs.validate-v2-contracts.result }}
           BASE_IMAGE_RESULT: ${{ needs.test-v2-base-image.result }}
           SERVICE_RESULT: ${{ needs.test-v2-service.result }}
+          RELEASE_DRY_RUN_RESULT: ${{ needs.test-v2-release-dry-run.result }}
           METADATA_RESULT: ${{ needs.test-v2-metadata-artifact.result }}
         run: |
           set -euo pipefail
@@ -174,10 +188,11 @@ jobs:
             echo "- Contract validation: \`$VALIDATE_RESULT\`"
             echo "- Base-image fixture PR validation: \`$BASE_IMAGE_RESULT\`"
             echo "- Service fixture PR validation: \`$SERVICE_RESULT\`"
+            echo "- Release fixture dry run: \`$RELEASE_DRY_RUN_RESULT\`"
             echo "- Metadata artifact contract: \`$METADATA_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for result in "$VALIDATE_RESULT" "$BASE_IMAGE_RESULT" "$SERVICE_RESULT" "$METADATA_RESULT"; do
+          for result in "$VALIDATE_RESULT" "$BASE_IMAGE_RESULT" "$SERVICE_RESULT" "$RELEASE_DRY_RUN_RESULT" "$METADATA_RESULT"; do
             if [ "$result" != "success" ]; then
               echo "CI v2 workflow tests failed" >&2
               exit 1
