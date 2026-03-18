@@ -38,7 +38,8 @@ Generic examples live in:
 
 - `examples/ci-v2/service-config.json`
 - `examples/ci-v2/base-image-config.json`
-- `image` must be `ghcr.io/runlix/<name>`
+
+`image` must be `ghcr.io/runlix/<name>`.
 
 ## Workflow behavior
 
