@@ -1,0 +1,31 @@
+name: Validate CI Config
+description: Validate a CI config file and the files it references.
+
+inputs:
+  config-path:
+    description: Path to the CI config file.
+    required: true
+
+outputs:
+  image_name:
+    description: Fully qualified GHCR image name from the config.
+    value: ${{ steps.validate.outputs.image_name }}
+  version:
+    description: Version from the config, if present.
+    value: ${{ steps.validate.outputs.version }}
+  enabled_count:
+    description: Number of enabled targets in the config.
+    value: ${{ steps.validate.outputs.enabled_count }}
+  manifest_tags:
+    description: Comma-separated list of enabled manifest tags.
+    value: ${{ steps.validate.outputs.manifest_tags }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate config
+      id: validate
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/run.sh" \
+          "${{ inputs.config-path }}"

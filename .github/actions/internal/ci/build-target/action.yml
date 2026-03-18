@@ -1,0 +1,42 @@
+name: Build CI Target
+description: Build one CI target for PR validation or release publishing.
+
+inputs:
+  config-path:
+    description: Path to the CI config file.
+    required: true
+  target-name:
+    description: Name of the enabled target to build.
+    required: true
+  mode:
+    description: Build mode, either pr or release.
+    required: true
+  short-sha:
+    description: Short commit SHA used for PR and temporary release tags.
+    required: true
+  context-dir:
+    description: Docker build context directory.
+    required: false
+    default: .
+
+outputs:
+  image_tag:
+    description: Fully qualified image tag produced by the build.
+    value: ${{ steps.build.outputs.image_tag }}
+  platform:
+    description: Docker platform built for this target.
+    value: ${{ steps.build.outputs.platform }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build target
+      id: build
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/run.sh" \
+          "${{ inputs.config-path }}" \
+          "${{ inputs.target-name }}" \
+          "${{ inputs.mode }}" \
+          "${{ inputs.short-sha }}" \
+          "${{ inputs.context-dir }}"

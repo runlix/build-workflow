@@ -38,6 +38,16 @@ Canonical assets:
 
 `image` must be `ghcr.io/runlix/<name>`.
 
+## Required Pinning
+
+Supported callers must use the same merged full `build-workflow` SHA in three places:
+
+- the reusable workflow `uses:` ref
+- the `build-workflow-ref` workflow input
+- the raw GitHub `$schema` URL in `.ci/config.json`
+
+`build-workflow-ref` is required because GitHub associates the `github` context in a called workflow with the caller repository. The reusable workflow cannot reliably discover its own repository ref at runtime, so callers must pass the exact SHA explicitly.
+
 ## Workflow Behavior
 
 PR validation:
@@ -68,8 +78,8 @@ Metadata sync:
 ## Design Rules
 
 - reusable workflows are the public interface
-- shared shell logic lives under `scripts/ci/`
-- reusable workflows must stay self-contained at runtime because the `github` context in a called workflow is associated with the caller repository
+- internal implementation lives under `.github/actions/internal/ci/`
+- internal composite actions may use action-local `run.sh` entrypoints, but callers should not invoke them directly
 - no branch refs or preview tags in supported callers
 - no legacy `docker-matrix` compatibility in the supported interface
 - metadata sync is standardized on `Release`, `release`, `main`, and `release-metadata`

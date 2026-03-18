@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
-  echo "Usage: build-target.sh <config-path> <target-name> <pr|release> <short-sha> [context-dir]" >&2
+  echo "Usage: run.sh <config-path> <target-name> <pr|release> <short-sha> [context-dir]" >&2
   exit 1
 fi
 
