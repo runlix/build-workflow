@@ -28,6 +28,7 @@ Starter files:
 - schema: `schema/ci-config-v2.schema.json`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
+Do not use branch refs or preview tags in supported `v2` callers.
 
 `v2` is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -79,8 +80,9 @@ Metadata sync:
 
 1. runs from `main` after a successful `Release` workflow on `release`
 2. downloads `release-metadata.json`
-3. writes `releases.json`
-4. commits only when the metadata changed
+3. verifies the triggering workflow and metadata provenance
+4. writes `releases.json`
+5. commits only when the metadata changed
 
 ## Legacy `v1`
 

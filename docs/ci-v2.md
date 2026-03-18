@@ -12,6 +12,7 @@
 - `.github/workflows/sync-release-metadata-v2.yml`
 
 Service repositories should use thin wrapper workflows pinned to a merged full commit SHA.
+Branch refs and preview tags are for temporary maintainer testing only, not for the supported `v2` surface.
 
 `v2` is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -81,9 +82,10 @@ Release:
 Metadata sync:
 
 1. runs from `main` on successful `Release`
-2. downloads `release-metadata.json`
-3. writes `releases.json`
-4. commits only when metadata changes
+2. verifies the triggering workflow and metadata provenance
+3. downloads `release-metadata.json`
+4. writes `releases.json`
+5. commits only when metadata changes
 
 ## Design rules
 
