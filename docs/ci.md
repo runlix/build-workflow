@@ -15,6 +15,33 @@ The supported `build-workflow` interface is the versionless CI contract:
 
 Caller repositories should keep thin wrappers on those branches and pin them to a merged full commit SHA from `runlix/build-workflow`.
 
+## Design Pattern
+
+The active design is a planner/executor split:
+
+- planner/tool layer: `build-workflow-ci` in `tools/ci/`
+- executor layer: the reusable workflows in `.github/workflows/`
+
+The tool layer owns:
+
+- config validation
+- build-matrix planning
+- per-target build planning
+- manifest planning
+- release-metadata rendering
+- release-record validation
+- `releases.json` writing
+
+The workflow layer owns:
+
+- permissions
+- runner selection
+- checkout and artifact flow
+- Docker build, push, and manifest side effects
+- summary reporting
+
+This is clearer than the earlier internal-action bootstrap because the reusable workflows no longer need to self-checkout implementation files from `runlix/build-workflow`.
+
 ## Config
 
 The caller contract is one explicit file: `.ci/config.json`.
@@ -38,15 +65,12 @@ Canonical assets:
 
 `image` must be `ghcr.io/runlix/<name>`.
 
-## Required Pinning
+## Pinning
 
-Supported callers must use the same merged full `build-workflow` SHA in three places:
+Supported callers should pin the reusable workflow `uses:` reference to a merged full `build-workflow` commit SHA.
 
-- the reusable workflow `uses:` ref
-- the `build-workflow-ref` workflow input
-- the raw GitHub `$schema` URL in `.ci/config.json`
-
-`build-workflow-ref` is required because GitHub associates the `github` context in a called workflow with the caller repository. The reusable workflow cannot reliably discover its own repository ref at runtime, so callers must pass the exact SHA explicitly.
+The reusable workflows default to `ghcr.io/runlix/build-workflow-tools:ci` for the planner image.
+Maintainers can override that image with the `tool-image` input when validating an unpublished or side-branch tooling build.
 
 ## Workflow Behavior
 
@@ -75,13 +99,36 @@ Metadata sync:
 4. writes `releases.json`
 5. commits only when the metadata changed
 
+## Local Validation
+
+The planner image is also the local validation entrypoint:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  validate-config .ci/config.json
+```
+
+Additional examples:
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  plan-matrix .ci/config.json --short-sha 1234567
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  validate-release-record release-metadata.json
+```
+
 ## Design Rules
 
 - reusable workflows are the public interface
-- internal implementation lives under `.github/actions/internal/ci/`
-- internal composite actions may use action-local `run.sh` entrypoints, but callers should not invoke them directly
-- no branch refs or preview tags in supported callers
+- `tools/ci/` is the only supported implementation path for the `CI` contract
+- no internal composite-action layer in the supported interface
 - no legacy `docker-matrix` compatibility in the supported interface
 - metadata sync is standardized on `Release`, `release`, `main`, and `release-metadata`
-- callers should rely on default inputs unless they have a documented reason not to
+- callers should rely on default inputs unless they are validating a new tool image
 - `publish: false` on the release workflow is for contract testing and maintainer dry runs
