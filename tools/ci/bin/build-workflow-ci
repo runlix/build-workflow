@@ -1,0 +1,424 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  build-workflow-ci validate-config <config-path>
+  build-workflow-ci plan-matrix <config-path> --short-sha <sha>
+  build-workflow-ci plan-build-target <config-path> --target-name <name> --mode <pr|release> --short-sha <sha> [--context-dir <dir>]
+  build-workflow-ci plan-manifests <config-path> --short-sha <sha>
+  build-workflow-ci render-release-metadata <config-path> --source-sha <sha> --published-at <timestamp>
+  build-workflow-ci validate-release-record <json-path>
+  build-workflow-ci write-releases-json <metadata-path> --output <releases-path>
+EOF
+}
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+require_file() {
+  local path="$1"
+  [ -f "$path" ] || die "File not found: $path"
+}
+
+normalize_version_json() {
+  local version_text="$1"
+
+  if [ -n "$version_text" ]; then
+    jq -cn --arg version "$version_text" '$version'
+  else
+    jq -cn 'null'
+  fi
+}
+
+validate_config() {
+  local config_path="$1"
+  local duplicate_names duplicate_tag_arch_pairs enabled_count image_name version_text manifest_tags_json
+
+  require_file "$config_path"
+  jq empty "$config_path" > /dev/null
+
+  jq -e '
+    (.image | type == "string" and test("^ghcr\\.io/runlix/[a-z0-9]+([._-][a-z0-9]+)*$")) and
+    ((has("version") | not) or (.version | type == "string" and length > 0)) and
+    (.targets | type == "array" and length > 0) and
+    all(.targets[];
+      (.name | type == "string" and test("^[a-z0-9-]+$")) and
+      (.tag | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+      (.arch == "amd64" or .arch == "arm64") and
+      (.dockerfile | type == "string" and length > 0) and
+      (.base_ref | type == "string" and test("^.+:.+@sha256:[a-f0-9]{64}$")) and
+      ((.test // "") | type == "string") and
+      ((.enabled // true) | type == "boolean") and
+      ((.build_args // {}) | type == "object") and
+      all((.build_args // {}) | to_entries[]?;
+        (.key | test("^[A-Z_][A-Z0-9_]*$")) and
+        (.value | type == "string")
+      )
+    )
+  ' "$config_path" > /dev/null
+
+  duplicate_names="$(jq -r '.targets[].name' "$config_path" | sort | uniq -d)"
+  [ -z "$duplicate_names" ] || die "Duplicate target names detected:
+$duplicate_names"
+
+  duplicate_tag_arch_pairs="$(
+    jq -r '.targets[] | select(.enabled // true) | [.tag, .arch] | @tsv' "$config_path" |
+      sort |
+      uniq -d
+  )"
+  [ -z "$duplicate_tag_arch_pairs" ] || die "Duplicate enabled tag/arch pairs detected:
+$duplicate_tag_arch_pairs"
+
+  while IFS=$'\t' read -r target_name dockerfile test_script; do
+    [ -f "$dockerfile" ] || die "Target '$target_name' references a missing Dockerfile: $dockerfile"
+
+    if [ -n "$test_script" ] && [ ! -f "$test_script" ]; then
+      die "Target '$target_name' references a missing test script: $test_script"
+    fi
+  done < <(
+    jq -r '.targets[] | select(.enabled // true) | [.name, .dockerfile, (.test // "")] | @tsv' "$config_path"
+  )
+
+  enabled_count="$(jq '[.targets[] | select(.enabled // true)] | length' "$config_path")"
+  [ "$enabled_count" -gt 0 ] || die "At least one target must be enabled"
+
+  image_name="$(jq -r '.image' "$config_path")"
+  version_text="$(jq -r '.version // ""' "$config_path")"
+  manifest_tags_json="$(jq '[.targets[] | select(.enabled // true) | .tag] | unique' "$config_path")"
+
+  jq -n \
+    --arg image_name "$image_name" \
+    --arg version "$version_text" \
+    --argjson enabled_count "$enabled_count" \
+    --argjson manifest_tags "$manifest_tags_json" \
+    '{
+      image_name: $image_name,
+      version: (if $version == "" then null else $version end),
+      enabled_count: $enabled_count,
+      manifest_tags: $manifest_tags
+    }'
+}
+
+plan_matrix() {
+  local config_path="$1"
+  local short_sha="$2"
+
+  jq -c --arg short_sha "$short_sha" '
+    . as $root
+    | [
+        .targets[]
+        | select(.enabled // true)
+        | {
+            name,
+            image: $root.image,
+            version: ($root.version // null),
+            tag,
+            arch,
+            platform: ("linux/" + .arch),
+            runner: (
+              if .arch == "arm64" then
+                "ubuntu-24.04-arm"
+              else
+                "ubuntu-24.04"
+              end
+            ),
+            dockerfile,
+            base_ref,
+            test: (.test // ""),
+            build_args: (.build_args // {}),
+            pr_local_tag: ("pr-" + $short_sha + "-" + .name),
+            release_temp_tag: (.tag + "-" + .arch + "-" + $short_sha)
+          }
+      ]
+  ' "$config_path"
+}
+
+plan_build_target() {
+  local config_path="$1"
+  local target_name="$2"
+  local mode="$3"
+  local short_sha="$4"
+  local context_dir="$5"
+  local image_name version_text target_json arch dockerfile manifest_tag base_ref build_date
+  local base_no_digest base_digest base_image base_tag image_tag release_temp_tag revision source_url
+  local version_json
+
+  [ "$mode" = "pr" ] || [ "$mode" = "release" ] || die "Mode must be 'pr' or 'release'"
+
+  image_name="$(jq -r '.image' "$config_path")"
+  version_text="$(jq -r '.version // ""' "$config_path")"
+  target_json="$(
+    jq -c --arg name "$target_name" '
+      .targets[]
+      | select((.enabled // true) and .name == $name)
+    ' "$config_path"
+  )"
+
+  [ -n "$target_json" ] || die "Enabled target not found: $target_name"
+
+  arch="$(jq -r '.arch' <<< "$target_json")"
+  dockerfile="$(jq -r '.dockerfile' <<< "$target_json")"
+  manifest_tag="$(jq -r '.tag' <<< "$target_json")"
+  base_ref="$(jq -r '.base_ref' <<< "$target_json")"
+  build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  revision="${GITHUB_SHA:-local}"
+  source_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-local/repository}"
+
+  base_no_digest="${base_ref%@*}"
+  [ "$base_no_digest" != "$base_ref" ] || die "base_ref must include a digest: $base_ref"
+
+  base_digest="${base_ref#*@}"
+  base_image="${base_no_digest%:*}"
+  base_tag="${base_no_digest##*:}"
+  release_temp_tag="${manifest_tag}-${arch}-${short_sha}"
+
+  if [ "$mode" = "pr" ]; then
+    image_tag="${image_name}:pr-${short_sha}-${target_name}"
+  else
+    image_tag="${image_name}:${release_temp_tag}"
+  fi
+
+  version_json="$(normalize_version_json "$version_text")"
+
+  jq -n \
+    --arg image_name "$image_name" \
+    --argjson version "$version_json" \
+    --arg target_name "$target_name" \
+    --arg manifest_tag "$manifest_tag" \
+    --arg arch "$arch" \
+    --arg platform "linux/$arch" \
+    --arg dockerfile "$dockerfile" \
+    --arg context_dir "$context_dir" \
+    --arg image_tag "$image_tag" \
+    --arg release_temp_tag "$release_temp_tag" \
+    --arg build_date "$build_date" \
+    --arg revision "$revision" \
+    --arg source_url "$source_url" \
+    --arg base_image "$base_image" \
+    --arg base_tag "$base_tag" \
+    --arg base_digest "$base_digest" \
+    --arg test_script "$(jq -r '.test // ""' <<< "$target_json")" \
+    --argjson target_build_args "$(jq -c '.build_args // {}' <<< "$target_json")" \
+    '{
+      name: $target_name,
+      image_name: $image_name,
+      version: $version,
+      manifest_tag: $manifest_tag,
+      arch: $arch,
+      platform: $platform,
+      dockerfile: $dockerfile,
+      context_dir: $context_dir,
+      test: $test_script,
+      image_tag: $image_tag,
+      release_temp_tag: $release_temp_tag,
+      build_args: (
+        {
+          BASE_IMAGE: $base_image,
+          BASE_TAG: $base_tag,
+          BASE_DIGEST: $base_digest
+        } + $target_build_args
+      ),
+      labels: (
+        {
+          "org.opencontainers.image.created": $build_date,
+          "org.opencontainers.image.revision": $revision,
+          "org.opencontainers.image.source": $source_url
+        }
+        + (if $version == null then {} else {"org.opencontainers.image.version": $version} end)
+      )
+    }'
+}
+
+plan_manifests() {
+  local config_path="$1"
+  local short_sha="$2"
+
+  jq -c --arg short_sha "$short_sha" '
+    . as $root
+    | [
+        (
+          [ .targets[] | select(.enabled // true) ]
+          | sort_by(.tag, .arch)
+          | group_by(.tag)[]
+        )
+        | {
+            image_name: $root.image,
+            tag: .[0].tag,
+            refs: [
+              .[]
+              | "\($root.image):\(.tag)-\(.arch)-\($short_sha)"
+            ]
+          }
+      ]
+  ' "$config_path"
+}
+
+render_release_metadata() {
+  local config_path="$1"
+  local source_sha="$2"
+  local published_at="$3"
+  local version_text short_sha tags_json
+
+  version_text="$(jq -r '.version // ""' "$config_path")"
+  short_sha="$(printf '%s' "$source_sha" | cut -c1-7)"
+  tags_json="$(jq '[.targets[] | select(.enabled // true) | .tag] | unique' "$config_path")"
+
+  jq -n \
+    --arg version "$version_text" \
+    --arg sha "$source_sha" \
+    --arg short_sha "$short_sha" \
+    --arg published_at "$published_at" \
+    --argjson tags "$tags_json" \
+    '{
+      version: (if $version == "" then null else $version end),
+      sha: $sha,
+      short_sha: $short_sha,
+      published_at: $published_at,
+      tags: $tags
+    }'
+}
+
+validate_release_record() {
+  local json_path="$1"
+
+  require_file "$json_path"
+  jq empty "$json_path" > /dev/null
+
+  jq -e '
+    ((.version == null) or (.version | type == "string" and length > 0)) and
+    (.sha | type == "string" and test("^[a-f0-9]{40}$")) and
+    (.short_sha | type == "string" and test("^[a-f0-9]{7,40}$")) and
+    (.published_at | type == "string" and test("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")) and
+    (.tags | type == "array" and length > 0) and
+    all(.tags[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+    ((.tags | unique | length) == (.tags | length))
+  ' "$json_path" > /dev/null
+}
+
+write_releases_json() {
+  local metadata_path="$1"
+  local output_path="$2"
+
+  require_file "$metadata_path"
+  jq '{
+    version,
+    sha,
+    short_sha,
+    published_at,
+    tags
+  }' "$metadata_path" > "$output_path"
+}
+
+main() {
+  local command="${1:-}"
+
+  [ -n "$command" ] || {
+    usage
+    exit 1
+  }
+
+  shift
+
+  case "$command" in
+    validate-config)
+      [ "$#" -eq 1 ] || die "Usage: build-workflow-ci validate-config <config-path>"
+      validate_config "$1"
+      ;;
+    plan-matrix)
+      [ "$#" -eq 3 ] || die "Usage: build-workflow-ci plan-matrix <config-path> --short-sha <sha>"
+      [ "$2" = "--short-sha" ] || die "Missing --short-sha"
+      plan_matrix "$1" "$3"
+      ;;
+    plan-build-target)
+      local config_path target_name mode short_sha context_dir
+      [ "$#" -ge 7 ] || die "Usage: build-workflow-ci plan-build-target <config-path> --target-name <name> --mode <pr|release> --short-sha <sha> [--context-dir <dir>]"
+      config_path="$1"
+      shift
+      target_name=""
+      mode=""
+      short_sha=""
+      context_dir="."
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --target-name)
+            target_name="$2"
+            shift 2
+            ;;
+          --mode)
+            mode="$2"
+            shift 2
+            ;;
+          --short-sha)
+            short_sha="$2"
+            shift 2
+            ;;
+          --context-dir)
+            context_dir="$2"
+            shift 2
+            ;;
+          *)
+            die "Unknown argument: $1"
+            ;;
+        esac
+      done
+      [ -n "$target_name" ] || die "Missing --target-name"
+      [ -n "$mode" ] || die "Missing --mode"
+      [ -n "$short_sha" ] || die "Missing --short-sha"
+      plan_build_target "$config_path" "$target_name" "$mode" "$short_sha" "$context_dir"
+      ;;
+    plan-manifests)
+      [ "$#" -eq 3 ] || die "Usage: build-workflow-ci plan-manifests <config-path> --short-sha <sha>"
+      [ "$2" = "--short-sha" ] || die "Missing --short-sha"
+      plan_manifests "$1" "$3"
+      ;;
+    render-release-metadata)
+      local config_path source_sha published_at
+      [ "$#" -eq 5 ] || die "Usage: build-workflow-ci render-release-metadata <config-path> --source-sha <sha> --published-at <timestamp>"
+      config_path="$1"
+      shift
+      source_sha=""
+      published_at=""
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --source-sha)
+            source_sha="$2"
+            shift 2
+            ;;
+          --published-at)
+            published_at="$2"
+            shift 2
+            ;;
+          *)
+            die "Unknown argument: $1"
+            ;;
+        esac
+      done
+      [ -n "$source_sha" ] || die "Missing --source-sha"
+      [ -n "$published_at" ] || die "Missing --published-at"
+      render_release_metadata "$config_path" "$source_sha" "$published_at"
+      ;;
+    validate-release-record)
+      [ "$#" -eq 1 ] || die "Usage: build-workflow-ci validate-release-record <json-path>"
+      validate_release_record "$1"
+      ;;
+    write-releases-json)
+      local metadata_path output_path
+      [ "$#" -eq 3 ] || die "Usage: build-workflow-ci write-releases-json <metadata-path> --output <releases-path>"
+      metadata_path="$1"
+      shift
+      [ "$1" = "--output" ] || die "Missing --output"
+      output_path="$2"
+      write_releases_json "$metadata_path" "$output_path"
+      ;;
+    *)
+      usage
+      die "Unknown command: $command"
+      ;;
+  esac
+}
+
+main "$@"

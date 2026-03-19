@@ -3,9 +3,10 @@ name: CI Sync Release Metadata
 on:
   workflow_call:
     inputs:
-      build-workflow-ref:
-        description: Full commit SHA for the build-workflow revision to load internal actions from.
-        required: true
+      tool-image:
+        description: Maintainer override for the CI planning tool image.
+        required: false
+        default: ghcr.io/runlix/build-workflow-tools:ci
         type: string
 
 jobs:
@@ -15,6 +16,8 @@ jobs:
       actions: read
       contents: write
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.tool-image }}
     steps:
       - name: Verify triggering workflow provenance
         shell: bash
@@ -41,29 +44,10 @@ jobs:
             exit 1
           }
 
-      - name: Validate build-workflow ref
-        shell: bash
-        env:
-          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
-        run: |
-          set -euo pipefail
-
-          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
-            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
-            exit 1
-          }
-
       - name: Checkout metadata branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: main
-
-      - name: Checkout build-workflow tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: runlix/build-workflow
-          ref: ${{ inputs.build-workflow-ref }}
-          path: .build-workflow
 
       - name: Download release metadata artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -75,9 +59,10 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Validate release metadata
-        uses: ./.build-workflow/.github/actions/internal/ci/validate-release-record
-        with:
-          json-path: artifacts/release-metadata.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          build-workflow-ci validate-release-record artifacts/release-metadata.json
 
       - name: Verify metadata SHA matches triggering workflow
         shell: bash
@@ -93,15 +78,16 @@ jobs:
           }
 
       - name: Write releases.json
-        uses: ./.build-workflow/.github/actions/internal/ci/write-releases-json
-        with:
-          metadata-path: artifacts/release-metadata.json
-          releases-path: releases.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          build-workflow-ci write-releases-json artifacts/release-metadata.json --output releases.json
 
       - name: Validate releases.json
-        uses: ./.build-workflow/.github/actions/internal/ci/validate-release-record
-        with:
-          json-path: releases.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          build-workflow-ci validate-release-record releases.json
 
       - name: Commit metadata update
         env:

@@ -3,10 +3,6 @@ name: CI Release
 on:
   workflow_call:
     inputs:
-      build-workflow-ref:
-        description: Full commit SHA for the build-workflow revision to load internal actions from.
-        required: true
-        type: string
       config-path:
         description: Path to the CI config file in the caller repository.
         required: false
@@ -22,6 +18,11 @@ on:
         required: false
         default: true
         type: boolean
+      tool-image:
+        description: Maintainer override for the CI planning tool image.
+        required: false
+        default: ghcr.io/runlix/build-workflow-tools:ci
+        type: string
 
 concurrency:
   group: release-${{ github.repository }}
@@ -33,6 +34,8 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.tool-image }}
     outputs:
       short_sha: ${{ steps.context.outputs.short_sha }}
       image_name: ${{ steps.validate.outputs.image_name }}
@@ -41,25 +44,6 @@ jobs:
     steps:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Validate build-workflow ref
-        shell: bash
-        env:
-          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
-        run: |
-          set -euo pipefail
-
-          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
-            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
-            exit 1
-          }
-
-      - name: Checkout build-workflow tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: runlix/build-workflow
-          ref: ${{ inputs.build-workflow-ref }}
-          path: .build-workflow
 
       - name: Resolve source context
         id: context
@@ -70,16 +54,30 @@ jobs:
 
       - name: Validate CI config
         id: validate
-        uses: ./.build-workflow/.github/actions/internal/ci/validate-config
-        with:
-          config-path: ${{ inputs.config-path }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          set -euo pipefail
+
+          build-workflow-ci validate-config "$CONFIG_PATH" > /tmp/validate-config.json
+
+          {
+            printf 'image_name=%s\n' "$(jq -r '.image_name' /tmp/validate-config.json)"
+            printf 'version=%s\n' "$(jq -r '.version // ""' /tmp/validate-config.json)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Plan build matrix
         id: plan
-        uses: ./.build-workflow/.github/actions/internal/ci/plan-matrix
-        with:
-          config-path: ${{ inputs.config-path }}
-          short-sha: ${{ steps.context.outputs.short_sha }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SHORT_SHA: ${{ steps.context.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          build-workflow-ci plan-matrix "$CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-matrix.json
+          printf 'matrix=%s\n' "$(jq -c . /tmp/plan-matrix.json)" >> "$GITHUB_OUTPUT"
 
   build-and-push:
     name: build-and-push
@@ -96,25 +94,6 @@ jobs:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Validate build-workflow ref
-        shell: bash
-        env:
-          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
-        run: |
-          set -euo pipefail
-
-          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
-            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
-            exit 1
-          }
-
-      - name: Checkout build-workflow tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: runlix/build-workflow
-          ref: ${{ inputs.build-workflow-ref }}
-          path: .build-workflow
-
       - name: Log in to GHCR
         if: ${{ inputs.publish }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
@@ -126,24 +105,72 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
+      - name: Plan target build
+        id: plan-build
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          CONTEXT_DIR: ${{ inputs.context-dir }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+          TARGET_NAME: ${{ matrix.name }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            plan-build-target "$CONFIG_PATH" \
+            --target-name "$TARGET_NAME" \
+            --mode release \
+            --short-sha "$SHORT_SHA" \
+            --context-dir "$CONTEXT_DIR" \
+            > /tmp/build-target-plan.json
+
+          {
+            printf 'image_tag=%s\n' "$(jq -r '.image_tag' /tmp/build-target-plan.json)"
+            printf 'platform=%s\n' "$(jq -r '.platform' /tmp/build-target-plan.json)"
+            printf 'test_script=%s\n' "$(jq -r '.test // ""' /tmp/build-target-plan.json)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build target
-        id: build-target
-        uses: ./.build-workflow/.github/actions/internal/ci/build-target
-        with:
-          config-path: ${{ inputs.config-path }}
-          target-name: ${{ matrix.name }}
-          mode: release
-          short-sha: ${{ needs.plan.outputs.short_sha }}
-          context-dir: ${{ inputs.context-dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_tag="$(jq -r '.image_tag' /tmp/build-target-plan.json)"
+          platform="$(jq -r '.platform' /tmp/build-target-plan.json)"
+          dockerfile="$(jq -r '.dockerfile' /tmp/build-target-plan.json)"
+          context_dir="$(jq -r '.context_dir' /tmp/build-target-plan.json)"
+
+          build_args=()
+          while IFS=$'\t' read -r key value; do
+            build_args+=(--build-arg "$key=$value")
+          done < <(jq -r '.build_args | to_entries[] | [.key, .value] | @tsv' /tmp/build-target-plan.json)
+
+          label_args=()
+          while IFS=$'\t' read -r key value; do
+            label_args+=(--label "$key=$value")
+          done < <(jq -r '.labels | to_entries[] | [.key, .value] | @tsv' /tmp/build-target-plan.json)
+
+          docker buildx build \
+            --platform "$platform" \
+            -f "$dockerfile" \
+            "${build_args[@]}" \
+            "${label_args[@]}" \
+            --load \
+            -t "$image_tag" \
+            "$context_dir"
 
       - name: Run target test
-        if: ${{ matrix.test != '' }}
+        if: ${{ steps.plan-build.outputs.test_script != '' }}
         timeout-minutes: 10
         shell: bash
         env:
-          IMAGE_TAG: ${{ steps.build-target.outputs.image_tag }}
-          PLATFORM: ${{ steps.build-target.outputs.platform }}
-          TEST_SCRIPT: ${{ matrix.test }}
+          IMAGE_TAG: ${{ steps.plan-build.outputs.image_tag }}
+          PLATFORM: ${{ steps.plan-build.outputs.platform }}
+          TEST_SCRIPT: ${{ steps.plan-build.outputs.test_script }}
         run: |
           set -euo pipefail
 
@@ -155,7 +182,7 @@ jobs:
         if: ${{ inputs.publish }}
         shell: bash
         env:
-          IMAGE_TAG: ${{ steps.build-target.outputs.image_tag }}
+          IMAGE_TAG: ${{ steps.plan-build.outputs.image_tag }}
         run: |
           set -euo pipefail
           docker push "$IMAGE_TAG"
@@ -172,25 +199,6 @@ jobs:
     steps:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Validate build-workflow ref
-        shell: bash
-        env:
-          BUILD_WORKFLOW_REF: ${{ inputs.build-workflow-ref }}
-        run: |
-          set -euo pipefail
-
-          [[ "$BUILD_WORKFLOW_REF" =~ ^[a-f0-9]{40}$ ]] || {
-            echo "build-workflow-ref must be a full 40-character commit SHA" >&2
-            exit 1
-          }
-
-      - name: Checkout build-workflow tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: runlix/build-workflow
-          ref: ${{ inputs.build-workflow-ref }}
-          path: .build-workflow
 
       - name: Log in to GHCR
         if: ${{ inputs.publish }}
@@ -211,30 +219,75 @@ jobs:
           set -euo pipefail
           printf 'value=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
 
+      - name: Plan manifests
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            plan-manifests "$CONFIG_PATH" \
+            --short-sha "$SHORT_SHA" \
+            > /tmp/manifest-plan.json
+
       - name: Create manifests
         if: ${{ inputs.publish }}
-        uses: ./.build-workflow/.github/actions/internal/ci/create-manifests
-        with:
-          config-path: ${{ inputs.config-path }}
-          short-sha: ${{ needs.plan.outputs.short_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq -c '.[]' /tmp/manifest-plan.json | while IFS= read -r manifest; do
+            tag="$(jq -r '.tag' <<< "$manifest")"
+            mapfile -t refs < <(jq -r '.refs[]' <<< "$manifest")
+
+            echo "Creating manifest for $tag"
+            docker buildx imagetools create \
+              -t "${{ needs.plan.outputs.image_name }}:${tag}" \
+              "${refs[@]}"
+          done
 
       - name: Render release metadata
-        id: release-metadata
-        uses: ./.build-workflow/.github/actions/internal/ci/render-release-metadata
-        with:
-          config-path: ${{ inputs.config-path }}
-          source-sha: ${{ github.sha }}
-          published-at: ${{ steps.published-at.outputs.value }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SOURCE_SHA: ${{ github.sha }}
+          PUBLISHED_AT: ${{ steps.published-at.outputs.value }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            render-release-metadata "$CONFIG_PATH" \
+            --source-sha "$SOURCE_SHA" \
+            --published-at "$PUBLISHED_AT" \
+            > release-metadata.json
 
       - name: Validate release metadata
-        uses: ./.build-workflow/.github/actions/internal/ci/validate-release-record
-        with:
-          json-path: ${{ steps.release-metadata.outputs.metadata-path }}
+        shell: bash
+        env:
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            validate-release-record release-metadata.json
 
       - name: Upload release metadata
         if: ${{ inputs.publish }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: release-metadata
-          path: ${{ steps.release-metadata.outputs.metadata-path }}
+          path: release-metadata.json
           retention-days: 7

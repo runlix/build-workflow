@@ -26,15 +26,10 @@ Starter files:
 - config examples: `examples/ci/service-config.json` and `examples/ci/base-image-config.json`
 - wrapper workflows: `examples/pr-validation.yml`, `examples/release.yml`, `examples/sync-release-metadata.yml`
 - schema: `schema/ci-config.schema.json`
+- local CI tool image: `ghcr.io/runlix/build-workflow-tools:ci`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
-Supported callers must use that same SHA in three places:
-
-- the reusable workflow `uses:` ref
-- the `build-workflow-ref` input
-- the raw GitHub `$schema` URL in `.ci/config.json`
-
-Do not use branch refs or preview tags in supported callers.
+Supported callers should normally rely on the default tool image. Maintainers can override it with the `tool-image` input when validating an unpublished `build-workflow` branch.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -55,9 +50,44 @@ Canonical assets:
 - config examples: `examples/ci/`
 - contract tests: `.github/workflows/test-ci.yml`
 - fixtures: `test-fixtures/ci/`
-- internal implementation: `.github/actions/internal/ci/`
+- CI tool image: `tools/ci/`
 
-The internal composite actions are not the supported consumer API. Downstream repositories should call the public reusable workflows only.
+## CI Design
+
+The supported `CI` path uses a planner/executor split:
+
+- reusable workflows are the public orchestration layer
+- the `build-workflow-ci` tool is the planning and validation layer
+- Docker build, push, and manifest creation stay on the GitHub runner
+- pure config validation and release-metadata generation run inside the CI tool image
+
+This avoids the caller-context problems that come from trying to load implementation files from a called workflow repository at runtime.
+
+## Local Validation
+
+The same tool used in GitHub Actions can run locally:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  validate-config .ci/config.json
+```
+
+Other useful local commands:
+
+```bash
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  plan-matrix .ci/config.json --short-sha 1234567
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  render-release-metadata .ci/config.json \
+  --source-sha 1234567890abcdef1234567890abcdef12345678 \
+  --published-at 2026-03-18T00:00:00Z
+```
 
 ## CI Behavior
 
