@@ -200,13 +200,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          grep -Eq 'tool-image' .github/workflows/pr-validation.yml
-          grep -Eq 'tool-image' .github/workflows/release.yml
-          grep -Eq 'tool-image' .github/workflows/sync-release-metadata.yml
-          grep -Eq 'container:' .github/workflows/pr-validation.yml
-          grep -Eq 'container:' .github/workflows/release.yml
-          grep -Eq 'container:' .github/workflows/sync-release-metadata.yml
-          ! grep -RInE 'build-workflow-ref|\.github/actions/internal/ci|scripts/ci/' .github/workflows
+          for workflow_file in \
+            .github/workflows/pr-validation.yml \
+            .github/workflows/release.yml \
+            .github/workflows/sync-release-metadata.yml
+          do
+            grep -Eq 'tool-image' "$workflow_file"
+
+            if [ "$workflow_file" != ".github/workflows/release.yml" ]; then
+              grep -Eq 'container:' "$workflow_file"
+            fi
+
+            if grep -InE 'build-workflow-ref|\.github/actions/internal/ci|scripts/ci/' "$workflow_file"; then
+              echo "Legacy CI implementation references remain in $workflow_file" >&2
+              exit 1
+            fi
+          done
 
   publish-test-tool-image:
     name: publish-test-tool-image
