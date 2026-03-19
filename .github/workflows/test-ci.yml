@@ -189,24 +189,24 @@ jobs:
 
           workflow_file=".github/workflows/sync-release-metadata.yml"
 
-          rg -q 'TRIGGER_WORKFLOW: \$\{\{ github\.event\.workflow_run\.name \}\}' "$workflow_file"
-          rg -q 'TRIGGER_BRANCH: \$\{\{ github\.event\.workflow_run\.head_branch \}\}' "$workflow_file"
-          rg -q 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' "$workflow_file"
-          rg -q 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' "$workflow_file"
-          rg -q 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' "$workflow_file"
+          grep -Eq 'TRIGGER_WORKFLOW: \$\{\{ github\.event\.workflow_run\.name \}\}' "$workflow_file"
+          grep -Eq 'TRIGGER_BRANCH: \$\{\{ github\.event\.workflow_run\.head_branch \}\}' "$workflow_file"
+          grep -Eq 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' "$workflow_file"
+          grep -Eq 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' "$workflow_file"
+          grep -Eq 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' "$workflow_file"
 
       - name: Verify public workflows use the tool image pattern
         shell: bash
         run: |
           set -euo pipefail
 
-          rg -q 'tool-image' .github/workflows/pr-validation.yml
-          rg -q 'tool-image' .github/workflows/release.yml
-          rg -q 'tool-image' .github/workflows/sync-release-metadata.yml
-          rg -q 'container:' .github/workflows/pr-validation.yml
-          rg -q 'container:' .github/workflows/release.yml
-          rg -q 'container:' .github/workflows/sync-release-metadata.yml
-          ! rg -n 'build-workflow-ref|\.github/actions/internal/ci|scripts/ci/' .github/workflows
+          grep -Eq 'tool-image' .github/workflows/pr-validation.yml
+          grep -Eq 'tool-image' .github/workflows/release.yml
+          grep -Eq 'tool-image' .github/workflows/sync-release-metadata.yml
+          grep -Eq 'container:' .github/workflows/pr-validation.yml
+          grep -Eq 'container:' .github/workflows/release.yml
+          grep -Eq 'container:' .github/workflows/sync-release-metadata.yml
+          ! grep -RInE 'build-workflow-ref|\.github/actions/internal/ci|scripts/ci/' .github/workflows
 
   publish-test-tool-image:
     name: publish-test-tool-image
