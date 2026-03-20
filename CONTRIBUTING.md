@@ -25,15 +25,14 @@ This repository is maintained for `runlix` image automation. The active path is 
 Install the required tools once:
 
 ```bash
-npm install -g ajv-cli ajv-formats
 python3 -m pip install -r tools/ci/requirements.txt
 ```
 
 Useful local checks:
 
 ```bash
-ajv compile -s schema/ci-config.schema.json --spec=draft2020 --strict=false
-ajv compile -s schema/release-record.schema.json --spec=draft2020 --strict=false
+tools/ci/bin/build-workflow-ci validate-schema-file schema/ci-config.schema.json
+tools/ci/bin/build-workflow-ci validate-schema-file schema/release-record.schema.json
 
 python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 
@@ -58,8 +57,9 @@ gh workflow run test-ci.yml --ref YOUR-BRANCH
 Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
 
 - pin the canary wrappers to the full commit SHA you are testing
-- use `secrets: inherit` on the release wrapper if release notifications are in scope
-- only use `config-path` or `tool-image` overrides for maintainer validation
+- pass `tool-image` pinned by digest or `:sha-<build-workflow git sha>`
+- map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` on the release wrapper if release notifications are in scope
+- only use `config-path` as a maintainer override
 - run validate on `release`
 - if release behavior changed, run the release flow and record sync path too
 
@@ -82,8 +82,8 @@ Keep the docs aligned with the actual workflow contract:
 
 - `CI` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must pin the reusable workflow to a merged full SHA
-- regular callers should not need to set `config-path` or `tool-image`
-- release wrappers should use `secrets: inherit` when Telegram notifications are desired
+- wrapper examples must also pass `tool-image` pinned by digest
+- release wrappers should map only the Telegram secrets they need
 - validate uploads no artifacts
 - release uploads `release-record.json` as artifact `release-record`
 - sync writes `release.json`

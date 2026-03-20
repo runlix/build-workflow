@@ -27,11 +27,11 @@ Starter files:
 - config examples: `examples/ci/service-config.json` and `examples/ci/base-image-config.json`
 - wrapper workflows: `examples/wrappers/validate.yml`, `examples/wrappers/release.yml`, `examples/wrappers/sync-release-record.yml`
 - schemas: `schema/ci-config.schema.json` and `schema/release-record.schema.json`
-- local CI tool image: `ghcr.io/runlix/build-workflow-tools:ci`
+- CI tool image: `ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
-Supported callers should rely on the default config path and default tool image. The reusable workflows retain `config-path` and `tool-image` only for maintainer fixture tests and unpublished branch validation.
-If you want release notifications, same-organization callers should set `secrets: inherit` on the release wrapper so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` reach the reusable workflow.
+Pass the planner image explicitly with `tool-image`, pinned either by digest or by `:sha-<build-workflow git sha>` for maintainer branch validation.
+If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -111,7 +111,7 @@ Release:
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
 6. uploads `release-record.json` as artifact `release-record`
-7. sends an optional non-blocking Telegram notification when the caller inherits `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+7. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 
 Sync:
 
@@ -129,7 +129,7 @@ The same tool used in GitHub Actions can run locally:
 docker run --rm \
   -v "$PWD:/workspace" \
   -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   validate-config .ci/config.json
 ```
 
@@ -137,11 +137,11 @@ Other useful local commands:
 
 ```bash
 docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   plan-matrix .ci/config.json --short-sha 1234567
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   render-release-record .ci/config.json \
   --source-sha 1234567890abcdef1234567890abcdef12345678 \
   --published-at 2026-03-18T00:00:00Z

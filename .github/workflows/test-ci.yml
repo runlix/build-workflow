@@ -41,7 +41,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   validate-ci-contracts:
@@ -50,17 +49,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          node-version: '20'
+          persist-credentials: false
 
       - name: Install test dependencies
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g ajv-cli ajv-formats
           python3 -m pip install --user -r tools/ci/requirements.txt
 
       - name: Validate schema structure
@@ -68,8 +63,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          ajv compile -s schema/ci-config.schema.json --spec=draft2020 --strict=false
-          ajv compile -s schema/release-record.schema.json --spec=draft2020 --strict=false
+          tools/ci/bin/build-workflow-ci validate-schema-file schema/ci-config.schema.json
+          tools/ci/bin/build-workflow-ci validate-schema-file schema/release-record.schema.json
 
       - name: Validate examples and fixtures
         shell: bash
@@ -82,20 +77,11 @@ jobs:
             test-fixtures/ci/base-image/.ci/config.json \
             test-fixtures/ci/service/.ci/config.json
           do
-            ajv validate -s schema/ci-config.schema.json -d "$file" --spec=draft2020 --strict=false
+            tools/ci/bin/build-workflow-ci validate-config "$file" > /dev/null
           done
 
-          ajv validate \
-            -s schema/release-record.schema.json \
-            -d test-fixtures/ci/release-record/release-record.json \
-            --spec=draft2020 \
-            --strict=false
-
-          ajv validate \
-            -s schema/release-record.schema.json \
-            -d test-fixtures/ci/release-record/release.expected.json \
-            --spec=draft2020 \
-            --strict=false
+          tools/ci/bin/build-workflow-ci validate-release-record test-fixtures/ci/release-record/release-record.json
+          tools/ci/bin/build-workflow-ci validate-release-record test-fixtures/ci/release-record/release.expected.json
 
       - name: Run unit tests
         shell: bash
@@ -198,6 +184,14 @@ jobs:
           test ! -e .github/workflows/sync-release-metadata.yml
           test ! -e schema/release-metadata.schema.json
           test ! -e schema/releases.schema.json
+          if grep -InE 'ghcr\.io/runlix/build-workflow-tools:ci' \
+            .github/workflows/validate.yml \
+            .github/workflows/release.yml \
+            .github/workflows/sync-release-record.yml
+          then
+            echo "Mutable tool-image defaults remain in public workflows" >&2
+            exit 1
+          fi
 
           for workflow_file in \
             .github/workflows/validate.yml \
@@ -219,24 +213,33 @@ jobs:
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate.yml
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/release.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/release.yml
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/sync-release-record.yml
-          grep -Eq 'secrets: inherit' examples/wrappers/release.yml
+          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/validate.yml
+          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/release.yml
+          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/sync-release-record.yml
+          grep -Eq 'TELEGRAM_BOT_TOKEN:' examples/wrappers/release.yml
+          grep -Eq 'TELEGRAM_CHAT_ID:' examples/wrappers/release.yml
 
   publish-test-tool-image:
     name: publish-test-tool-image
     needs: validate-ci-contracts
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-24.04
     outputs:
-      tool_image: ${{ steps.meta.outputs.tool_image }}
+      tool_image: ${{ steps.immutable.outputs.tool_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
-      - name: Set image tag
+      - name: Set immutable image refs
         id: meta
         shell: bash
         run: |
           set -euo pipefail
-          printf 'tool_image=%s\n' "ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          printf 'image_name=%s\n' "ghcr.io/runlix/build-workflow-tools" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
@@ -249,18 +252,25 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Build and push temporary tool image
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: tools/ci/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
+
+      - name: Expose immutable tool image reference
+        id: immutable
         shell: bash
         env:
-          TOOL_IMAGE: ${{ steps.meta.outputs.tool_image }}
+          IMAGE_NAME: ${{ steps.meta.outputs.image_name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-
-          docker buildx build \
-            --platform linux/amd64 \
-            -f tools/ci/Dockerfile \
-            -t "$TOOL_IMAGE" \
-            --push \
-            .
+          printf 'tool_image=%s\n' "${IMAGE_NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
   test-validate-base-image:
     name: test-validate-base-image
@@ -300,6 +310,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Upload synthetic release record artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7

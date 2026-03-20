@@ -10,6 +10,7 @@ from tools.ci.src.build_workflow_ci import (
     render_release_record,
     render_telegram_notification,
     validate_config_command,
+    validate_schema_file,
     write_release_json,
 )
 
@@ -18,6 +19,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class BuildWorkflowCiTest(unittest.TestCase):
+    def test_validate_schema_file_accepts_repo_schema(self) -> None:
+        schema = validate_schema_file("schema/ci-config.schema.json")
+        self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+
     def test_validate_config_reports_defaults(self) -> None:
         payload = validate_config_command("test-fixtures/ci/service/.ci/config.json")
         self.assertEqual(payload["image_name"], "ghcr.io/runlix/test-service")
