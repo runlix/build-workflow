@@ -4,22 +4,17 @@ on:
   workflow_call:
     inputs:
       config-path:
-        description: Path to the CI config file in the caller repository.
+        description: Maintainer override for contract fixtures.
         required: false
         default: .ci/config.json
         type: string
-      context-dir:
-        description: Docker build context directory in the caller repository.
-        required: false
-        default: .
-        type: string
       publish:
-        description: Whether to push images and upload release metadata.
+        description: Whether to push images and upload the release record artifact.
         required: false
         default: true
         type: boolean
       tool-image:
-        description: Maintainer override for the CI planning tool image.
+        description: Maintainer override for branch validation of the CI tool image.
         required: false
         default: ghcr.io/runlix/build-workflow-tools:ci
         type: string
@@ -115,7 +110,6 @@ jobs:
         shell: bash
         env:
           CONFIG_PATH: ${{ inputs.config-path }}
-          CONTEXT_DIR: ${{ inputs.context-dir }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
           TOOL_IMAGE: ${{ inputs.tool-image }}
@@ -130,7 +124,6 @@ jobs:
             --target-name "$TARGET_NAME" \
             --mode release \
             --short-sha "$SHORT_SHA" \
-            --context-dir "$CONTEXT_DIR" \
             > /tmp/build-target-plan.json
 
           {
@@ -257,7 +250,7 @@ jobs:
               "${refs[@]}"
           done
 
-      - name: Render release metadata
+      - name: Render release record
         shell: bash
         env:
           CONFIG_PATH: ${{ inputs.config-path }}
@@ -271,12 +264,12 @@ jobs:
             -v "$PWD:/workspace" \
             -w /workspace \
             "$TOOL_IMAGE" \
-            render-release-metadata "$CONFIG_PATH" \
+            render-release-record "$CONFIG_PATH" \
             --source-sha "$SOURCE_SHA" \
             --published-at "$PUBLISHED_AT" \
-            > release-metadata.json
+            > release-record.json
 
-      - name: Validate release metadata
+      - name: Validate release record
         shell: bash
         env:
           TOOL_IMAGE: ${{ inputs.tool-image }}
@@ -287,14 +280,14 @@ jobs:
             -v "$PWD:/workspace" \
             -w /workspace \
             "$TOOL_IMAGE" \
-            validate-release-record release-metadata.json
+            validate-release-record release-record.json
 
-      - name: Upload release metadata
+      - name: Upload release record
         if: ${{ inputs.publish }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: release-metadata
-          path: release-metadata.json
+          name: release-record
+          path: release-record.json
           retention-days: 7
 
       - name: Send Telegram notification
@@ -328,7 +321,7 @@ jobs:
             -v "$PWD:/workspace" \
             -w /workspace \
             "$TOOL_IMAGE" \
-            render-telegram-notification release-metadata.json \
+            render-telegram-notification release-record.json \
             --image-name "$IMAGE_NAME" \
             --repository "$REPOSITORY" \
             --server-url "$SERVER_URL" \
@@ -338,18 +331,13 @@ jobs:
           if ! response="$(
             curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text@/tmp/telegram-message.txt" \
+              --data-urlencode "text=$(cat /tmp/telegram-message.txt)" \
               --data-urlencode "parse_mode=Markdown" \
               --data-urlencode "disable_web_page_preview=true"
           )"; then
-            echo "Telegram notification request failed before the API returned a response." >&2
+            echo "Telegram notification request failed" >&2
             exit 1
           fi
 
-          if jq -e '.ok == true' <<<"$response" > /dev/null 2>&1; then
-            echo "Telegram notification sent."
-          else
-            description="$(jq -r '.description // "Unknown error"' <<<"$response" 2>/dev/null || echo "Unknown error")"
-            echo "Telegram notification failed: $description" >&2
-            exit 1
-          fi
+          jq -e '.ok == true' <<< "$response" > /dev/null
+          echo "Telegram notification sent."

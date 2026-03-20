@@ -1,4 +1,4 @@
-name: Sync Release Metadata
+name: Sync Release Record
 
 on:
   workflow_run:
@@ -15,4 +15,4 @@ permissions:
 
 jobs:
   sync:
-    uses: runlix/build-workflow/.github/workflows/sync-release-metadata.yml@YOUR_BUILD_WORKFLOW_SHA
+    uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@YOUR_BUILD_WORKFLOW_SHA

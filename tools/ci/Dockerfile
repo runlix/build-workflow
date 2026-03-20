@@ -1,11 +1,12 @@
-FROM debian:bookworm-slim
+FROM python:3.12-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends bash ca-certificates git jq \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
+COPY tools/ci /opt/build-workflow/tools/ci
+COPY schema /opt/build-workflow/schema
 
-COPY tools/ci/bin/build-workflow-ci /usr/local/bin/build-workflow-ci
+RUN python -m pip install --no-cache-dir -r /opt/build-workflow/tools/ci/requirements.txt
 
-ENTRYPOINT ["build-workflow-ci"]
+ENTRYPOINT ["/opt/build-workflow/tools/ci/bin/build-workflow-ci"]
