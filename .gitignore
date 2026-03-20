@@ -42,6 +42,8 @@ tmp/
 # Build artifacts
 dist/
 build/
+__pycache__/
+*.pyc
 
 # Environment files (if any)
 .env
