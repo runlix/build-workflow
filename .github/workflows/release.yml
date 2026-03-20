@@ -14,9 +14,8 @@ on:
         default: true
         type: boolean
       tool-image:
-        description: Maintainer override for branch validation of the CI tool image.
-        required: false
-        default: ghcr.io/runlix/build-workflow-tools:ci
+        description: Immutable planner image reference pinned to a build-workflow digest or sha tag.
+        required: true
         type: string
     secrets:
       TELEGRAM_BOT_TOKEN:
@@ -29,13 +28,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-inputs:
+    name: validate-inputs
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      tool_image: ${{ steps.tool-image.outputs.value }}
+    steps:
+      - name: Validate tool image reference
+        id: tool-image
+        shell: bash
+        env:
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+        run: |
+          set -euo pipefail
+
+          if ! grep -Eq '^ghcr\.io/runlix/build-workflow-tools(@sha256:[0-9a-f]{64}|:sha-[0-9a-f]{40})$' <<< "$TOOL_IMAGE"; then
+            echo "tool-image must be ghcr.io/runlix/build-workflow-tools pinned by digest or :sha-<40-char git sha>" >&2
+            exit 1
+          fi
+
+          printf 'value=%s\n' "$TOOL_IMAGE" >> "$GITHUB_OUTPUT"
+
   plan:
     name: plan
+    needs: validate-inputs
     permissions:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ${{ inputs.tool-image }}
+      image: ${{ needs.validate-inputs.outputs.tool_image }}
     outputs:
       short_sha: ${{ steps.context.outputs.short_sha }}
       image_name: ${{ steps.validate.outputs.image_name }}
@@ -44,6 +67,8 @@ jobs:
     steps:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Resolve source context
         id: context
@@ -84,7 +109,9 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: plan
+    needs:
+      - validate-inputs
+      - plan
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -93,6 +120,8 @@ jobs:
     steps:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         if: ${{ inputs.publish }}
@@ -112,7 +141,7 @@ jobs:
           CONFIG_PATH: ${{ inputs.config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ${{ inputs.tool-image }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -191,12 +220,15 @@ jobs:
       contents: read
       packages: write
     needs:
+      - validate-inputs
       - plan
       - build-and-push
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         if: ${{ inputs.publish }}
@@ -222,7 +254,7 @@ jobs:
         env:
           CONFIG_PATH: ${{ inputs.config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
-          TOOL_IMAGE: ${{ inputs.tool-image }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -256,7 +288,7 @@ jobs:
           CONFIG_PATH: ${{ inputs.config-path }}
           SOURCE_SHA: ${{ github.sha }}
           PUBLISHED_AT: ${{ steps.published-at.outputs.value }}
-          TOOL_IMAGE: ${{ inputs.tool-image }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -272,7 +304,7 @@ jobs:
       - name: Validate release record
         shell: bash
         env:
-          TOOL_IMAGE: ${{ inputs.tool-image }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -297,7 +329,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TOOL_IMAGE: ${{ inputs.tool-image }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
           IMAGE_NAME: ${{ needs.plan.outputs.image_name }}
           REPOSITORY: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
@@ -329,7 +361,7 @@ jobs:
             > /tmp/telegram-message.txt
 
           if ! response="$(
-            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            curl --fail-with-body -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
               --data-urlencode "text=$(cat /tmp/telegram-message.txt)" \
               --data-urlencode "parse_mode=Markdown" \

@@ -80,6 +80,12 @@ def repo_schema(name: str) -> dict[str, Any]:
     return read_json(SCHEMA_DIR / name)
 
 
+def validate_schema_file(path: str) -> dict[str, Any]:
+    schema = read_json(require_file(path))
+    Draft202012Validator.check_schema(schema)
+    return schema
+
+
 def validate_schema(payload: Any, schema_name: str) -> None:
     schema = repo_schema(schema_name)
     validator = Draft202012Validator(schema)
@@ -374,6 +380,9 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_parser.add_argument("--server-url", required=True)
     telegram_parser.add_argument("--run-id", required=True)
 
+    validate_schema_parser = subparsers.add_parser("validate-schema-file")
+    validate_schema_parser.add_argument("schema_path")
+
     validate_record_parser = subparsers.add_parser("validate-release-record")
     validate_record_parser.add_argument("json_path")
 
@@ -409,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.run_id,
                 )
             )
+        elif args.command == "validate-schema-file":
+            validate_schema_file(args.schema_path)
         elif args.command == "validate-release-record":
             validate_release_record_file(args.json_path)
         elif args.command == "write-release-json":

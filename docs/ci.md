@@ -82,9 +82,9 @@ Canonical assets:
 
 Supported callers should pin the reusable workflow `uses:` reference to a merged full `build-workflow` commit SHA.
 
-The reusable workflows default to `ghcr.io/runlix/build-workflow-tools:ci` for the planner image.
-Regular callers should not need to override the tool image or config path.
-Reusable workflows do not receive repository secrets automatically. For same-organization or same-enterprise callers, the release wrapper should set `secrets: inherit` so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are available to `.github/workflows/release.yml`.
+Supported callers should also pass `tool-image`, pinned either to `ghcr.io/runlix/build-workflow-tools@sha256:<digest>` or to `ghcr.io/runlix/build-workflow-tools:sha-<build-workflow git sha>` for branch validation.
+`config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
+Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
 
 ## Workflow Behavior
 
@@ -104,7 +104,7 @@ Release:
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
 6. uploads `release-record.json` as artifact `release-record`
-7. sends an optional non-blocking Telegram notification when the caller inherits `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+7. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 
 Sync:
 
@@ -122,7 +122,7 @@ The planner image is also the local validation entrypoint:
 docker run --rm \
   -v "$PWD:/workspace" \
   -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   validate-config .ci/config.json
 ```
 
@@ -130,11 +130,11 @@ Additional examples:
 
 ```bash
 docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   plan-matrix .ci/config.json --short-sha 1234567
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   validate-release-record release-record.json
 ```
 
@@ -145,6 +145,6 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 - no internal composite-action layer in the supported interface
 - no legacy `docker-matrix` compatibility in the supported interface
 - metadata sync is standardized on `Release`, `release`, `main`, and `release-record`
-- callers should rely on the defaults unless they are maintainers validating fixtures or a new tool image
-- release notifications are optional and require `secrets: inherit` on the caller release wrapper
+- callers should pin both the workflow SHA and the planner image reference explicitly
+- release notifications are optional and should map only the Telegram secrets needed by the release wrapper
 - `publish: false` on the release workflow is for contract testing and maintainer dry runs

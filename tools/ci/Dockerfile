@@ -7,7 +7,7 @@ RUN apt-get update \
 COPY tools/ci /opt/build-workflow/tools/ci
 COPY schema /opt/build-workflow/schema
 
-RUN python -m pip install --no-cache-dir -r /opt/build-workflow/tools/ci/requirements.txt
+RUN python -m pip install --no-cache-dir --root-user-action=ignore -r /opt/build-workflow/tools/ci/requirements.txt
 
 ENV PATH="/opt/build-workflow/tools/ci/bin:${PATH}"
 
