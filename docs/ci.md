@@ -78,6 +78,9 @@ Canonical assets:
 
 `image` must be `ghcr.io/runlix/<name>`.
 
+`examples/ci/` are schema-only configuration examples for docs and review.
+`test-fixtures/ci/` are runnable fixture repos used for full validation, matrix planning, build tests, and release-record checks.
+
 ## Pinning
 
 Supported callers should pin the reusable workflow `uses:` reference to a merged full `build-workflow` commit SHA.
@@ -136,6 +139,10 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
   validate-release-record release-record.json
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
+  validate-config-payload examples/ci/service-config.json
 ```
 
 ## Design Rules
