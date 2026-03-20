@@ -145,6 +145,32 @@ jobs:
           tools/ci/bin/build-workflow-ci write-releases-json /tmp/release-metadata.actual.json --output /tmp/releases.actual.json
           tools/ci/bin/build-workflow-ci validate-release-record /tmp/releases.actual.json
 
+          tools/ci/bin/build-workflow-ci \
+            render-telegram-notification test-fixtures/ci/release-metadata/release-metadata.json \
+            --image-name ghcr.io/runlix/test-service \
+            --repository runlix/test-service \
+            --server-url https://github.com \
+            --run-id 123456 \
+            > /tmp/telegram-versioned.txt
+          grep -F "*Service:* \`test-service\`" /tmp/telegram-versioned.txt > /dev/null
+          grep -F "*Version:* \`1.2.3\`" /tmp/telegram-versioned.txt > /dev/null
+          grep -F "\`1.2.3-debug, 1.2.3-stable\`" /tmp/telegram-versioned.txt > /dev/null
+
+          tools/ci/bin/build-workflow-ci \
+            render-release-metadata test-fixtures/ci/base-image/.ci/config.json \
+            --source-sha 1234567890abcdef1234567890abcdef12345678 \
+            --published-at 2026-03-17T12:00:00Z \
+            > /tmp/release-metadata.sha.json
+          tools/ci/bin/build-workflow-ci \
+            render-telegram-notification /tmp/release-metadata.sha.json \
+            --image-name ghcr.io/runlix/test-base-image \
+            --repository runlix/test-base-image \
+            --server-url https://github.com \
+            --run-id 654321 \
+            > /tmp/telegram-sha-based.txt
+          grep -F "*Service:* \`test-base-image\`" /tmp/telegram-sha-based.txt > /dev/null
+          grep -F "*Version:* \`1234567\` (SHA-based)" /tmp/telegram-sha-based.txt > /dev/null
+
           diff -u \
             test-fixtures/ci/release-metadata/releases.expected.json \
             /tmp/releases.actual.json
@@ -182,6 +208,19 @@ jobs:
             test-fixtures/ci/release-metadata/release-metadata.json \
             /tmp/container-release-metadata.json
 
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            build-workflow-tools:test \
+            render-telegram-notification test-fixtures/ci/release-metadata/release-metadata.json \
+            --image-name ghcr.io/runlix/test-service \
+            --repository runlix/test-service \
+            --server-url https://github.com \
+            --run-id 123456 \
+            > /tmp/container-telegram-message.txt
+
+          grep -F "*Version:* \`1.2.3\`" /tmp/container-telegram-message.txt > /dev/null
+
       - name: Verify sync workflow provenance guards
         shell: bash
         run: |
@@ -216,6 +255,20 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Verify release workflow Telegram contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          workflow_file=".github/workflows/release.yml"
+
+          grep -Eq 'TELEGRAM_BOT_TOKEN:' "$workflow_file"
+          grep -Eq 'TELEGRAM_CHAT_ID:' "$workflow_file"
+          grep -Eq 'render-telegram-notification' "$workflow_file"
+          grep -Eq 'parse_mode=Markdown' "$workflow_file"
+          grep -Eq 'continue-on-error: true' "$workflow_file"
+          grep -Eq 'secrets: inherit' examples/release.yml
 
   publish-test-tool-image:
     name: publish-test-tool-image
@@ -295,6 +348,7 @@ jobs:
       context-dir: test-fixtures/ci/service
       publish: false
       tool-image: ${{ needs.publish-test-tool-image.outputs.image_ref }}
+    secrets: inherit
 
   test-summary:
     name: test-summary

@@ -64,6 +64,7 @@ Also verify one real downstream canary before merging. `distroless-runtime` is t
 
 - pin the canary wrappers to the full commit SHA you are testing
 - if the branch also changes the tool image, pass `tool-image: ghcr.io/runlix/build-workflow-tools:sha-YOUR-BUILD-WORKFLOW-SHA`
+- if the branch changes release notifications, keep `secrets: inherit` on the canary release wrapper and verify the Telegram path with real secrets only when you explicitly want a live notification
 - run PR validation on `release`
 - if release behavior changed, run the release flow and metadata sync path too
 
@@ -87,6 +88,7 @@ Keep the docs aligned with the actual workflow contract:
 - `CI` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must pin the reusable workflow to a merged full SHA
 - maintainers may override `tool-image` for branch validation, but regular callers should not need to
+- release wrappers should use `secrets: inherit` when Telegram notifications are desired
 - wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs
 - PR aggregate check is `validate / summary`
 - release uploads `release-metadata.json` as artifact `release-metadata`

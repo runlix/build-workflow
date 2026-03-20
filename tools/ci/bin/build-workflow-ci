@@ -9,6 +9,7 @@ Usage:
   build-workflow-ci plan-build-target <config-path> --target-name <name> --mode <pr|release> --short-sha <sha> [--context-dir <dir>]
   build-workflow-ci plan-manifests <config-path> --short-sha <sha>
   build-workflow-ci render-release-metadata <config-path> --source-sha <sha> --published-at <timestamp>
+  build-workflow-ci render-telegram-notification <metadata-path> --image-name <name> --repository <owner/repo> --server-url <url> --run-id <id>
   build-workflow-ci validate-release-record <json-path>
   build-workflow-ci write-releases-json <metadata-path> --output <releases-path>
 EOF
@@ -282,6 +283,47 @@ render_release_metadata() {
     }'
 }
 
+render_telegram_notification() {
+  local metadata_path="$1"
+  local image_name="$2"
+  local repository="$3"
+  local server_url="$4"
+  local run_id="$5"
+  local service_name version_text sha short_sha tags_text version_line commit_url run_url
+
+  validate_release_record "$metadata_path"
+
+  service_name="${image_name##*/}"
+  version_text="$(jq -r '.version // ""' "$metadata_path")"
+  sha="$(jq -r '.sha' "$metadata_path")"
+  short_sha="$(jq -r '.short_sha' "$metadata_path")"
+  tags_text="$(jq -r '.tags | join(", ")' "$metadata_path")"
+  commit_url="${server_url}/${repository}/commit/${sha}"
+  run_url="${server_url}/${repository}/actions/runs/${run_id}"
+
+  if [ -n "$version_text" ]; then
+    version_line="*Version:* \`$version_text\`"
+  else
+    version_line="*Version:* \`$short_sha\` (SHA-based)"
+  fi
+
+  cat <<EOF
+🎉 *Docker Release Complete*
+
+*Service:* \`$service_name\`
+$version_line
+*Commit:* [\`$short_sha\`]($commit_url)
+
+*Manifests Created:*
+\`$tags_text\`
+
+*Registry:*
+\`$image_name\`
+
+[View Workflow Run]($run_url)
+EOF
+}
+
 validate_release_record() {
   local json_path="$1"
 
@@ -400,6 +442,44 @@ main() {
       [ -n "$source_sha" ] || die "Missing --source-sha"
       [ -n "$published_at" ] || die "Missing --published-at"
       render_release_metadata "$config_path" "$source_sha" "$published_at"
+      ;;
+    render-telegram-notification)
+      local metadata_path image_name repository server_url run_id
+      [ "$#" -ge 9 ] || die "Usage: build-workflow-ci render-telegram-notification <metadata-path> --image-name <name> --repository <owner/repo> --server-url <url> --run-id <id>"
+      metadata_path="$1"
+      shift
+      image_name=""
+      repository=""
+      server_url=""
+      run_id=""
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --image-name)
+            image_name="$2"
+            shift 2
+            ;;
+          --repository)
+            repository="$2"
+            shift 2
+            ;;
+          --server-url)
+            server_url="$2"
+            shift 2
+            ;;
+          --run-id)
+            run_id="$2"
+            shift 2
+            ;;
+          *)
+            die "Unknown argument: $1"
+            ;;
+        esac
+      done
+      [ -n "$image_name" ] || die "Missing --image-name"
+      [ -n "$repository" ] || die "Missing --repository"
+      [ -n "$server_url" ] || die "Missing --server-url"
+      [ -n "$run_id" ] || die "Missing --run-id"
+      render_telegram_notification "$metadata_path" "$image_name" "$repository" "$server_url" "$run_id"
       ;;
     validate-release-record)
       [ "$#" -eq 1 ] || die "Usage: build-workflow-ci validate-release-record <json-path>"
