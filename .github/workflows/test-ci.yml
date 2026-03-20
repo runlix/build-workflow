@@ -167,21 +167,21 @@ jobs:
           set -euo pipefail
 
           docker run --rm \
+            --entrypoint bash \
             -v "$PWD:/workspace" \
             -w /workspace \
             build-workflow-tools:test \
-            validate-config test-fixtures/ci/base-image/.ci/config.json \
+            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci validate-config test-fixtures/ci/base-image/.ci/config.json' \
             > /tmp/container-validate.json
 
           jq -e '.enabled_count == 2' /tmp/container-validate.json > /dev/null
 
           docker run --rm \
+            --entrypoint bash \
             -v "$PWD:/workspace" \
             -w /workspace \
             build-workflow-tools:test \
-            render-release-record test-fixtures/ci/service/.ci/config.json \
-            --source-sha 1234567890abcdef1234567890abcdef12345678 \
-            --published-at 2026-03-17T12:00:00Z \
+            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci render-release-record test-fixtures/ci/service/.ci/config.json --source-sha 1234567890abcdef1234567890abcdef12345678 --published-at 2026-03-17T12:00:00Z' \
             > /tmp/container-release-record.json
 
           diff -u test-fixtures/ci/release-record/release-record.json /tmp/container-release-record.json

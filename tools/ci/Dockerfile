@@ -9,4 +9,6 @@ COPY schema /opt/build-workflow/schema
 
 RUN python -m pip install --no-cache-dir -r /opt/build-workflow/tools/ci/requirements.txt
 
+ENV PATH="/opt/build-workflow/tools/ci/bin:${PATH}"
+
 ENTRYPOINT ["/opt/build-workflow/tools/ci/bin/build-workflow-ci"]
