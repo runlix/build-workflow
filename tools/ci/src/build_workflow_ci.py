@@ -100,10 +100,15 @@ def validate_schema(payload: Any, schema_name: str) -> None:
     raise CliError("Schema validation failed:\n" + "\n".join(formatted))
 
 
-def load_config(config_path: str) -> Config:
+def validate_config_payload(config_path: str) -> dict[str, Any]:
     require_file(config_path)
     payload = read_json(config_path)
     validate_schema(payload, "ci-config.schema.json")
+    return payload
+
+
+def load_config(config_path: str) -> Config:
+    payload = validate_config_payload(config_path)
 
     defaults_payload = payload.get("defaults", {})
     defaults = Defaults(
@@ -354,6 +359,9 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser = subparsers.add_parser("validate-config")
     validate_parser.add_argument("config_path")
 
+    validate_payload_parser = subparsers.add_parser("validate-config-payload")
+    validate_payload_parser.add_argument("config_path")
+
     matrix_parser = subparsers.add_parser("plan-matrix")
     matrix_parser.add_argument("config_path")
     matrix_parser.add_argument("--short-sha", required=True)
@@ -400,6 +408,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate-config":
             write_json(validate_config_command(args.config_path))
+        elif args.command == "validate-config-payload":
+            validate_config_payload(args.config_path)
         elif args.command == "plan-matrix":
             write_json(plan_matrix(args.config_path, args.short_sha))
         elif args.command == "plan-build-target":

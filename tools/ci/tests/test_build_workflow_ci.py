@@ -10,6 +10,7 @@ from tools.ci.src.build_workflow_ci import (
     render_release_record,
     render_telegram_notification,
     validate_config_command,
+    validate_config_payload,
     validate_schema_file,
     write_release_json,
 )
@@ -28,6 +29,11 @@ class BuildWorkflowCiTest(unittest.TestCase):
         self.assertEqual(payload["image_name"], "ghcr.io/runlix/test-service")
         self.assertEqual(payload["context_dir"], "test-fixtures/ci/service")
         self.assertEqual(payload["enabled_count"], 2)
+
+    def test_validate_config_payload_accepts_examples(self) -> None:
+        payload = validate_config_payload("examples/ci/service-config.json")
+        self.assertEqual(payload["image"], "ghcr.io/runlix/example-service")
+        self.assertEqual(payload["targets"][0]["dockerfile"], "linux-amd64.Dockerfile")
 
     def test_plan_build_target_uses_full_refs(self) -> None:
         payload = plan_build_target(

@@ -54,6 +54,9 @@ Canonical assets:
 - fixtures: `test-fixtures/ci/`
 - CI tool image: `tools/ci/`
 
+`examples/ci/` are schema-only examples for documentation.
+`test-fixtures/ci/` are runnable fixture repos used by contract tests and local end-to-end checks.
+
 ## CI Design
 
 The supported `CI` path uses a planner/executor split:
@@ -145,6 +148,10 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
   render-release-record .ci/config.json \
   --source-sha 1234567890abcdef1234567890abcdef12345678 \
   --published-at 2026-03-18T00:00:00Z
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
+  validate-config-payload examples/ci/service-config.json
 ```
 
 ## Legacy `v1`

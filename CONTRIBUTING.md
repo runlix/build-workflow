@@ -36,6 +36,7 @@ tools/ci/bin/build-workflow-ci validate-schema-file schema/release-record.schema
 
 python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 
+tools/ci/bin/build-workflow-ci validate-config-payload examples/ci/service-config.json
 tools/ci/bin/build-workflow-ci validate-config test-fixtures/ci/service/.ci/config.json
 tools/ci/bin/build-workflow-ci plan-matrix test-fixtures/ci/service/.ci/config.json --short-sha 1234567
 
@@ -83,6 +84,7 @@ Keep the docs aligned with the actual workflow contract:
 - `CI` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must pin the reusable workflow to a merged full SHA
 - wrapper examples must also pass `tool-image` pinned by digest
+- `examples/ci/` are schema-only examples, while `test-fixtures/ci/` are runnable contract fixtures
 - release wrappers should map only the Telegram secrets they need
 - validate uploads no artifacts
 - release uploads `release-record.json` as artifact `release-record`
