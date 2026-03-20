@@ -23,6 +23,11 @@ on:
         required: false
         default: ghcr.io/runlix/build-workflow-tools:ci
         type: string
+    secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
 
 concurrency:
   group: release-${{ github.repository }}
@@ -291,3 +296,60 @@ jobs:
           name: release-metadata
           path: release-metadata.json
           retention-days: 7
+
+      - name: Send Telegram notification
+        if: ${{ inputs.publish }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+          IMAGE_NAME: ${{ needs.plan.outputs.image_name }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          fi
+          if [ -n "$TELEGRAM_CHAT_ID" ]; then
+            echo "::add-mask::$TELEGRAM_CHAT_ID"
+          fi
+
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are not configured; skipping release notification."
+            exit 0
+          fi
+
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            render-telegram-notification release-metadata.json \
+            --image-name "$IMAGE_NAME" \
+            --repository "$REPOSITORY" \
+            --server-url "$SERVER_URL" \
+            --run-id "$RUN_ID" \
+            > /tmp/telegram-message.txt
+
+          if ! response="$(
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text@/tmp/telegram-message.txt" \
+              --data-urlencode "parse_mode=Markdown" \
+              --data-urlencode "disable_web_page_preview=true"
+          )"; then
+            echo "Telegram notification request failed before the API returned a response." >&2
+            exit 1
+          fi
+
+          if jq -e '.ok == true' <<<"$response" > /dev/null 2>&1; then
+            echo "Telegram notification sent."
+          else
+            description="$(jq -r '.description // "Unknown error"' <<<"$response" 2>/dev/null || echo "Unknown error")"
+            echo "Telegram notification failed: $description" >&2
+            exit 1
+          fi

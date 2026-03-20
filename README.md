@@ -30,6 +30,7 @@ Starter files:
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
 Supported callers should normally rely on the default tool image. Maintainers can override it with the `tool-image` input when validating an unpublished `build-workflow` branch.
+If you want release notifications, set `secrets: inherit` on the release wrapper so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` reach the reusable workflow.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -87,6 +88,14 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
   render-release-metadata .ci/config.json \
   --source-sha 1234567890abcdef1234567890abcdef12345678 \
   --published-at 2026-03-18T00:00:00Z
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  render-telegram-notification release-metadata.json \
+  --image-name ghcr.io/runlix/example-service \
+  --repository runlix/example-service \
+  --server-url https://github.com \
+  --run-id 123456789
 ```
 
 ## CI Behavior
@@ -107,6 +116,7 @@ Release:
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
 6. uploads `release-metadata.json` as artifact `release-metadata`
+7. sends an optional non-blocking Telegram notification when the caller inherits `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 
 Metadata sync:
 

@@ -71,6 +71,7 @@ Supported callers should pin the reusable workflow `uses:` reference to a merged
 
 The reusable workflows default to `ghcr.io/runlix/build-workflow-tools:ci` for the planner image.
 Maintainers can override that image with the `tool-image` input when validating an unpublished or side-branch tooling build.
+Reusable workflows do not receive repository secrets automatically. If a caller wants the release notification path, the release wrapper should set `secrets: inherit` so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are available to `.github/workflows/release.yml`.
 
 ## Workflow Behavior
 
@@ -90,6 +91,7 @@ Release:
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
 6. uploads `release-metadata.json` as artifact `release-metadata`
+7. sends an optional non-blocking Telegram notification when the caller inherits `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 
 Metadata sync:
 
@@ -121,6 +123,14 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools:ci \
   validate-release-record release-metadata.json
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  ghcr.io/runlix/build-workflow-tools:ci \
+  render-telegram-notification release-metadata.json \
+  --image-name ghcr.io/runlix/example-service \
+  --repository runlix/example-service \
+  --server-url https://github.com \
+  --run-id 123456789
 ```
 
 ## Design Rules
@@ -131,4 +141,5 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 - no legacy `docker-matrix` compatibility in the supported interface
 - metadata sync is standardized on `Release`, `release`, `main`, and `release-metadata`
 - callers should rely on default inputs unless they are validating a new tool image
+- release notifications are optional and require `secrets: inherit` on the caller release wrapper
 - `publish: false` on the release workflow is for contract testing and maintainer dry runs
