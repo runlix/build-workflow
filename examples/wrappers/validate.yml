@@ -1,4 +1,4 @@
-name: PR Validation
+name: Validate
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ on:
       - ".ci/*.sh"
       - ".dockerignore"
       - "linux-*.Dockerfile"
-      - ".github/workflows/pr-validation.yml"
+      - ".github/workflows/validate.yml"
       - ".github/workflows/release.yml"
   workflow_dispatch:
 
@@ -20,4 +20,4 @@ permissions:
 jobs:
   validate:
     name: validate
-    uses: runlix/build-workflow/.github/workflows/pr-validation.yml@YOUR_BUILD_WORKFLOW_SHA
+    uses: runlix/build-workflow/.github/workflows/validate.yml@YOUR_BUILD_WORKFLOW_SHA

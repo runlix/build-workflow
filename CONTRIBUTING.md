@@ -5,13 +5,12 @@ This repository is maintained for `runlix` image automation. The active path is 
 ## Change Types
 
 - `CI` changes:
-  - reusable workflows in `.github/workflows/pr-validation.yml`, `.github/workflows/release.yml`, `.github/workflows/sync-release-metadata.yml`
+  - reusable workflows in `.github/workflows/validate.yml`, `.github/workflows/release.yml`, `.github/workflows/sync-release-record.yml`
   - the CI tool image in `tools/ci/`
   - `schema/ci-config.schema.json`
-  - `schema/release-metadata.schema.json`
-  - `schema/releases.schema.json`
+  - `schema/release-record.schema.json`
   - `examples/ci/`
-  - `examples/*.yml`
+  - `examples/wrappers/`
   - `test-fixtures/ci/`
   - `docs/ci.md`
 - `v1` changes:
@@ -27,28 +26,24 @@ Install the required tools once:
 
 ```bash
 npm install -g ajv-cli ajv-formats
+python3 -m pip install -r tools/ci/requirements.txt
 ```
 
 Useful local checks:
 
 ```bash
-# Validate the active schemas, examples, and fixtures
 ajv compile -s schema/ci-config.schema.json --spec=draft2020 --strict=false
-ajv compile -s schema/release-metadata.schema.json --spec=draft2020 --strict=false
-ajv compile -s schema/releases.schema.json --spec=draft2020 --strict=false
+ajv compile -s schema/release-record.schema.json --spec=draft2020 --strict=false
 
-# Run the direct planner CLI checks
+python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
+
 tools/ci/bin/build-workflow-ci validate-config test-fixtures/ci/service/.ci/config.json
 tools/ci/bin/build-workflow-ci plan-matrix test-fixtures/ci/service/.ci/config.json --short-sha 1234567
 
-# Build and smoke-test the local tool image
 docker build -f tools/ci/Dockerfile -t build-workflow-tools:test .
 docker run --rm -v "$PWD:/workspace" -w /workspace build-workflow-tools:test validate-config test-fixtures/ci/service/.ci/config.json
 
-# Lint workflow files
-actionlint .github/workflows/*.yml examples/*.yml examples/v1/*.yml
-
-# Check for whitespace and patch-format problems
+actionlint .github/workflows/*.yml examples/wrappers/*.yml examples/v1/*.yml
 git diff --check
 ```
 
@@ -63,10 +58,10 @@ gh workflow run test-ci.yml --ref YOUR-BRANCH
 Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
 
 - pin the canary wrappers to the full commit SHA you are testing
-- if the branch also changes the tool image, pass `tool-image: ghcr.io/runlix/build-workflow-tools:sha-YOUR-BUILD-WORKFLOW-SHA`
-- if the branch changes release notifications, keep `secrets: inherit` on the canary release wrapper and verify the Telegram path with real secrets only when you explicitly want a live notification
-- run PR validation on `release`
-- if release behavior changed, run the release flow and metadata sync path too
+- use `secrets: inherit` on the release wrapper if release notifications are in scope
+- only use `config-path` or `tool-image` overrides for maintainer validation
+- run validate on `release`
+- if release behavior changed, run the release flow and record sync path too
 
 For `v1` changes:
 
@@ -81,21 +76,21 @@ When behavior changes, update the docs in the same branch:
 - `README.md` for the supported surface
 - `docs/ci.md` for the supported contract
 - `docs/v1/` only if legacy behavior changed
-- `examples/*.yml` and `examples/ci/*.json` if the public contract changed
+- `examples/wrappers/*.yml` and `examples/ci/*.json` if the public contract changed
 
 Keep the docs aligned with the actual workflow contract:
 
 - `CI` is GHCR-only for `ghcr.io/runlix/<name>`
 - wrapper examples must pin the reusable workflow to a merged full SHA
-- maintainers may override `tool-image` for branch validation, but regular callers should not need to
+- regular callers should not need to set `config-path` or `tool-image`
 - release wrappers should use `secrets: inherit` when Telegram notifications are desired
-- wrapper path filters should treat `.ci/*.sh` and `.dockerignore` as build inputs
-- PR aggregate check is `validate / summary`
-- release uploads `release-metadata.json` as artifact `release-metadata`
+- validate uploads no artifacts
+- release uploads `release-record.json` as artifact `release-record`
+- sync writes `release.json`
 
 ## Before Pushing
 
 - run the relevant local checks
-- update fixtures/examples when the contract changes
+- update fixtures and examples when the contract changes
 - confirm the docs match the actual YAML and schema
 - keep one concern per commit

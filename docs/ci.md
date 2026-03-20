@@ -2,9 +2,9 @@
 
 The supported `build-workflow` interface is the versionless CI contract:
 
-- `.github/workflows/pr-validation.yml`
+- `.github/workflows/validate.yml`
 - `.github/workflows/release.yml`
-- `.github/workflows/sync-release-metadata.yml`
+- `.github/workflows/sync-release-record.yml`
 
 `v1` remains available only for legacy `docker-matrix` callers.
 
@@ -28,9 +28,9 @@ The tool layer owns:
 - build-matrix planning
 - per-target build planning
 - manifest planning
-- release-metadata rendering
+- release-record rendering
 - release-record validation
-- `releases.json` writing
+- `release.json` writing
 
 The workflow layer owns:
 
@@ -40,26 +40,39 @@ The workflow layer owns:
 - Docker build, push, and manifest side effects
 - summary reporting
 
-This is clearer than the earlier internal-action bootstrap because the reusable workflows no longer need to self-checkout implementation files from `runlix/build-workflow`.
+This is clearer than the earlier script bootstrap because the reusable workflows no longer try to self-checkout implementation files from `runlix/build-workflow`.
 
 ## Config
 
 The caller contract is one explicit file: `.ci/config.json`.
 
+Top-level keys:
+
+- `image`
+- optional `version`
+- optional `defaults`
+- `targets`
+
+`defaults` supports:
+
+- `context`
+- `test`
+- `build_args`
+
 Each enabled target is one build unit and declares:
 
-- final manifest tag
-- one architecture
-- one Dockerfile
-- one pinned base reference
-- optional test script
-- optional extra build args
+- `name`
+- `manifest_tag`
+- `platform`
+- `dockerfile`
+- optional `build_args`
+- optional `test`
 
 Canonical assets:
 
-- schema: `schema/ci-config.schema.json`
-- metadata schemas: `schema/release-metadata.schema.json`, `schema/releases.schema.json`
+- schemas: `schema/ci-config.schema.json`, `schema/release-record.schema.json`
 - config examples: `examples/ci/`
+- wrapper examples: `examples/wrappers/`
 - fixtures: `test-fixtures/ci/`
 - contract workflow: `.github/workflows/test-ci.yml`
 
@@ -70,12 +83,12 @@ Canonical assets:
 Supported callers should pin the reusable workflow `uses:` reference to a merged full `build-workflow` commit SHA.
 
 The reusable workflows default to `ghcr.io/runlix/build-workflow-tools:ci` for the planner image.
-Maintainers can override that image with the `tool-image` input when validating an unpublished or side-branch tooling build.
-Reusable workflows do not receive repository secrets automatically. For same-organization or same-enterprise callers, the release wrapper should set `secrets: inherit` so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are available to `.github/workflows/release.yml`. Other callers should pass those named secrets explicitly.
+Regular callers should not need to override the tool image or config path.
+Reusable workflows do not receive repository secrets automatically. For same-organization or same-enterprise callers, the release wrapper should set `secrets: inherit` so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are available to `.github/workflows/release.yml`.
 
 ## Workflow Behavior
 
-PR validation:
+Validate:
 
 1. validates `.ci/config.json`
 2. renders the build matrix
@@ -90,15 +103,15 @@ Release:
 3. builds and tests each enabled target
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
-6. uploads `release-metadata.json` as artifact `release-metadata`
+6. uploads `release-record.json` as artifact `release-record`
 7. sends an optional non-blocking Telegram notification when the caller inherits `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 
-Metadata sync:
+Sync:
 
 1. runs from `main` after a successful `Release` workflow on `release`
 2. verifies the triggering workflow provenance
-3. downloads `release-metadata.json` from the triggering run
-4. writes `releases.json`
+3. downloads `release-record.json` from the triggering run
+4. writes `release.json`
 5. commits only when the metadata changed
 
 ## Local Validation
@@ -122,15 +135,7 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools:ci \
-  validate-release-record release-metadata.json
-
-docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools:ci \
-  render-telegram-notification release-metadata.json \
-  --image-name ghcr.io/runlix/example-service \
-  --repository runlix/example-service \
-  --server-url https://github.com \
-  --run-id 123456789
+  validate-release-record release-record.json
 ```
 
 ## Design Rules
@@ -139,7 +144,7 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 - `tools/ci/` is the only supported implementation path for the `CI` contract
 - no internal composite-action layer in the supported interface
 - no legacy `docker-matrix` compatibility in the supported interface
-- metadata sync is standardized on `Release`, `release`, `main`, and `release-metadata`
-- callers should rely on default inputs unless they are validating a new tool image
+- metadata sync is standardized on `Release`, `release`, `main`, and `release-record`
+- callers should rely on the defaults unless they are maintainers validating fixtures or a new tool image
 - release notifications are optional and require `secrets: inherit` on the caller release wrapper
 - `publish: false` on the release workflow is for contract testing and maintainer dry runs

@@ -2,28 +2,31 @@
   "$schema": "../../schema/ci-config.schema.json",
   "image": "ghcr.io/runlix/example-service",
   "version": "1.2.3",
+  "defaults": {
+    "test": ".ci/smoke-test.sh",
+    "build_args": {
+      "APP_PORT": "8080",
+      "APP_VERSION": "1.2.3"
+    }
+  },
   "targets": [
     {
       "name": "stable-amd64",
-      "tag": "1.2.3-stable",
-      "arch": "amd64",
+      "manifest_tag": "1.2.3-stable",
+      "platform": "linux/amd64",
       "dockerfile": "linux-amd64.Dockerfile",
-      "base_ref": "ghcr.io/runlix/distroless-runtime:stable@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "test": ".ci/smoke-test.sh",
       "build_args": {
-        "APP_VERSION": "1.2.3",
+        "BASE_REF": "ghcr.io/runlix/distroless-runtime:stable@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "VARIANT": "stable"
       }
     },
     {
       "name": "debug-arm64",
-      "tag": "1.2.3-debug",
-      "arch": "arm64",
+      "manifest_tag": "1.2.3-debug",
+      "platform": "linux/arm64",
       "dockerfile": "linux-arm64.Dockerfile",
-      "base_ref": "ghcr.io/runlix/distroless-runtime:debug@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "test": ".ci/smoke-test.sh",
       "build_args": {
-        "APP_VERSION": "1.2.3",
+        "BASE_REF": "ghcr.io/runlix/distroless-runtime:debug@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "VARIANT": "debug"
       }
     }

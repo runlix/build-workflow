@@ -1,26 +1,21 @@
-name: CI PR Validation
+name: CI Validate
 
 on:
   workflow_call:
     inputs:
       config-path:
-        description: Path to the CI config file in the caller repository.
+        description: Maintainer override for contract fixtures.
         required: false
         default: .ci/config.json
         type: string
-      context-dir:
-        description: Docker build context directory in the caller repository.
-        required: false
-        default: .
-        type: string
       tool-image:
-        description: Maintainer override for the CI planning tool image.
+        description: Maintainer override for branch validation of the CI tool image.
         required: false
         default: ghcr.io/runlix/build-workflow-tools:ci
         type: string
 
 concurrency:
-  group: pr-validation-${{ github.repository }}-${{ github.ref }}-${{ inputs.config-path }}
+  group: validate-${{ github.repository }}-${{ github.ref }}-${{ inputs.config-path }}
   cancel-in-progress: true
 
 jobs:
@@ -100,7 +95,6 @@ jobs:
         shell: bash
         env:
           CONFIG_PATH: ${{ inputs.config-path }}
-          CONTEXT_DIR: ${{ inputs.context-dir }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
           TOOL_IMAGE: ${{ inputs.tool-image }}
@@ -115,7 +109,6 @@ jobs:
             --target-name "$TARGET_NAME" \
             --mode pr \
             --short-sha "$SHORT_SHA" \
-            --context-dir "$CONTEXT_DIR" \
             > /tmp/build-target-plan.json
 
           {
@@ -192,7 +185,7 @@ jobs:
           set -euo pipefail
 
           {
-            echo "## PR Validation Summary"
+            echo "## Validation Summary"
             echo ""
             echo "- Repository: \`$REPOSITORY\`"
             echo "- Commit: \`$SHORT_SHA\`"
@@ -203,7 +196,7 @@ jobs:
 
           if [ "$PLAN_RESULT" = "success" ] && [ -n "${MATRIX_JSON:-}" ]; then
             target_count="$(jq 'length' <<< "$MATRIX_JSON")"
-            manifest_tags="$(jq -r '[.[].tag] | unique | join(", ")' <<< "$MATRIX_JSON")"
+            manifest_tags="$(jq -r '[.[].manifest_tag] | unique | join(", ")' <<< "$MATRIX_JSON")"
 
             {
               echo "### Build Plan"
@@ -212,11 +205,11 @@ jobs:
               echo "- Enabled targets: \`$target_count\`"
               echo "- Manifest tags: \`$manifest_tags\`"
               echo ""
-              echo "| Target | Arch | Tag | Dockerfile | Test |"
+              echo "| Target | Platform | Manifest Tag | Dockerfile | Test |"
               echo "| --- | --- | --- | --- | --- |"
               jq -r '
                 .[]
-                | "| \(.name) | \(.arch) | \(.tag) | \(.dockerfile) | "
+                | "| \(.name) | \(.platform) | \(.manifest_tag) | \(.dockerfile) | "
                   + (if (.test // "") == "" then "no" else "yes" end)
                   + " |"
               ' <<< "$MATRIX_JSON"

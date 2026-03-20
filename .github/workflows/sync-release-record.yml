@@ -1,10 +1,10 @@
-name: CI Sync Release Metadata
+name: CI Sync Release Record
 
 on:
   workflow_call:
     inputs:
       tool-image:
-        description: Maintainer override for the CI planning tool image.
+        description: Maintainer override for branch validation of the CI tool image.
         required: false
         default: ghcr.io/runlix/build-workflow-tools:ci
         type: string
@@ -49,45 +49,45 @@ jobs:
         with:
           ref: main
 
-      - name: Download release metadata artifact
+      - name: Download release record artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-metadata
+          name: release-record
           path: artifacts
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
 
-      - name: Validate release metadata
+      - name: Validate release record
         shell: bash
         run: |
           set -euo pipefail
-          build-workflow-ci validate-release-record artifacts/release-metadata.json
+          build-workflow-ci validate-release-record artifacts/release-record.json
 
-      - name: Verify metadata SHA matches triggering workflow
+      - name: Verify record SHA matches triggering workflow
         shell: bash
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
-          metadata_sha="$(jq -r '.sha' artifacts/release-metadata.json)"
-          [ "$metadata_sha" = "$HEAD_SHA" ] || {
-            echo "Release metadata SHA does not match triggering workflow SHA" >&2
+          record_sha="$(jq -r '.sha' artifacts/release-record.json)"
+          [ "$record_sha" = "$HEAD_SHA" ] || {
+            echo "Release record SHA does not match triggering workflow SHA" >&2
             exit 1
           }
 
-      - name: Write releases.json
+      - name: Write release.json
         shell: bash
         run: |
           set -euo pipefail
-          build-workflow-ci write-releases-json artifacts/release-metadata.json --output releases.json
+          build-workflow-ci write-release-json artifacts/release-record.json --output release.json
 
-      - name: Validate releases.json
+      - name: Validate release.json
         shell: bash
         run: |
           set -euo pipefail
-          build-workflow-ci validate-release-record releases.json
+          build-workflow-ci validate-release-record release.json
 
       - name: Commit metadata update
         env:
@@ -98,15 +98,15 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases.json
+          git add release.json
 
           if git diff --staged --quiet; then
             echo "No metadata changes to commit"
             exit 0
           fi
 
-          version="$(jq -r '.version // ""' releases.json)"
-          short_sha="$(jq -r '.short_sha' releases.json)"
+          version="$(jq -r '.version // ""' release.json)"
+          short_sha="$(jq -r '.short_sha' release.json)"
 
           if [ -n "$version" ]; then
             git commit -m "Release: ${SERVICE_NAME} ${version} @ ${short_sha}"
