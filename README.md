@@ -30,7 +30,7 @@ Starter files:
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
 Supported callers should normally rely on the default tool image. Maintainers can override it with the `tool-image` input when validating an unpublished `build-workflow` branch.
-If you want release notifications, set `secrets: inherit` on the release wrapper so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` reach the reusable workflow.
+If you want release notifications, same-organization callers should set `secrets: inherit` on the release wrapper so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` reach the reusable workflow. Other callers should pass those named secrets explicitly.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 

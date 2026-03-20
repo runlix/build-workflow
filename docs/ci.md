@@ -71,7 +71,7 @@ Supported callers should pin the reusable workflow `uses:` reference to a merged
 
 The reusable workflows default to `ghcr.io/runlix/build-workflow-tools:ci` for the planner image.
 Maintainers can override that image with the `tool-image` input when validating an unpublished or side-branch tooling build.
-Reusable workflows do not receive repository secrets automatically. If a caller wants the release notification path, the release wrapper should set `secrets: inherit` so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are available to `.github/workflows/release.yml`.
+Reusable workflows do not receive repository secrets automatically. For same-organization or same-enterprise callers, the release wrapper should set `secrets: inherit` so `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are available to `.github/workflows/release.yml`. Other callers should pass those named secrets explicitly.
 
 ## Workflow Behavior
 
