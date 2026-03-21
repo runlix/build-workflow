@@ -277,36 +277,52 @@ jobs:
           set -euo pipefail
           printf 'tool_image=%s\n' "${IMAGE_NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
 
-  test-validate-base-image:
-    name: test-validate-base-image
+  verify-published-tool-image:
+    name: verify-published-tool-image
     needs:
       - validate-ci-contracts
       - publish-test-tool-image
-    uses: ./.github/workflows/validate.yml
-    with:
-      config-path: test-fixtures/ci/base-image/.ci/config.json
-      tool-image: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
-  test-validate-service:
-    name: test-validate-service
-    needs:
-      - validate-ci-contracts
-      - publish-test-tool-image
-    uses: ./.github/workflows/validate.yml
-    with:
-      config-path: test-fixtures/ci/service/.ci/config.json
-      tool-image: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+      - name: Validate service fixture with published tool image
+        shell: bash
+        env:
+          TOOL_IMAGE: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+        run: |
+          set -euo pipefail
 
-  test-release-dry-run:
-    name: test-release-dry-run
-    needs:
-      - validate-ci-contracts
-      - publish-test-tool-image
-    uses: ./.github/workflows/release.yml
-    with:
-      config-path: test-fixtures/ci/service/.ci/config.json
-      publish: false
-      tool-image: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            validate-config test-fixtures/ci/service/.ci/config.json \
+            > /tmp/published-validate.json
+
+          jq -e '.image_name == "ghcr.io/runlix/test-service"' /tmp/published-validate.json > /dev/null
+          jq -e '.enabled_count == 2' /tmp/published-validate.json > /dev/null
+
+      - name: Render release record with published tool image
+        shell: bash
+        env:
+          TOOL_IMAGE: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TOOL_IMAGE" \
+            render-release-record test-fixtures/ci/service/.ci/config.json \
+            --source-sha 1234567890abcdef1234567890abcdef12345678 \
+            --published-at 2026-03-17T12:00:00Z \
+            > /tmp/published-release-record.json
+
+          diff -u test-fixtures/ci/release-record/release-record.json /tmp/published-release-record.json
 
   test-release-record-artifact:
     name: test-release-record-artifact
@@ -346,9 +362,7 @@ jobs:
     needs:
       - validate-ci-contracts
       - publish-test-tool-image
-      - test-validate-base-image
-      - test-validate-service
-      - test-release-dry-run
+      - verify-published-tool-image
       - test-release-record-artifact
     if: ${{ always() }}
     runs-on: ubuntu-24.04
@@ -358,9 +372,7 @@ jobs:
         env:
           VALIDATE_RESULT: ${{ needs.validate-ci-contracts.result }}
           IMAGE_RESULT: ${{ needs.publish-test-tool-image.result }}
-          BASE_IMAGE_RESULT: ${{ needs.test-validate-base-image.result }}
-          SERVICE_RESULT: ${{ needs.test-validate-service.result }}
-          RELEASE_DRY_RUN_RESULT: ${{ needs.test-release-dry-run.result }}
+          PUBLISHED_IMAGE_RESULT: ${{ needs.verify-published-tool-image.result }}
           RECORD_RESULT: ${{ needs.test-release-record-artifact.result }}
         run: |
           set -euo pipefail
@@ -370,18 +382,14 @@ jobs:
             echo ""
             echo "- Contract validation: \`$VALIDATE_RESULT\`"
             echo "- Temporary tool image publish: \`$IMAGE_RESULT\`"
-            echo "- Base-image fixture validate workflow: \`$BASE_IMAGE_RESULT\`"
-            echo "- Service fixture validate workflow: \`$SERVICE_RESULT\`"
-            echo "- Release fixture dry run: \`$RELEASE_DRY_RUN_RESULT\`"
+            echo "- Published tool image verification: \`$PUBLISHED_IMAGE_RESULT\`"
             echo "- Release record contract: \`$RECORD_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
           for result in \
             "$VALIDATE_RESULT" \
             "$IMAGE_RESULT" \
-            "$BASE_IMAGE_RESULT" \
-            "$SERVICE_RESULT" \
-            "$RELEASE_DRY_RUN_RESULT" \
+            "$PUBLISHED_IMAGE_RESULT" \
             "$RECORD_RESULT"
           do
             if [ "$result" != "success" ]; then

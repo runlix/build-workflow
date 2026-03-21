@@ -67,6 +67,7 @@ The supported `CI` path uses a planner/executor split:
 - pure config validation and release-record generation run inside the CI tool image
 
 This avoids the caller-context problems that come from trying to load implementation files from a called workflow repository at runtime.
+`build-workflow` does not self-call its reusable workflows in its own CI; caller-context reusable-workflow proof comes from downstream canaries such as `distroless-runtime`.
 
 ## Config Contract
 

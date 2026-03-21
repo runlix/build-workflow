@@ -55,7 +55,8 @@ For `CI` changes:
 gh workflow run test-ci.yml --ref YOUR-BRANCH
 ```
 
-Also verify one real downstream canary before merging. `distroless-runtime` is the default canary:
+`test-ci.yml` validates the provider surface only: schemas, CLI behavior, runnable fixtures, release-record contracts, and the published planner image.
+Also verify one real downstream canary before merging. `distroless-runtime` is the default reusable-workflow canary:
 
 - pin the canary wrappers to the full commit SHA you are testing
 - pass `tool-image` pinned by digest or `:sha-<build-workflow git sha>`
