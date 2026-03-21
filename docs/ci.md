@@ -41,6 +41,7 @@ The workflow layer owns:
 - summary reporting
 
 This is clearer than the earlier script bootstrap because the reusable workflows no longer try to self-checkout implementation files from `runlix/build-workflow`.
+Provider-side CI in `build-workflow` validates the tool, schemas, fixtures, and published planner image. Real reusable-workflow end-to-end behavior is proven in downstream caller repos, with `distroless-runtime` as the default canary.
 
 ## Config
 
@@ -80,6 +81,7 @@ Canonical assets:
 
 `examples/ci/` are schema-only configuration examples for docs and review.
 `test-fixtures/ci/` are runnable fixture repos used for full validation, matrix planning, build tests, and release-record checks.
+`.github/workflows/test-ci.yml` intentionally does not self-call `.github/workflows/validate.yml` or `.github/workflows/release.yml`; downstream canaries cover caller-context workflow execution.
 
 ## Pinning
 
