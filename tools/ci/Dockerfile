@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates git jq \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bash ca-certificates git jq \
   && rm -rf /var/lib/apt/lists/*
 
 COPY tools/ci /opt/build-workflow/tools/ci
