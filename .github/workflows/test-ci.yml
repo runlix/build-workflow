@@ -254,6 +254,20 @@ jobs:
           grep -Eq 'TELEGRAM_CHAT_ID:' examples/wrappers/release.yml
           grep -Eq 'RUNLIX_APP_ID:' examples/wrappers/sync-release-record.yml
           grep -Eq 'RUNLIX_PRIVATE_KEY:' examples/wrappers/sync-release-record.yml
+          grep -Eq 'group: sync-release-record-\$\{\{ github\.repository \}\}' examples/wrappers/sync-release-record.yml
+          grep -Eq 'cancel-in-progress: false' examples/wrappers/sync-release-record.yml
+
+          grep -Eq '^[[:space:]]+- main$' .github/workflows/publish-tool-image.yml
+          if grep -Eq '^[[:space:]]+- side/\*\*$|^[[:space:]]+- refactor/\*\*$' .github/workflows/publish-tool-image.yml; then
+            echo "Standalone tool-image publish still auto-runs on side or refactor branches" >&2
+            exit 1
+          fi
+
+          grep -Eq 'ci-test-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}' .github/workflows/test-ci.yml
+          if grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.sha \}\}' .github/workflows/test-ci.yml; then
+            echo "Temporary self-test publish still claims the canonical sha tag namespace" >&2
+            exit 1
+          fi
 
           for workflow_file in \
             .github/workflows/test-ci.yml \
@@ -311,7 +325,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
+            ghcr.io/runlix/build-workflow-tools:ci-test-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Expose immutable tool image reference
         id: immutable

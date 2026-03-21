@@ -87,7 +87,10 @@ Canonical assets:
 
 Supported callers should pin the reusable workflow `uses:` reference to a merged full `build-workflow` commit SHA.
 
-Supported callers should also pass `tool-image`, pinned either to `ghcr.io/runlix/build-workflow-tools@sha256:<digest>` or to `ghcr.io/runlix/build-workflow-tools:sha-<build-workflow git sha>` for branch validation.
+Supported callers should also pass `tool-image`, pinned to `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`.
+Maintainers may also pin to `ghcr.io/runlix/build-workflow-tools:sha-<build-workflow git sha>` when that tag was produced by the standalone publish workflow on `main` or by explicit `workflow_dispatch`.
+Provider-side self-test publishes only a temporary run-scoped image to prove the container contract and does not claim the public `sha-<sha>` tag namespace.
+Testing an unmerged planner change in a downstream caller therefore requires an intentional manual publish of that branch commit.
 `config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
 Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
 Sync callers should map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into `.github/workflows/sync-release-record.yml`.
@@ -119,6 +122,8 @@ Sync:
 3. downloads `release-record.json` from the triggering run
 4. writes `release.json`
 5. commits only when the metadata changed, using the caller-mapped GitHub App credentials
+
+Caller sync wrappers should add job-level concurrency with `cancel-in-progress: false` so closely spaced releases queue instead of racing on `main`.
 
 ## Local Validation
 
