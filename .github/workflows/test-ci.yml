@@ -182,6 +182,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          expected_build_push_action_sha='d08e5c354a6adb9ed34480a06d141179aa583294'
+          old_build_push_action_sha='263435318d21b8e681c14492fe198d362a7d2c83'
+
           test -f .github/workflows/validate.yml
           test -f .github/workflows/release.yml
           test -f .github/workflows/sync-release-record.yml
@@ -224,6 +227,21 @@ jobs:
           grep -Eq 'TELEGRAM_BOT_TOKEN:' examples/wrappers/release.yml
           grep -Eq 'TELEGRAM_CHAT_ID:' examples/wrappers/release.yml
 
+          for workflow_file in \
+            .github/workflows/test-ci.yml \
+            .github/workflows/publish-tool-image.yml
+          do
+            grep -Eq "docker/build-push-action@${expected_build_push_action_sha}" "$workflow_file"
+            if grep -Eq "docker/build-push-action@${old_build_push_action_sha}" "$workflow_file"; then
+              echo "Deprecated build-push-action pin remains in $workflow_file" >&2
+              exit 1
+            fi
+          done
+
+          curl --fail --silent --show-error --location \
+            "https://raw.githubusercontent.com/docker/build-push-action/${expected_build_push_action_sha}/action.yml" \
+            | grep -Eq "^  using: 'node24'$"
+
   publish-test-tool-image:
     name: publish-test-tool-image
     needs: validate-ci-contracts
@@ -258,7 +276,7 @@ jobs:
 
       - name: Build and push temporary tool image
         id: build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
           file: tools/ci/Dockerfile
