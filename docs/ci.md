@@ -90,6 +90,7 @@ Supported callers should pin the reusable workflow `uses:` reference to a merged
 Supported callers should also pass `tool-image`, pinned either to `ghcr.io/runlix/build-workflow-tools@sha256:<digest>` or to `ghcr.io/runlix/build-workflow-tools:sha-<build-workflow git sha>` for branch validation.
 `config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
 Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
+Sync callers should map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into `.github/workflows/sync-release-record.yml`.
 
 ## Workflow Behavior
 
@@ -117,7 +118,7 @@ Sync:
 2. verifies the triggering workflow provenance
 3. downloads `release-record.json` from the triggering run
 4. writes `release.json`
-5. commits only when the metadata changed
+5. commits only when the metadata changed, using the caller-mapped GitHub App credentials
 
 ## Local Validation
 

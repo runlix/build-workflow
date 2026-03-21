@@ -184,6 +184,7 @@ jobs:
 
           expected_build_push_action_sha='d08e5c354a6adb9ed34480a06d141179aa583294'
           old_build_push_action_sha='263435318d21b8e681c14492fe198d362a7d2c83'
+          expected_app_token_action_sha='67018539274d69449ef7c02e8e71183d1719ab42'
 
           test -f .github/workflows/validate.yml
           test -f .github/workflows/release.yml
@@ -217,6 +218,9 @@ jobs:
           grep -Eq 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' .github/workflows/sync-release-record.yml
           grep -Eq 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' .github/workflows/sync-release-record.yml
           grep -Eq 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' .github/workflows/sync-release-record.yml
+          grep -Eq 'RUNLIX_APP_ID:' .github/workflows/sync-release-record.yml
+          grep -Eq 'RUNLIX_PRIVATE_KEY:' .github/workflows/sync-release-record.yml
+          grep -Eq "actions/create-github-app-token@${expected_app_token_action_sha}" .github/workflows/sync-release-record.yml
           python3 - <<'PY'
           from pathlib import Path
 
@@ -230,7 +234,9 @@ jobs:
           assert "name: Upload normalized release.json artifact" in render
 
           assert "container:" not in commit
+          assert "actions/create-github-app-token@" in commit
           assert "uses: actions/checkout@" in commit
+          assert "steps.app-token.outputs.token" in commit
           assert "working-directory:" in commit
           assert "github.workspace" in commit
           assert "git push origin HEAD:main" in commit
@@ -244,6 +250,8 @@ jobs:
           grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/sync-release-record.yml
           grep -Eq 'TELEGRAM_BOT_TOKEN:' examples/wrappers/release.yml
           grep -Eq 'TELEGRAM_CHAT_ID:' examples/wrappers/release.yml
+          grep -Eq 'RUNLIX_APP_ID:' examples/wrappers/sync-release-record.yml
+          grep -Eq 'RUNLIX_PRIVATE_KEY:' examples/wrappers/sync-release-record.yml
 
           for workflow_file in \
             .github/workflows/test-ci.yml \

@@ -32,6 +32,7 @@ Starter files:
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
 Pass the planner image explicitly with `tool-image`, pinned either by digest or by `:sha-<build-workflow git sha>` for maintainer branch validation.
 If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
+For sync write-back on protected `main`, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the sync wrapper.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -118,6 +119,12 @@ Release:
 7. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 
 Sync:
+
+1. runs from `main` after a successful `Release` workflow on `release`
+2. verifies the triggering workflow provenance
+3. downloads `release-record.json` from the triggering run
+4. writes `release.json`
+5. commits only when the metadata changed, using the caller-mapped GitHub App credentials
 
 1. runs from `main` after a successful `Release` workflow on `release`
 2. downloads `release-record.json`
