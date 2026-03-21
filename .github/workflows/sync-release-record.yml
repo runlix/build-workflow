@@ -32,12 +32,12 @@ jobs:
 
           printf 'value=%s\n' "$TOOL_IMAGE" >> "$GITHUB_OUTPUT"
 
-  sync:
+  render-release-json:
     needs: validate-inputs
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    name: render-release-json
     permissions:
       actions: read
-      contents: write
     runs-on: ubuntu-24.04
     container:
       image: ${{ needs.validate-inputs.outputs.tool_image }}
@@ -66,12 +66,6 @@ jobs:
             echo "Unexpected triggering repository: $TRIGGER_REPOSITORY" >&2
             exit 1
           }
-
-      - name: Checkout metadata branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: main
-          persist-credentials: true
 
       - name: Download release record artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -113,13 +107,42 @@ jobs:
           set -euo pipefail
           build-workflow-ci validate-release-record release.json
 
+      - name: Upload normalized release.json artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: normalized-release-json
+          path: release.json
+
+  commit-release-json:
+    name: commit-release-json
+    needs: render-release-json
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout metadata branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Download normalized release.json artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: normalized-release-json
+          path: ${{ runner.temp }}/normalized-release-json
+
       - name: Commit metadata update
         env:
+          RELEASE_JSON_DIR: ${{ runner.temp }}/normalized-release-json
           SERVICE_NAME: ${{ github.event.repository.name }}
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
 
+          cp "$RELEASE_JSON_DIR/release.json" release.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add release.json

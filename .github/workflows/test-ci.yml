@@ -217,6 +217,23 @@ jobs:
           grep -Eq 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' .github/workflows/sync-release-record.yml
           grep -Eq 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' .github/workflows/sync-release-record.yml
           grep -Eq 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' .github/workflows/sync-release-record.yml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow = Path(".github/workflows/sync-release-record.yml").read_text()
+          render = workflow.split("  render-release-json:")[1].split("  commit-release-json:")[0]
+          commit = workflow.split("  commit-release-json:")[1]
+
+          assert "container:" in render
+          assert "uses: actions/checkout@" not in render
+          assert "git push origin HEAD:main" not in render
+          assert "name: Upload normalized release.json artifact" in render
+
+          assert "container:" not in commit
+          assert "uses: actions/checkout@" in commit
+          assert "working-directory: ${{ github.workspace }}" in commit
+          assert "git push origin HEAD:main" in commit
+          PY
 
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate.yml
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/release.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/release.yml
