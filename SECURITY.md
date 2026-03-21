@@ -33,9 +33,9 @@ Include enough detail for reproduction and triage:
 
 Relevant implementation details in this repository today:
 
-- the reusable workflow requires `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` in release mode
+- the sync reusable workflow requires `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` for protected-branch write-back
 - GHCR publishing and cleanup use `GITHUB_TOKEN`
-- release mode updates `releases.json` on `main`
+- sync write-back updates `release.json` on `main`
 - optional Telegram notifications use repository secrets
 - Trivy SARIF artifacts are generated during image validation
 

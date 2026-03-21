@@ -18,3 +18,6 @@ jobs:
     uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@YOUR_BUILD_WORKFLOW_SHA
     with:
       tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST
+    secrets:
+      RUNLIX_APP_ID: ${{ secrets.RUNLIX_APP_ID }}
+      RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}
