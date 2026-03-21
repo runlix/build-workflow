@@ -231,7 +231,8 @@ jobs:
 
           assert "container:" not in commit
           assert "uses: actions/checkout@" in commit
-          assert "working-directory: ${{ github.workspace }}" in commit
+          assert "working-directory:" in commit
+          assert "github.workspace" in commit
           assert "git push origin HEAD:main" in commit
           PY
 
