@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - side/**
-      - refactor/**
     paths:
       - 'tools/ci/**'
       - 'schema/ci-config.schema.json'
