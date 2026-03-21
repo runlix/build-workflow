@@ -184,7 +184,7 @@ jobs:
 
           expected_build_push_action_sha='d08e5c354a6adb9ed34480a06d141179aa583294'
           old_build_push_action_sha='263435318d21b8e681c14492fe198d362a7d2c83'
-          expected_app_token_action_sha='67018539274d69449ef7c02e8e71183d1719ab42'
+          expected_app_token_action_sha='f8d387b68d61c58ab83c6c016672934102569859'
 
           test -f .github/workflows/validate.yml
           test -f .github/workflows/release.yml
@@ -221,6 +221,7 @@ jobs:
           grep -Eq 'RUNLIX_APP_ID:' .github/workflows/sync-release-record.yml
           grep -Eq 'RUNLIX_PRIVATE_KEY:' .github/workflows/sync-release-record.yml
           grep -Eq "actions/create-github-app-token@${expected_app_token_action_sha}" .github/workflows/sync-release-record.yml
+          grep -Eq 'permission-contents: write' .github/workflows/sync-release-record.yml
           python3 - <<'PY'
           from pathlib import Path
 
@@ -236,6 +237,7 @@ jobs:
           assert "container:" not in commit
           assert "actions/create-github-app-token@" in commit
           assert "uses: actions/checkout@" in commit
+          assert "permission-contents: write" in commit
           assert "steps.app-token.outputs.token" in commit
           assert "working-directory:" in commit
           assert "github.workspace" in commit
