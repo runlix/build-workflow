@@ -13,12 +13,16 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  publish:
-    name: publish
+  publish-immutable:
+    name: publish-immutable
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -35,22 +39,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
-      - name: Set tool image tags
-        id: tags
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          {
-            echo 'value<<EOF'
-            echo "ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA}"
-            if [ "${GITHUB_REF_NAME}" = "main" ]; then
-              echo "ghcr.io/runlix/build-workflow-tools:ci"
-            fi
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build and push tool image
+      - name: Build and push immutable tool image
         id: build
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
@@ -58,7 +47,8 @@ jobs:
           file: tools/ci/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.value }}
+          tags: |
+            ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
 
       - name: Summarize immutable tool image refs
         shell: bash
@@ -70,4 +60,47 @@ jobs:
             echo ""
             echo "- Git SHA tag: \`ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA}\`"
             echo "- Digest ref: \`ghcr.io/runlix/build-workflow-tools@${{ steps.build.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  update-ci-alias:
+    name: update-ci-alias
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: publish-immutable
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: publish-tool-image-ci-${{ github.repository }}
+      cancel-in-progress: true
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Update mutable ci alias
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            -t ghcr.io/runlix/build-workflow-tools:ci \
+            ghcr.io/runlix/build-workflow-tools@${{ needs.publish-immutable.outputs.digest }}
+
+      - name: Summarize mutable ci alias
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Updated CI Alias"
+            echo ""
+            echo "- Mutable alias: \`ghcr.io/runlix/build-workflow-tools:ci\`"
+            echo "- Current digest: \`ghcr.io/runlix/build-workflow-tools@${{ needs.publish-immutable.outputs.digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

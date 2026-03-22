@@ -89,6 +89,7 @@ Supported callers should pin the reusable workflow `uses:` reference to a merged
 
 Supported callers should also pass `tool-image`, pinned to `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`.
 Maintainers may also pin to `ghcr.io/runlix/build-workflow-tools:sha-<build-workflow git sha>` when that tag was produced by the standalone publish workflow on `main` or by explicit `workflow_dispatch`.
+The mutable `ghcr.io/runlix/build-workflow-tools:ci` alias tracks the latest published `main` planner image for maintainer convenience only and is not a supported caller input.
 Provider-side self-test publishes only a temporary run-scoped image to prove the container contract and does not claim the public `sha-<sha>` tag namespace.
 Testing an unmerged planner change in a downstream caller therefore requires an intentional manual publish of that branch commit.
 `config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
