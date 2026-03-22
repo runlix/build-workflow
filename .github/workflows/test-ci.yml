@@ -259,27 +259,34 @@ jobs:
           grep -Eq 'group: sync-release-record-\$\{\{ github\.repository \}\}' examples/wrappers/sync-release-record.yml
           grep -Eq 'cancel-in-progress: false' examples/wrappers/sync-release-record.yml
 
-          grep -Eq '^pull_request:$' .github/workflows/test-ci.yml
-          grep -Eq '^push:$' .github/workflows/test-ci.yml
-          grep -Eq '^workflow_dispatch:$' .github/workflows/test-ci.yml
-          grep -Eq '^[[:space:]]+- main$' .github/workflows/test-ci.yml
-          if grep -Eq '^[[:space:]]+- side/\*\*$|^[[:space:]]+- refactor/\*\*$' .github/workflows/test-ci.yml; then
-            echo "Test CI Workflows still auto-runs on side or refactor branch pushes" >&2
-            exit 1
-          fi
-
           python3 - <<'PY'
           from pathlib import Path
 
           workflow = Path(".github/workflows/test-ci.yml").read_text()
+          assert "\non:\n" in workflow, "test-ci missing top-level on block"
+          assert "\nconcurrency:\n" in workflow, "test-ci missing workflow concurrency block"
+
+          on_section = workflow.split("\non:\n", 1)[1].split("\nconcurrency:\n", 1)[0]
+          normalized_on_section = "\n" + on_section
+          push_section = on_section.split("\n  push:\n", 1)[1].split("\n    paths:\n", 1)[0]
           gha_open = "$" + "{{"
 
-          assert "concurrency:" in workflow
+          assert "\n  pull_request:\n" in normalized_on_section, "test-ci missing pull_request trigger"
+          assert "\n  push:\n" in normalized_on_section, "test-ci missing push trigger"
+          assert "\n  workflow_dispatch:\n" in normalized_on_section, "test-ci missing workflow_dispatch trigger"
+          assert "      - main" in push_section, "test-ci push trigger no longer includes main"
+          assert "side/**" not in push_section, "test-ci still auto-runs on side branch pushes"
+          assert "refactor/**" not in push_section, "test-ci still auto-runs on refactor branch pushes"
+
           assert (
-              f"group: test-ci-{gha_open} github.repository }}-{gha_open} github.event.pull_request.number || github.ref }}"
+              "group: test-ci-"
+              + gha_open
+              + " github.repository }}-"
+              + gha_open
+              + " github.event.pull_request.number || github.ref }}"
               in workflow
-          )
-          assert "cancel-in-progress: true" in workflow
+          ), "test-ci concurrency group drifted"
+          assert "cancel-in-progress: true" in workflow, "test-ci concurrency should cancel superseded runs"
           PY
 
           grep -Eq '^[[:space:]]+- main$' .github/workflows/publish-tool-image.yml
@@ -295,17 +302,34 @@ jobs:
           update_ci_alias = workflow.split("  update-ci-alias:")[1]
           gha_open = "$" + "{{"
 
-          assert "name: publish-immutable" in publish_immutable
-          assert "name: Build and push immutable tool image" in publish_immutable
-          assert f"ghcr.io/runlix/build-workflow-tools:sha-{gha_open} github.sha }}" in publish_immutable
-          assert "ghcr.io/runlix/build-workflow-tools:ci" not in publish_immutable
+          assert "name: publish-immutable" in publish_immutable, "publish-tool-image missing publish-immutable job"
+          assert "name: Build and push immutable tool image" in publish_immutable, "publish-tool-image missing immutable build step"
+          assert (
+              "ghcr.io/runlix/build-workflow-tools:sha-"
+              + gha_open
+              + " github.sha }}"
+              in publish_immutable
+          ), "publish-tool-image no longer pushes the immutable sha tag"
+          assert "ghcr.io/runlix/build-workflow-tools:ci" not in publish_immutable, "publish-tool-image still pushes :ci from the immutable job"
 
-          assert "name: update-ci-alias" in update_ci_alias
-          assert f"if: {gha_open} github.ref == 'refs/heads/main' }}" in update_ci_alias
-          assert f"group: publish-tool-image-ci-{gha_open} github.repository }}" in update_ci_alias
-          assert "cancel-in-progress: true" in update_ci_alias
-          assert "docker buildx imagetools create \\" in update_ci_alias
-          assert "needs.publish-immutable.outputs.digest" in update_ci_alias
+          assert "name: update-ci-alias" in update_ci_alias, "publish-tool-image missing update-ci-alias job"
+          assert (
+              "if: "
+              + gha_open
+              + " github.ref == 'refs/heads/main' }}"
+              in update_ci_alias
+          ), "publish-tool-image alias job should still be gated to main"
+          assert (
+              "group: publish-tool-image-ci-"
+              + gha_open
+              + " github.repository }}"
+              in update_ci_alias
+          ), "publish-tool-image alias job concurrency group drifted"
+          assert "cancel-in-progress: true" in update_ci_alias, "publish-tool-image alias job should cancel superseded runs"
+          assert "docker buildx imagetools create \\" in update_ci_alias, "publish-tool-image alias job no longer retags via imagetools"
+          assert (
+              "needs.publish-immutable.outputs.digest" in update_ci_alias
+          ), "publish-tool-image alias job no longer consumes the immutable digest"
           PY
 
           grep -Eq 'ci-test-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}' .github/workflows/test-ci.yml
