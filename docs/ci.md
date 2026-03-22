@@ -95,6 +95,7 @@ Testing an unmerged planner change in a downstream caller therefore requires an 
 `config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
 Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
 Sync callers should map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into `.github/workflows/sync-release-record.yml`.
+Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` for manual pre-PR validation when needed.
 
 ## Workflow Behavior
 
