@@ -332,11 +332,62 @@ jobs:
           ), "publish-tool-image alias job no longer consumes the immutable digest"
           PY
 
-          grep -Eq 'ci-test-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}' .github/workflows/test-ci.yml
-          if grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.sha \}\}' .github/workflows/test-ci.yml; then
-            echo "Temporary self-test publish still claims the canonical sha tag namespace" >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          workflow = Path(".github/workflows/test-ci.yml").read_text()
+          build_match = re.search(
+              r"^  build-tool-image-artifact:\n(?P<body>.*?)(?=^  verify-tool-image-artifact:\n)",
+              workflow,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+          verify_match = re.search(
+              r"^  verify-tool-image-artifact:\n(?P<body>.*?)(?=^  test-release-record-artifact:\n)",
+              workflow,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+          summary_match = re.search(
+              r"^  test-summary:\n(?P<body>.*)$",
+              workflow,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+
+          assert build_match is not None
+          assert verify_match is not None
+          assert summary_match is not None
+
+          build_job = build_match.group("body")
+          verify_job = verify_match.group("body")
+          summary_job = summary_match.group("body")
+
+          assert "packages: write" not in build_job
+          assert "packages: write" not in verify_job
+          assert "docker/login-action@" not in build_job
+          assert "docker/login-action@" not in verify_job
+          assert "ghcr.io/runlix/build-workflow-tools:ci" not in build_job
+          assert "ghcr.io/runlix/build-workflow-tools:ci" not in verify_job
+          assert "ghcr.io/runlix/build-workflow-tools:sha-" not in build_job
+          assert "ghcr.io/runlix/build-workflow-tools:sha-" not in verify_job
+          assert "ci-test-" not in build_job
+          assert "ci-test-" not in verify_job
+          assert "push: true" not in build_job
+          assert "name: build-tool-image-artifact" in workflow
+          assert "name: verify-tool-image-artifact" in workflow
+          assert "name: Build multi-platform tool image" in build_job
+          assert "type=cacheonly" in build_job
+          assert "name: Export amd64 tool image tarball" in build_job
+          assert "type=docker,dest=" in build_job
+          assert "name: Upload tool image artifact" in build_job
+          assert "name: Download tool image artifact" in verify_job
+          assert "docker load -i" in verify_job
+          assert "actions/upload-artifact@" in build_job
+          assert "actions/download-artifact@" in verify_job
+          assert "build-workflow-tools-test-amd64.tar" in build_job
+          assert "build-workflow-tools:test-amd64" in build_job
+          assert "Tool image artifact build" in summary_job
+          assert "Tool image artifact verification" in summary_job
+          PY
 
           for workflow_file in \
             .github/workflows/test-ci.yml \
@@ -353,64 +404,59 @@ jobs:
             "https://raw.githubusercontent.com/docker/build-push-action/${expected_build_push_action_sha}/action.yml" \
             | grep -Eq "^  using: 'node24'$"
 
-  publish-test-tool-image:
-    name: publish-test-tool-image
+  build-tool-image-artifact:
+    name: build-tool-image-artifact
     needs: validate-ci-contracts
-    permissions:
-      contents: read
-      packages: write
     runs-on: ubuntu-24.04
     outputs:
-      tool_image: ${{ steps.immutable.outputs.tool_image }}
+      tool_image: ${{ steps.meta.outputs.image_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
-      - name: Set immutable image refs
+      - name: Set local image refs
         id: meta
         shell: bash
         run: |
           set -euo pipefail
-          printf 'image_name=%s\n' "ghcr.io/runlix/build-workflow-tools" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to GHCR
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          printf 'artifact_name=%s\n' "tool-image-amd64" >> "$GITHUB_OUTPUT"
+          printf 'artifact_path=%s\n' "${RUNNER_TEMP}/build-workflow-tools-test-amd64.tar" >> "$GITHUB_OUTPUT"
+          printf 'image_tag=%s\n' "build-workflow-tools:test-amd64" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
-      - name: Build and push temporary tool image
-        id: build
+      - name: Build multi-platform tool image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
           file: tools/ci/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/runlix/build-workflow-tools:ci-test-${{ github.run_id }}-${{ github.run_attempt }}
+          outputs: type=cacheonly
 
-      - name: Expose immutable tool image reference
-        id: immutable
-        shell: bash
-        env:
-          IMAGE_NAME: ${{ steps.meta.outputs.image_name }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          set -euo pipefail
-          printf 'tool_image=%s\n' "${IMAGE_NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
+      - name: Export amd64 tool image tarball
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          context: .
+          file: tools/ci/Dockerfile
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.image_tag }}
+          outputs: type=docker,dest=${{ steps.meta.outputs.artifact_path }}
 
-  verify-published-tool-image:
-    name: verify-published-tool-image
+      - name: Upload tool image artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: ${{ steps.meta.outputs.artifact_path }}
+          retention-days: 1
+
+  verify-tool-image-artifact:
+    name: verify-tool-image-artifact
     needs:
       - validate-ci-contracts
-      - publish-test-tool-image
+      - build-tool-image-artifact
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -418,10 +464,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate service fixture with published tool image
+      - name: Download tool image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: tool-image-amd64
+          path: ${{ runner.temp }}/tool-image-artifact
+
+      - name: Load tool image artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker load -i "${{ runner.temp }}/tool-image-artifact/build-workflow-tools-test-amd64.tar"
+
+      - name: Validate service fixture with artifact tool image
         shell: bash
         env:
-          TOOL_IMAGE: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+          TOOL_IMAGE: ${{ needs.build-tool-image-artifact.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -435,10 +493,10 @@ jobs:
           jq -e '.image_name == "ghcr.io/runlix/test-service"' /tmp/published-validate.json > /dev/null
           jq -e '.enabled_count == 2' /tmp/published-validate.json > /dev/null
 
-      - name: Render release record with published tool image
+      - name: Render release record with artifact tool image
         shell: bash
         env:
-          TOOL_IMAGE: ${{ needs.publish-test-tool-image.outputs.tool_image }}
+          TOOL_IMAGE: ${{ needs.build-tool-image-artifact.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -490,8 +548,8 @@ jobs:
     name: test-summary
     needs:
       - validate-ci-contracts
-      - publish-test-tool-image
-      - verify-published-tool-image
+      - build-tool-image-artifact
+      - verify-tool-image-artifact
       - test-release-record-artifact
     if: ${{ always() }}
     runs-on: ubuntu-24.04
@@ -500,8 +558,8 @@ jobs:
         shell: bash
         env:
           VALIDATE_RESULT: ${{ needs.validate-ci-contracts.result }}
-          IMAGE_RESULT: ${{ needs.publish-test-tool-image.result }}
-          PUBLISHED_IMAGE_RESULT: ${{ needs.verify-published-tool-image.result }}
+          IMAGE_RESULT: ${{ needs.build-tool-image-artifact.result }}
+          PUBLISHED_IMAGE_RESULT: ${{ needs.verify-tool-image-artifact.result }}
           RECORD_RESULT: ${{ needs.test-release-record-artifact.result }}
         run: |
           set -euo pipefail
@@ -510,8 +568,8 @@ jobs:
             echo "## CI Workflow Test Summary"
             echo ""
             echo "- Contract validation: \`$VALIDATE_RESULT\`"
-            echo "- Temporary tool image publish: \`$IMAGE_RESULT\`"
-            echo "- Published tool image verification: \`$PUBLISHED_IMAGE_RESULT\`"
+            echo "- Tool image artifact build: \`$IMAGE_RESULT\`"
+            echo "- Tool image artifact verification: \`$PUBLISHED_IMAGE_RESULT\`"
             echo "- Release record contract: \`$RECORD_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
