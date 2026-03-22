@@ -31,6 +31,7 @@ Starter files:
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
 Pass the planner image explicitly with `tool-image`, pinned either by digest or by `:sha-<build-workflow git sha>` for maintainer branch validation.
+The mutable `ghcr.io/runlix/build-workflow-tools:ci` tag is only a convenience alias for the latest published `main` tool image and is not a supported caller input.
 If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
 For sync write-back on protected `main`, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the sync wrapper.
 

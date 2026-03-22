@@ -262,6 +262,25 @@ jobs:
             echo "Standalone tool-image publish still auto-runs on side or refactor branches" >&2
             exit 1
           fi
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow = Path(".github/workflows/publish-tool-image.yml").read_text()
+          publish_immutable = workflow.split("  publish-immutable:")[1].split("  update-ci-alias:")[0]
+          update_ci_alias = workflow.split("  update-ci-alias:")[1]
+
+          assert "name: publish-immutable" in publish_immutable
+          assert "name: Build and push immutable tool image" in publish_immutable
+          assert "ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}" in publish_immutable
+          assert "ghcr.io/runlix/build-workflow-tools:ci" not in publish_immutable
+
+          assert "name: update-ci-alias" in update_ci_alias
+          assert "if: ${{ github.ref == 'refs/heads/main' }}" in update_ci_alias
+          assert "group: publish-tool-image-ci-${{ github.repository }}" in update_ci_alias
+          assert "cancel-in-progress: true" in update_ci_alias
+          assert "docker buildx imagetools create \\" in update_ci_alias
+          assert "needs.publish-immutable.outputs.digest" in update_ci_alias
+          PY
 
           grep -Eq 'ci-test-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}' .github/workflows/test-ci.yml
           if grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.sha \}\}' .github/workflows/test-ci.yml; then
