@@ -217,12 +217,11 @@ jobs:
                   r"      - completed\n",
                   "sync wrapper trigger drifted",
               )
-              require(
-                  r"^permissions:\n"
-                  r"  actions: read\n"
-                  r"  contents: write\n",
-                  "sync wrapper permissions drifted",
+              permissions_match = require(
+                  r"^permissions:\n(?P<body>(?:  [^\n]+\n)+)\n(?=jobs:\n)",
+                  "sync wrapper permissions block is missing",
               )
+              assert permissions_match.group("body") == "  actions: read\n  contents: write\n", "sync wrapper permissions drifted"
               job_match = require(
                   r"^jobs:\n"
                   r"  sync:\n"

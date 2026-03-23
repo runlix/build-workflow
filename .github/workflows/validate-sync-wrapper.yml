@@ -84,12 +84,13 @@ jobs:
             r"      - completed\n",
             "sync wrapper trigger must stay workflow_run -> Release/release/completed",
           )
-          require(
-            r"^permissions:\n"
-            r"  actions: read\n"
-            r"  contents: write\n",
-            "sync wrapper permissions must stay actions: read and contents: write",
+          permissions_match = require(
+            r"^permissions:\n(?P<body>(?:  [^\n]+\n)+)\n(?=jobs:\n)",
+            "sync wrapper permissions block is missing",
           )
+          if permissions_match.group("body") != "  actions: read\n  contents: write\n":
+            print("sync wrapper permissions must stay exactly actions: read and contents: write", file=sys.stderr)
+            sys.exit(1)
 
           job_match = require(
             r"^jobs:\n"
