@@ -7,6 +7,7 @@ on:
       - '.github/workflows/validate.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/sync-release-record.yml'
+      - '.github/workflows/validate-sync-wrapper.yml'
       - '.github/workflows/publish-tool-image.yml'
       - '.github/workflows/test-ci.yml'
       - 'README.md'
@@ -25,6 +26,7 @@ on:
       - '.github/workflows/validate.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/sync-release-record.yml'
+      - '.github/workflows/validate-sync-wrapper.yml'
       - '.github/workflows/publish-tool-image.yml'
       - '.github/workflows/test-ci.yml'
       - 'README.md'
@@ -179,6 +181,108 @@ jobs:
 
           diff -u test-fixtures/ci/release-record/release-record.json /tmp/container-release-record.json
 
+      - name: Validate sync wrapper fixture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          def validate_sync_wrapper(text: str) -> dict[str, str]:
+              workflow = text.replace("\r\n", "\n")
+
+              def require(pattern: str, message: str) -> re.Match[str]:
+                  match = re.search(pattern, workflow, flags=re.MULTILINE)
+                  if match is None:
+                      raise AssertionError(message)
+                  return match
+
+              assert not re.search(r"(?m)^  workflow_dispatch:", workflow), "sync wrapper must not define workflow_dispatch"
+              assert not re.search(r"(?m)^  pull_request(_target)?:", workflow), "sync wrapper must not define pull_request-style triggers"
+              assert not re.search(r"(?m)^ {4}(runs-on|steps|container|env|permissions):", workflow), "sync wrapper must stay thin"
+              assert "actions/checkout@" not in workflow, "sync wrapper must not inline checkout steps"
+              assert "secrets: inherit" not in workflow, "sync wrapper must map explicit app secrets"
+
+              require(r"(?m)^name: Sync Release Record$", "sync wrapper name drifted")
+              require(
+                  r"^on:\n"
+                  r"  workflow_run:\n"
+                  r"    workflows:\n"
+                  r"      - Release\n"
+                  r"    branches:\n"
+                  r"      - release\n"
+                  r"    types:\n"
+                  r"      - completed\n",
+                  "sync wrapper trigger drifted",
+              )
+              require(
+                  r"^permissions:\n"
+                  r"  actions: read\n"
+                  r"  contents: write\n",
+                  "sync wrapper permissions drifted",
+              )
+              job_match = require(
+                  r"^jobs:\n"
+                  r"  sync:\n"
+                  r"    concurrency:\n"
+                  r"      group: sync-release-record-\$\{\{ github\.repository \}\}\n"
+                  r"      cancel-in-progress: false\n"
+                  r"    uses: runlix/build-workflow/\.github/workflows/sync-release-record\.yml@(?P<workflow_sha>[0-9a-f]{40})\n"
+                  r"    with:\n"
+                  r"      tool-image: (?P<tool_image>ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64})\n"
+                  r"    secrets:\n"
+                  r"      RUNLIX_APP_ID: \$\{\{ secrets\.RUNLIX_APP_ID \}\}\n"
+                  r"      RUNLIX_PRIVATE_KEY: \$\{\{ secrets\.RUNLIX_PRIVATE_KEY \}\}\n?\Z",
+                  "sync wrapper job contract drifted",
+              )
+              return {
+                  "workflow_ref": job_match.group("workflow_sha"),
+                  "tool_image": job_match.group("tool_image"),
+              }
+
+          fixture = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text(encoding="utf-8")
+          payload = validate_sync_wrapper(fixture)
+          assert payload["workflow_ref"] == "eb288b2da9962053234ab66fa4f041201887f72b"
+          assert payload["tool_image"] == "ghcr.io/runlix/build-workflow-tools@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf"
+
+          invalid_cases = {
+              "unpinned reusable workflow ref": fixture.replace(
+                  "@eb288b2da9962053234ab66fa4f041201887f72b",
+                  "@main",
+              ),
+              "wrong trigger workflow": fixture.replace("- Release", "- Validate", 1),
+              "widened permissions": fixture.replace(
+                  "permissions:\n  actions: read\n  contents: write\n",
+                  "permissions:\n  actions: read\n  contents: write\n  packages: write\n",
+                  1,
+              ),
+              "mutable tool image": fixture.replace(
+                  "@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf",
+                  ":ci",
+                  1,
+              ),
+              "missing secret mapping": fixture.replace(
+                  "      RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}\n",
+                  "",
+                  1,
+              ),
+              "removed queueing guard": fixture.replace(
+                  "cancel-in-progress: false",
+                  "cancel-in-progress: true",
+                  1,
+              ),
+          }
+
+          for label, candidate in invalid_cases.items():
+              try:
+                  validate_sync_wrapper(candidate)
+              except AssertionError:
+                  continue
+              raise AssertionError(f"{label} unexpectedly passed validation")
+          PY
+
       - name: Verify public workflow contract
         shell: bash
         run: |
@@ -191,6 +295,7 @@ jobs:
           test -f .github/workflows/validate.yml
           test -f .github/workflows/release.yml
           test -f .github/workflows/sync-release-record.yml
+          test -f .github/workflows/validate-sync-wrapper.yml
           test ! -e .github/workflows/pr-validation.yml
           test ! -e .github/workflows/sync-release-metadata.yml
           test ! -e schema/release-metadata.schema.json
@@ -207,7 +312,8 @@ jobs:
           for workflow_file in \
             .github/workflows/validate.yml \
             .github/workflows/release.yml \
-            .github/workflows/sync-release-record.yml
+            .github/workflows/sync-release-record.yml \
+            .github/workflows/validate-sync-wrapper.yml
           do
             if grep -InE 'scripts/ci/|release-metadata|releases\.json|sync-release-metadata|pr-validation' "$workflow_file"; then
               echo "Legacy v2 references remain in $workflow_file" >&2
@@ -224,6 +330,14 @@ jobs:
           grep -Eq 'RUNLIX_PRIVATE_KEY:' .github/workflows/sync-release-record.yml
           grep -Eq "actions/create-github-app-token@${expected_app_token_action_sha}" .github/workflows/sync-release-record.yml
           grep -Eq 'permission-contents: write' .github/workflows/sync-release-record.yml
+          grep -Eq '^on:$' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^  workflow_call:$' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^      workflow-path:$' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^        default: \.github/workflows/sync-release-record\.yml$' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^permissions:$' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^  contents: read$' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^        uses: actions/checkout@' .github/workflows/validate-sync-wrapper.yml
+          grep -Eq '^          persist-credentials: false$' .github/workflows/validate-sync-wrapper.yml
           python3 - <<'PY'
           from pathlib import Path
 
@@ -244,11 +358,20 @@ jobs:
           assert "working-directory:" in commit
           assert "github.workspace" in commit
           assert "git push origin HEAD:main" in commit
+
+          validate_sync_wrapper = Path(".github/workflows/validate-sync-wrapper.yml").read_text()
+          assert "tool-image:" not in validate_sync_wrapper
+          assert "docker/login-action@" not in validate_sync_wrapper
+          assert "pull_request_target" not in validate_sync_wrapper
+          assert "secrets:" not in validate_sync_wrapper.split("jobs:", 1)[0]
+          assert "sync-release-record.yml@" not in validate_sync_wrapper
+          assert "python3 - <<'PY' > /tmp/validated-sync-wrapper.json" in validate_sync_wrapper
           PY
 
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate.yml
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/release.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/release.yml
           grep -Eq 'uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/sync-release-record.yml
+          grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate-sync-wrapper.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-main-sync-wrapper.yml
           grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/validate.yml
           grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/release.yml
           grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/sync-release-record.yml
@@ -258,6 +381,11 @@ jobs:
           grep -Eq 'RUNLIX_PRIVATE_KEY:' examples/wrappers/sync-release-record.yml
           grep -Eq 'group: sync-release-record-\$\{\{ github\.repository \}\}' examples/wrappers/sync-release-record.yml
           grep -Eq 'cancel-in-progress: false' examples/wrappers/sync-release-record.yml
+          grep -Eq '^[[:space:]]+- main$' examples/wrappers/validate-main-sync-wrapper.yml
+          grep -Eq 'workflow-path: \.github/workflows/sync-release-record\.yml' examples/wrappers/validate-main-sync-wrapper.yml
+          grep -Eq '\.github/workflows/validate-main-sync-wrapper\.yml' examples/wrappers/validate-main-sync-wrapper.yml
+
+          test -f test-fixtures/ci/sync-wrapper/sync-release-record.yml
 
           python3 - <<'PY'
           from pathlib import Path
@@ -277,6 +405,9 @@ jobs:
           assert "      - main" in push_section, "test-ci push trigger no longer includes main"
           assert "side/**" not in push_section, "test-ci still auto-runs on side branch pushes"
           assert "refactor/**" not in push_section, "test-ci still auto-runs on refactor branch pushes"
+          assert "validate-sync-wrapper-fixture:" in workflow, "test-ci missing sync-wrapper fixture self-call"
+          assert "uses: ./.github/workflows/validate-sync-wrapper.yml" in workflow, "test-ci no longer self-calls validate-sync-wrapper"
+          assert "workflow-path: test-fixtures/ci/sync-wrapper/sync-release-record.yml" in workflow, "test-ci missing sync-wrapper fixture path"
 
           assert (
               "group: test-ci-"
@@ -403,6 +534,13 @@ jobs:
           curl --fail --silent --show-error --location \
             "https://raw.githubusercontent.com/docker/build-push-action/${expected_build_push_action_sha}/action.yml" \
             | grep -Eq "^  using: 'node24'$"
+
+  validate-sync-wrapper-fixture:
+    name: validate-sync-wrapper-fixture
+    needs: validate-ci-contracts
+    uses: ./.github/workflows/validate-sync-wrapper.yml
+    with:
+      workflow-path: test-fixtures/ci/sync-wrapper/sync-release-record.yml
 
   build-tool-image-artifact:
     name: build-tool-image-artifact
@@ -548,6 +686,7 @@ jobs:
     name: test-summary
     needs:
       - validate-ci-contracts
+      - validate-sync-wrapper-fixture
       - build-tool-image-artifact
       - verify-tool-image-artifact
       - test-release-record-artifact
@@ -558,6 +697,7 @@ jobs:
         shell: bash
         env:
           VALIDATE_RESULT: ${{ needs.validate-ci-contracts.result }}
+          SYNC_WRAPPER_RESULT: ${{ needs.validate-sync-wrapper-fixture.result }}
           IMAGE_RESULT: ${{ needs.build-tool-image-artifact.result }}
           PUBLISHED_IMAGE_RESULT: ${{ needs.verify-tool-image-artifact.result }}
           RECORD_RESULT: ${{ needs.test-release-record-artifact.result }}
@@ -568,6 +708,7 @@ jobs:
             echo "## CI Workflow Test Summary"
             echo ""
             echo "- Contract validation: \`$VALIDATE_RESULT\`"
+            echo "- Sync wrapper reusable validation: \`$SYNC_WRAPPER_RESULT\`"
             echo "- Tool image artifact build: \`$IMAGE_RESULT\`"
             echo "- Tool image artifact verification: \`$PUBLISHED_IMAGE_RESULT\`"
             echo "- Release record contract: \`$RECORD_RESULT\`"
@@ -575,6 +716,7 @@ jobs:
 
           for result in \
             "$VALIDATE_RESULT" \
+            "$SYNC_WRAPPER_RESULT" \
             "$IMAGE_RESULT" \
             "$PUBLISHED_IMAGE_RESULT" \
             "$RECORD_RESULT"
