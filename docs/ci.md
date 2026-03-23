@@ -5,6 +5,7 @@ The supported `build-workflow` interface is the versionless CI contract:
 - `.github/workflows/validate.yml`
 - `.github/workflows/release.yml`
 - `.github/workflows/sync-release-record.yml`
+- `.github/workflows/validate-sync-wrapper.yml`
 
 `v1` remains available only for legacy `docker-matrix` callers.
 
@@ -95,6 +96,7 @@ Testing an unmerged planner change in a downstream caller therefore requires an 
 `config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
 Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
 Sync callers should map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into `.github/workflows/sync-release-record.yml`.
+Main-side PR validators should call `.github/workflows/validate-sync-wrapper.yml` from a thin `pull_request` workflow on `main`; that validator is read-only and does not require a `tool-image` input or any secrets.
 Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` for manual pre-PR validation when needed.
 
 ## Workflow Behavior
@@ -126,6 +128,13 @@ Sync:
 5. commits only when the metadata changed, using the caller-mapped GitHub App credentials
 
 Caller sync wrappers should add job-level concurrency with `cancel-in-progress: false` so closely spaced releases queue instead of racing on `main`.
+
+Validate Sync Wrapper:
+
+1. runs from a caller-managed `pull_request` workflow on `main`
+2. verifies that the sync wrapper stays on `workflow_run` for `Release` on `release`
+3. enforces the thin-wrapper contract for permissions, concurrency, pinned `uses:`, pinned `tool-image`, and explicit GitHub App secret mapping
+4. stays read-only and secret-free
 
 ## Local Validation
 
