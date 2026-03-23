@@ -360,7 +360,8 @@ jobs:
           assert "git push origin HEAD:main" in commit
 
           validate_sync_wrapper = Path(".github/workflows/validate-sync-wrapper.yml").read_text()
-          assert "tool-image:" not in validate_sync_wrapper
+          assert "  tool-image:" not in validate_sync_wrapper.split("jobs:", 1)[0]
+          assert "container:" not in validate_sync_wrapper
           assert "docker/login-action@" not in validate_sync_wrapper
           assert "pull_request_target" not in validate_sync_wrapper
           assert "secrets:" not in validate_sync_wrapper.split("jobs:", 1)[0]
