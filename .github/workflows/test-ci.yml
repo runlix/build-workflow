@@ -263,10 +263,11 @@ jobs:
                   ":ci",
                   1,
               ),
-              "missing secret mapping": fixture.replace(
-                  "      RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}\n",
+              "missing secret mapping": re.sub(
+                  r"(?m)^      RUNLIX_PRIVATE_KEY: .*\n",
                   "",
-                  1,
+                  fixture,
+                  count=1,
               ),
               "removed queueing guard": fixture.replace(
                   "cancel-in-progress: false",
