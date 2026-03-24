@@ -11,14 +11,14 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 jobs:
   sync:
     concurrency:
       group: sync-release-record-${{ github.repository }}
       cancel-in-progress: false
-    uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@eb288b2da9962053234ab66fa4f041201887f72b
+    uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@d93b3a9c7e6fcb970e0f8f4ef5febca6ed16a6fc
     with:
       tool-image: ghcr.io/runlix/build-workflow-tools@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf
     secrets:

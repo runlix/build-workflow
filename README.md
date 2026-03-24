@@ -18,6 +18,7 @@ release branch:
   .github/workflows/release.yml
 
 main branch:
+  .github/workflows/validate-main.yml
   .github/workflows/sync-release-record.yml
   release.json
 ```
@@ -25,7 +26,7 @@ main branch:
 Starter files:
 
 - config examples: `examples/ci/service-config.json` and `examples/ci/base-image-config.json`
-- wrapper workflows: `examples/wrappers/validate.yml`, `examples/wrappers/release.yml`, `examples/wrappers/sync-release-record.yml`
+- wrapper workflows: `examples/wrappers/validate.yml`, `examples/wrappers/release.yml`, `examples/wrappers/sync-release-record.yml`, `examples/wrappers/validate-main.yml`
 - schemas: `schema/ci-config.schema.json` and `schema/release-record.schema.json`
 - CI tool image: `ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST`
 
@@ -35,6 +36,7 @@ The mutable `ghcr.io/runlix/build-workflow-tools:ci` tag is only a convenience a
 Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` when you want to run it manually before opening a PR.
 If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
 For sync write-back on protected `main`, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the sync wrapper.
+Add a caller-managed `validate-main.yml` wrapper on `main` and make its `validate-main-summary` job the required status check for metadata changes.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -47,6 +49,8 @@ Public reusable workflows:
 - `.github/workflows/validate.yml`
 - `.github/workflows/release.yml`
 - `.github/workflows/sync-release-record.yml`
+- `.github/workflows/validate-sync-wrapper.yml`
+- `.github/workflows/validate-release-json.yml`
 
 Canonical assets:
 
@@ -126,13 +130,8 @@ Sync:
 2. verifies the triggering workflow provenance
 3. downloads `release-record.json` from the triggering run
 4. writes `release.json`
-5. commits only when the metadata changed, using the caller-mapped GitHub App credentials
-
-1. runs from `main` after a successful `Release` workflow on `release`
-2. downloads `release-record.json`
-3. verifies the triggering workflow provenance
-4. writes `release.json`
-5. commits only when the metadata changed
+5. creates or updates a bot-authored pull request into `main` when the metadata changed
+6. enables merge-commit auto-merge on that pull request with the caller-mapped GitHub App credentials
 
 ## Local Validation
 

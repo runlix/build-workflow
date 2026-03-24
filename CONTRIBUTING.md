@@ -89,7 +89,8 @@ Keep the docs aligned with the actual workflow contract:
 - release wrappers should map only the Telegram secrets they need
 - validate uploads no artifacts
 - release uploads `release-record.json` as artifact `release-record`
-- sync writes `release.json`
+- sync creates or updates a pull request that writes `release.json`
+- caller-managed `validate-main.yml` should expose a stable `validate-main-summary` check
 
 ## Before Pushing
 
