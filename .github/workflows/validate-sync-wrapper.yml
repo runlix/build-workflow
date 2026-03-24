@@ -88,8 +88,8 @@ jobs:
             r"^permissions:\n(?P<body>(?:  [^\n]+\n)+)\n(?=jobs:\n)",
             "sync wrapper permissions block is missing",
           )
-          if permissions_match.group("body") != "  actions: read\n  contents: write\n":
-            print("sync wrapper permissions must stay exactly actions: read and contents: write", file=sys.stderr)
+          if permissions_match.group("body") != "  actions: read\n  contents: read\n":
+            print("sync wrapper permissions must stay exactly actions: read and contents: read", file=sys.stderr)
             sys.exit(1)
 
           job_match = require(
