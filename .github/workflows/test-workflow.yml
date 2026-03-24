@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/build-images-rebuild.yml'
+      - '.github/workflows/test-workflow.yml'
       - 'examples/**'
       - 'test-fixtures/**'
       - 'schema/**'
@@ -15,6 +16,7 @@ on:
       - main
     paths:
       - '.github/workflows/build-images-rebuild.yml'
+      - '.github/workflows/test-workflow.yml'
       - 'examples/**'
       - 'test-fixtures/**'
       - 'schema/**'
@@ -32,7 +34,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   validate-config-contracts:
@@ -112,6 +113,33 @@ jobs:
               fi
             done
           done
+
+      - name: Verify workflow permission contract
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+
+          workflow = pathlib.Path(".github/workflows/test-workflow.yml").read_text()
+          header, jobs = workflow.split("jobs:", 1)
+          _, remainder = jobs.split("\n  test-base-image:", 1)
+          base_job, remainder = remainder.split("\n  test-service:", 1)
+          service_job, summary_job = remainder.split("\n  test-summary:", 1)
+
+          assert "- '.github/workflows/test-workflow.yml'" in header
+          assert header.count("- '.github/workflows/test-workflow.yml'") == 2
+          assert re.search(r"^permissions:\n  contents: read\n$", header, re.M), header
+          assert "packages: write" not in header
+          assert "docker/login-action@" not in base_job
+          assert "docker/login-action@" not in service_job
+          assert "docker/login-action@" not in summary_job
+          assert "ghcr.io/" not in base_job
+          assert "ghcr.io/" not in service_job
+          assert "--push" not in base_job
+          assert "--push" not in service_job
+          assert "--load" in base_job
+          assert "--load" in service_job
+          PY
 
   # Test with base image configuration
   test-base-image:
