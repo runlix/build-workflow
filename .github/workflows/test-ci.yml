@@ -545,8 +545,8 @@ jobs:
           assert "DOCKER_BUILD_RECORD_UPLOAD: false" in build_job
           assert "type=cacheonly" in build_job
           assert "name: Export amd64 tool image tarball" in build_job
-          assert build_job.count("DOCKER_BUILD_SUMMARY: false") == 2
-          assert build_job.count("DOCKER_BUILD_RECORD_UPLOAD: false") == 2
+          assert build_job.count("DOCKER_BUILD_SUMMARY: false") == 1
+          assert build_job.count("DOCKER_BUILD_RECORD_UPLOAD: false") == 1
           assert "type=docker,dest=" in build_job
           assert "name: Upload tool image artifact" in build_job
           assert "name: Download tool image artifact" in verify_job
@@ -595,6 +595,9 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tool_image: ${{ steps.meta.outputs.image_tag }}
+    env:
+      DOCKER_BUILD_SUMMARY: false
+      DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -615,9 +618,6 @@ jobs:
 
       - name: Build multi-platform tool image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        env:
-          DOCKER_BUILD_SUMMARY: false
-          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: tools/ci/Dockerfile
@@ -626,9 +626,6 @@ jobs:
 
       - name: Export amd64 tool image tarball
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        env:
-          DOCKER_BUILD_SUMMARY: false
-          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: tools/ci/Dockerfile
