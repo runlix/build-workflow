@@ -10,6 +10,15 @@ The supported `build-workflow` interface is the versionless CI contract:
 
 `v1` remains available only for legacy `docker-matrix` callers.
 
+## Guide Map
+
+- [Architecture](./ci/architecture.md): provider/caller split, branch model, planner image, and supported boundaries
+- [Usage](./ci/usage.md): repo layout, wrapper placement, config shape, Dockerfiles, pinning, and common caller cases
+- [Workflow Behavior](./ci/workflow-behavior.md): validate, release, sync, and main-branch validation end to end
+- [API Reference](./ci/api-reference.md): reusable workflow inputs, permission expectations, config fields, tags, and release-record shapes
+- [Testing and Maintenance](./ci/testing-and-maintenance.md): tool responsibilities, fixture coverage, provider CI, and downstream canaries
+- [Troubleshooting](./ci/troubleshooting.md): common failure modes and what they usually mean
+
 ## Branch Model
 
 - `release`: runtime, build, and CI implementation
@@ -45,6 +54,14 @@ The workflow layer owns:
 This is clearer than the earlier script bootstrap because the reusable workflows no longer try to self-checkout implementation files from `runlix/build-workflow`.
 Provider-side CI in `build-workflow` validates the tool, schemas, fixtures, and published planner image. Real reusable-workflow end-to-end behavior is proven in downstream caller repos, with `distroless-runtime` as the default canary.
 
+The planner image is published by `Publish CI Tool Image` on `main` and exposed as:
+
+- immutable digest refs: `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`
+- immutable maintainer tags: `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>`
+- mutable convenience alias: `ghcr.io/runlix/build-workflow-tools:ci`
+
+Only the digest ref and `:sha-<sha>` tag are supported caller inputs.
+
 ## Config
 
 The caller contract is one explicit file: `.ci/config.json`.
@@ -70,6 +87,16 @@ Each enabled target is one build unit and declares:
 - `dockerfile`
 - optional `build_args`
 - optional `test`
+
+`defaults` applies shared values before per-target overrides. The effective build args are:
+
+- `defaults.build_args`
+- then the target `build_args`
+
+The effective test is:
+
+- target `test`
+- otherwise `defaults.test`
 
 Canonical assets:
 
@@ -97,9 +124,24 @@ Testing an unmerged planner change in a downstream caller therefore requires an 
 `config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
 Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
 Sync callers should map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into `.github/workflows/sync-release-record.yml`.
+The supported sync wrapper is stricter than release-branch validate and release wrappers: `validate-sync-wrapper.yml` requires `tool-image` to stay digest-pinned, not `:sha-<git sha>`.
 Main-side PR validators should call `.github/workflows/validate-sync-wrapper.yml` and `.github/workflows/validate-release-json.yml` from one thin `pull_request` workflow on `main`; those validators are read-only and do not require any secrets.
 Caller repositories should keep that wrapper stable and make its `validate-main-summary` job the required `main` status check before removing any branch-protection bypass for the automation app.
 Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` for manual pre-PR validation when needed.
+
+## Recommended Caller Shape
+
+```text
+release branch:
+  .ci/config.json
+  .github/workflows/validate.yml
+  .github/workflows/release.yml
+
+main branch:
+  .github/workflows/validate-main.yml
+  .github/workflows/sync-release-record.yml
+  release.json
+```
 
 ## Workflow Behavior
 
@@ -144,6 +186,13 @@ Validate Release JSON:
 1. runs from a caller-managed `pull_request` workflow on `main`
 2. validates `release.json` with the pinned planner image
 3. stays read-only and secret-free
+
+## Why These Paths Exist
+
+- validate is read-only so branch checks can build and test safely without publishing
+- release keeps Docker side effects on the runner while moving config interpretation into the planner image
+- sync standardizes provenance checks and metadata generation instead of rebuilding release state from Git or GHCR
+- main validation exists so metadata automation changes can be gated before merge
 
 ## Local Validation
 

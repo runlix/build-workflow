@@ -31,7 +31,8 @@ Starter files:
 - CI tool image: `ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
-Pass the planner image explicitly with `tool-image`, pinned either by digest or by `:sha-<build-workflow git sha>` for maintainer branch validation.
+Pass the planner image explicitly with `tool-image`, pinned by digest in public examples.
+Release-branch maintainers may also use `:sha-<build-workflow git sha>` for branch validation when that immutable tag was published intentionally, but the supported sync wrapper should stay digest-pinned.
 The mutable `ghcr.io/runlix/build-workflow-tools:ci` tag is only a convenience alias for the latest published `main` tool image and is not a supported caller input.
 Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` when you want to run it manually before opening a PR.
 If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
@@ -41,6 +42,7 @@ Add a caller-managed `validate-main.yml` wrapper on `main` and make its `validat
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
 The canonical guide is [docs/ci.md](./docs/ci.md).
+Focused supported-CI guides live under [docs/ci/](./docs/ci/).
 
 ## CI Interface
 
@@ -60,6 +62,15 @@ Canonical assets:
 - contract tests: `.github/workflows/test-ci.yml`
 - fixtures: `test-fixtures/ci/`
 - CI tool image: `tools/ci/`
+
+Focused guides:
+
+- [docs/ci/architecture.md](./docs/ci/architecture.md)
+- [docs/ci/usage.md](./docs/ci/usage.md)
+- [docs/ci/workflow-behavior.md](./docs/ci/workflow-behavior.md)
+- [docs/ci/api-reference.md](./docs/ci/api-reference.md)
+- [docs/ci/testing-and-maintenance.md](./docs/ci/testing-and-maintenance.md)
+- [docs/ci/troubleshooting.md](./docs/ci/troubleshooting.md)
 
 `examples/ci/` are schema-only examples for documentation.
 `test-fixtures/ci/` are runnable fixture repos used by contract tests and local end-to-end checks.
