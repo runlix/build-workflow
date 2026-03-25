@@ -600,11 +600,9 @@ jobs:
           descriptions = {manager["description"]: manager for manager in renovate["customManagers"]}
 
           expected_descriptions = {
-              "Update distroless upstream image references in base-image matrices",
+              "Update distroless upstream image references",
               "Update base image references in service matrices",
-              "Update distroless upstream image references in test workflow",
-              "Update service base image references in test workflow",
-              "Update CI config base refs",
+              "Update distroless runtime base refs",
               "Update build-workflow tool image digest in sync wrapper fixture",
               "Update pinned ajv tooling versions in workflows",
               "Update pinned Debian package versions in CI tool image",
@@ -634,11 +632,39 @@ jobs:
               assert has_dep_name, manager["description"]
               assert has_datasource, manager["description"]
 
-          ci_base_refs = descriptions["Update CI config base refs"]
-          assert "/^examples\\/ci\\/base-image-config\\.json$/" in ci_base_refs["managerFilePatterns"]
-          assert "/^examples\\/ci\\/service-config\\.json$/" in ci_base_refs["managerFilePatterns"]
-          assert "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/" in ci_base_refs["managerFilePatterns"]
-          assert "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/" in ci_base_refs["managerFilePatterns"]
+          distroless_upstream = descriptions["Update distroless upstream image references"]
+          assert distroless_upstream["depNameTemplate"] == "gcr.io/distroless/base-debian12"
+          assert distroless_upstream["datasourceTemplate"] == "docker"
+          assert distroless_upstream["versioningTemplate"] == "docker"
+          assert "/^examples\\/v1\\/base-image-matrix\\.json$/" in distroless_upstream["managerFilePatterns"]
+          assert "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/" in distroless_upstream["managerFilePatterns"]
+          assert "/^examples\\/ci\\/base-image-config\\.json$/" in distroless_upstream["managerFilePatterns"]
+          assert "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/" in distroless_upstream["managerFilePatterns"]
+          assert "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/" in distroless_upstream["managerFilePatterns"]
+          assert "/^\\.github\\/workflows\\/test-workflow\\.yml$/" in distroless_upstream["managerFilePatterns"]
+          assert len(distroless_upstream["matchStrings"]) == 4
+          assert any("UPSTREAM_TAG" in match for match in distroless_upstream["matchStrings"])
+          assert any('"BASE_REF"' in match for match in distroless_upstream["matchStrings"])
+          assert any("BASE_IMAGE=gcr\\.io/distroless/base-debian12" in match for match in distroless_upstream["matchStrings"])
+          distroless_test_workflow_managers = [
+              manager["description"]
+              for manager in renovate["customManagers"]
+              if "/^\\.github\\/workflows\\/test-workflow\\.yml$/" in manager.get("managerFilePatterns", [])
+              and (
+                  manager.get("depNameTemplate") == "gcr.io/distroless/base-debian12"
+                  or any("gcr\\.io/distroless/base-debian12" in match for match in manager.get("matchStrings", []))
+              )
+          ]
+          assert distroless_test_workflow_managers == ["Update distroless upstream image references"]
+
+          distroless_runtime = descriptions["Update distroless runtime base refs"]
+          assert distroless_runtime["depNameTemplate"] == "ghcr.io/runlix/distroless-runtime"
+          assert distroless_runtime["datasourceTemplate"] == "docker"
+          assert distroless_runtime["versioningTemplate"] == "docker"
+          assert distroless_runtime["managerFilePatterns"] == ["/^examples\\/ci\\/service-config\\.json$/"]
+          assert len(distroless_runtime["matchStrings"]) == 1
+          assert "ghcr\\.io/runlix/distroless-runtime" in distroless_runtime["matchStrings"][0]
+          assert "/^\\.github\\/workflows\\/test-workflow\\.yml$/" not in distroless_runtime["managerFilePatterns"]
 
           v1_service_refs = descriptions["Update base image references in service matrices"]
           assert "/^examples\\/v1\\/service-matrix\\.json$/" in v1_service_refs["managerFilePatterns"]
