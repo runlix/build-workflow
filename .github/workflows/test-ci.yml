@@ -468,6 +468,8 @@ jobs:
 
           assert "name: publish-immutable" in publish_immutable, "publish-tool-image missing publish-immutable job"
           assert "name: Build and push immutable tool image" in publish_immutable, "publish-tool-image missing immutable build step"
+          assert "DOCKER_BUILD_SUMMARY: false" in publish_immutable, "publish-tool-image must disable docker build summary"
+          assert "DOCKER_BUILD_RECORD_UPLOAD: false" in publish_immutable, "publish-tool-image must disable docker build record upload"
           assert (
               "ghcr.io/runlix/build-workflow-tools:sha-"
               + gha_open
@@ -539,8 +541,12 @@ jobs:
           assert "name: build-tool-image-artifact" in workflow
           assert "name: verify-tool-image-artifact" in workflow
           assert "name: Build multi-platform tool image" in build_job
+          assert "DOCKER_BUILD_SUMMARY: false" in build_job
+          assert "DOCKER_BUILD_RECORD_UPLOAD: false" in build_job
           assert "type=cacheonly" in build_job
           assert "name: Export amd64 tool image tarball" in build_job
+          assert build_job.count("DOCKER_BUILD_SUMMARY: false") == 2
+          assert build_job.count("DOCKER_BUILD_RECORD_UPLOAD: false") == 2
           assert "type=docker,dest=" in build_job
           assert "name: Upload tool image artifact" in build_job
           assert "name: Download tool image artifact" in verify_job
@@ -609,6 +615,9 @@ jobs:
 
       - name: Build multi-platform tool image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: tools/ci/Dockerfile
@@ -617,6 +626,9 @@ jobs:
 
       - name: Export amd64 tool image tarball
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: tools/ci/Dockerfile
