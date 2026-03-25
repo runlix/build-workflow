@@ -12,14 +12,11 @@
         "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/",
         "/^examples\\/ci\\/base-image-config\\.json$/",
         "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/",
-        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/",
-        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
+        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/"
       ],
       "matchStrings": [
         "\"UPSTREAM_IMAGE\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12\"[\\s\\S]*?\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\"",
-        "\"BASE_REF\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\"",
-        "--build-arg\\s+UPSTREAM_IMAGE=gcr\\.io/distroless/base-debian12\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})",
-        "--build-arg\\s+BASE_IMAGE=gcr\\.io/distroless/base-debian12\\s+\\\\\\n\\s*--build-arg\\s+BASE_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+BASE_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
+        "\"BASE_REF\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "depNameTemplate": "gcr.io/distroless/base-debian12",
       "datasourceTemplate": "docker",
@@ -99,7 +96,7 @@
       "commitMessageTopic": "{{depName}} GitHub Action"
     },
     {
-      "matchManagers": ["custom.regex"],
+      "matchManagers": ["custom.regex", "dockerfile"],
       "matchDatasources": ["docker"],
       "matchPackageNames": ["gcr.io/distroless/base-debian12"],
       "groupName": "Distroless Upstream Docker Images",
