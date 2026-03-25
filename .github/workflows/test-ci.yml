@@ -121,31 +121,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          rg -Fq '[docs/ci.md](./docs/ci.md)' README.md
-          rg -Fq '[docs/ci/](./docs/ci/)' README.md
+          grep -Fq '[docs/ci.md](./docs/ci.md)' README.md
+          grep -Fq '[docs/ci/](./docs/ci/)' README.md
 
           for page in architecture usage workflow-behavior api-reference testing-and-maintenance troubleshooting; do
             test -f "docs/ci/${page}.md"
-            rg -Fq "./ci/${page}.md" docs/ci.md
+            grep -Fq "./ci/${page}.md" docs/ci.md
           done
 
-          rg -Fq '[../ci.md](../ci.md)' docs/v1/README.md
-          rg -Fq 'docs/ci/' CONTRIBUTING.md
+          grep -Fq '[../ci.md](../ci.md)' docs/v1/README.md
+          grep -Fq 'docs/ci/' CONTRIBUTING.md
 
-          rg -Fq 'validate.yml' docs/ci/workflow-behavior.md
-          rg -Fq 'release.yml' docs/ci/workflow-behavior.md
-          rg -Fq 'sync-release-record.yml' docs/ci/workflow-behavior.md
-          rg -Fq 'validate-sync-wrapper.yml' docs/ci/workflow-behavior.md
-          rg -Fq 'validate-release-json.yml' docs/ci/workflow-behavior.md
-          rg -Fq 'release-record' docs/ci/workflow-behavior.md
-          rg -Fq 'validate-main-summary' docs/ci/workflow-behavior.md
-          rg -Fq 'tool-image' docs/ci/api-reference.md
-          rg -Fq '.ci/config.json' docs/ci/api-reference.md
-          rg -Fq 'release-record.json' docs/ci/api-reference.md
-          rg -Fq 'release.json' docs/ci/api-reference.md
-          rg -Fq 'planner/executor split' docs/ci/architecture.md
-          rg -Fq 'publish: false' docs/ci/usage.md
-          rg -Fq 'distroless-runtime' docs/ci/testing-and-maintenance.md
+          grep -Fq 'validate.yml' docs/ci/workflow-behavior.md
+          grep -Fq 'release.yml' docs/ci/workflow-behavior.md
+          grep -Fq 'sync-release-record.yml' docs/ci/workflow-behavior.md
+          grep -Fq 'validate-sync-wrapper.yml' docs/ci/workflow-behavior.md
+          grep -Fq 'validate-release-json.yml' docs/ci/workflow-behavior.md
+          grep -Fq 'release-record' docs/ci/workflow-behavior.md
+          grep -Fq 'validate-main-summary' docs/ci/workflow-behavior.md
+          grep -Fq 'tool-image' docs/ci/api-reference.md
+          grep -Fq '.ci/config.json' docs/ci/api-reference.md
+          grep -Fq 'release-record.json' docs/ci/api-reference.md
+          grep -Fq 'release.json' docs/ci/api-reference.md
+          grep -Fq 'planner/executor split' docs/ci/architecture.md
+          grep -Fq 'publish: false' docs/ci/usage.md
+          grep -Fq 'distroless-runtime' docs/ci/testing-and-maintenance.md
 
       - name: Run direct CLI smoke tests
         shell: bash
