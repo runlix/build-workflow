@@ -36,6 +36,9 @@ class BuildWorkflowCiTest(unittest.TestCase):
         self.assertEqual(payload["targets"][0]["dockerfile"], "linux-amd64.Dockerfile")
 
     def test_plan_build_target_uses_full_refs(self) -> None:
+        config = json.loads((REPO_ROOT / "test-fixtures/ci/service/.ci/config.json").read_text(encoding="utf-8"))
+        stable_target = next(target for target in config["targets"] if target["name"] == "stable-amd64")
+
         payload = plan_build_target(
             "test-fixtures/ci/service/.ci/config.json",
             "stable-amd64",
@@ -43,10 +46,7 @@ class BuildWorkflowCiTest(unittest.TestCase):
             "1234567",
         )
         self.assertEqual(payload["image_tag"], "ghcr.io/runlix/test-service:pr-1234567-stable-amd64")
-        self.assertEqual(
-            payload["build_args"]["BASE_REF"],
-            "gcr.io/distroless/base-debian12:latest-amd64@sha256:d5f7dca58e3db53d1de502bd1a747ecb1110cf6b0773af129f951ee11e2e3ed4",
-        )
+        self.assertEqual(payload["build_args"]["BASE_REF"], stable_target["build_args"]["BASE_REF"])
         self.assertEqual(payload["context_dir"], "test-fixtures/ci/service")
 
     def test_release_record_and_telegram_render(self) -> None:
