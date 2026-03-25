@@ -611,6 +611,29 @@ jobs:
           }
           assert expected_descriptions.issubset(descriptions), descriptions.keys()
 
+          for manager in renovate["customManagers"]:
+              if manager.get("customType") != "regex":
+                  continue
+
+              match_strings = manager.get("matchStrings", [])
+              has_current_value = (
+                  "currentValueTemplate" in manager
+                  or any("(?<currentValue>" in match for match in match_strings)
+              )
+              has_dep_name = (
+                  "depNameTemplate" in manager
+                  or "packageNameTemplate" in manager
+                  or any("(?<depName>" in match or "(?<packageName>" in match for match in match_strings)
+              )
+              has_datasource = (
+                  "datasourceTemplate" in manager
+                  or any("(?<datasource>" in match for match in match_strings)
+              )
+
+              assert has_current_value, manager["description"]
+              assert has_dep_name, manager["description"]
+              assert has_datasource, manager["description"]
+
           ci_base_refs = descriptions["Update CI config base refs"]
           assert "/^examples\\/ci\\/base-image-config\\.json$/" in ci_base_refs["managerFilePatterns"]
           assert "/^examples\\/ci\\/service-config\\.json$/" in ci_base_refs["managerFilePatterns"]
@@ -627,7 +650,10 @@ jobs:
           assert tool_image["datasourceTemplate"] == "docker"
 
           ajv = descriptions["Update pinned ajv tooling versions in workflows"]
-          assert ajv["datasourceTemplate"] == "npm"
+          assert len(ajv["matchStrings"]) == 1
+          assert "(?<datasource>" in ajv["matchStrings"][0]
+          assert "(?<depName>" in ajv["matchStrings"][0]
+          assert "AJV_[A-Z_]+_VERSION" in ajv["matchStrings"][0]
 
           deb = descriptions["Update pinned Debian package versions in CI tool image"]
           assert deb["datasourceTemplate"] == "deb"
