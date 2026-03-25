@@ -1,4 +1,4 @@
-FROM python:3.12-slim-trixie
+FROM python:3.14-slim-trixie
 
 # renovate: datasource=deb depName=bash suite=trixie
 ARG BASH_VERSION=5.2.37-2+b8
