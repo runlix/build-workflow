@@ -3,7 +3,10 @@ name: Test CI Workflows
 on:
   pull_request:
     paths:
+      - 'renovate.json'
       - 'tools/ci/**'
+      - '.github/workflows/build-images-rebuild.yml'
+      - '.github/workflows/test-workflow.yml'
       - '.github/workflows/validate.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/sync-release-record.yml'
@@ -15,15 +18,20 @@ on:
       - 'CONTRIBUTING.md'
       - 'docs/ci.md'
       - 'examples/ci/**'
+      - 'examples/v1/**'
       - 'examples/wrappers/**'
       - 'schema/ci-config.schema.json'
       - 'schema/release-record.schema.json'
       - 'test-fixtures/ci/**'
+      - 'test-fixtures/v1/**'
   push:
     branches:
       - main
     paths:
+      - 'renovate.json'
       - 'tools/ci/**'
+      - '.github/workflows/build-images-rebuild.yml'
+      - '.github/workflows/test-workflow.yml'
       - '.github/workflows/validate.yml'
       - '.github/workflows/release.yml'
       - '.github/workflows/sync-release-record.yml'
@@ -35,10 +43,12 @@ on:
       - 'CONTRIBUTING.md'
       - 'docs/ci.md'
       - 'examples/ci/**'
+      - 'examples/v1/**'
       - 'examples/wrappers/**'
       - 'schema/ci-config.schema.json'
       - 'schema/release-record.schema.json'
       - 'test-fixtures/ci/**'
+      - 'test-fixtures/v1/**'
   workflow_dispatch:
 
 concurrency:
@@ -52,6 +62,8 @@ jobs:
   validate-ci-contracts:
     name: validate-ci-contracts
     runs-on: ubuntu-24.04
+    outputs:
+      fixture_tool_image: ${{ steps.sync-wrapper-fixture-meta.outputs.tool_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -246,7 +258,7 @@ jobs:
           fixture = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text(encoding="utf-8")
           payload = validate_sync_wrapper(fixture)
           assert payload["workflow_ref"] == "d93b3a9c7e6fcb970e0f8f4ef5febca6ed16a6fc"
-          assert payload["tool_image"] == "ghcr.io/runlix/build-workflow-tools@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf"
+          assert payload["tool_image"].startswith("ghcr.io/runlix/build-workflow-tools@sha256:")
 
           invalid_cases = {
               "unpinned reusable workflow ref": fixture.replace(
@@ -260,8 +272,8 @@ jobs:
                   1,
               ),
               "mutable tool image": fixture.replace(
-                  "@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf",
-                  ":ci",
+                  payload["tool_image"],
+                  "ghcr.io/runlix/build-workflow-tools:ci",
                   1,
               ),
               "missing secret mapping": re.sub(
@@ -283,6 +295,25 @@ jobs:
               except AssertionError:
                   continue
               raise AssertionError(f"{label} unexpectedly passed validation")
+          PY
+
+      - name: Export sync wrapper fixture metadata
+        id: sync-wrapper-fixture-meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          from pathlib import Path
+
+          fixture = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text(encoding="utf-8")
+          match = re.search(
+              r"tool-image:\s+(?P<tool_image>ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64})",
+              fixture,
+          )
+          if match is None:
+              raise SystemExit("tool-image pin missing from sync wrapper fixture")
+          print(f"tool_image={match.group('tool_image')}")
           PY
 
       - name: Verify public workflow contract
@@ -555,6 +586,102 @@ jobs:
           assert "Tool image artifact verification" in summary_job
           PY
 
+      - name: Verify Renovate coverage contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          renovate = json.loads(Path("renovate.json").read_text())
+          descriptions = {manager["description"]: manager for manager in renovate["customManagers"]}
+
+          expected_descriptions = {
+              "Update distroless upstream image references in base-image matrices",
+              "Update base image references in service matrices",
+              "Update distroless upstream image references in test workflow",
+              "Update service base image references in test workflow",
+              "Update CI config base refs",
+              "Update build-workflow tool image digest in sync wrapper fixture",
+              "Update pinned ajv tooling versions in workflows",
+              "Update pinned Debian package versions in CI tool image",
+          }
+          assert expected_descriptions.issubset(descriptions), descriptions.keys()
+
+          ci_base_refs = descriptions["Update CI config base refs"]
+          assert "/^examples\\/ci\\/base-image-config\\.json$/" in ci_base_refs["managerFilePatterns"]
+          assert "/^examples\\/ci\\/service-config\\.json$/" in ci_base_refs["managerFilePatterns"]
+          assert "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/" in ci_base_refs["managerFilePatterns"]
+          assert "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/" in ci_base_refs["managerFilePatterns"]
+
+          v1_service_refs = descriptions["Update base image references in service matrices"]
+          assert "/^examples\\/v1\\/service-matrix\\.json$/" in v1_service_refs["managerFilePatterns"]
+          assert "/^test-fixtures\\/v1\\/service\\/docker-matrix\\.json$/" in v1_service_refs["managerFilePatterns"]
+          assert v1_service_refs["datasourceTemplate"] == "docker"
+
+          tool_image = descriptions["Update build-workflow tool image digest in sync wrapper fixture"]
+          assert tool_image["currentValueTemplate"] == "ci"
+          assert tool_image["datasourceTemplate"] == "docker"
+
+          ajv = descriptions["Update pinned ajv tooling versions in workflows"]
+          assert ajv["datasourceTemplate"] == "npm"
+
+          deb = descriptions["Update pinned Debian package versions in CI tool image"]
+          assert deb["datasourceTemplate"] == "deb"
+          assert "suite={{suite}}" in deb["registryUrlTemplate"]
+
+          workflow = Path(".github/workflows/build-images-rebuild.yml").read_text()
+          test_workflow = Path(".github/workflows/test-workflow.yml").read_text()
+          for text in (workflow, test_workflow):
+              assert "AJV_CLI_VERSION:" in text
+              assert "AJV_FORMATS_VERSION:" in text
+              assert "# renovate: datasource=npm depName=ajv-cli" in text
+              assert "# renovate: datasource=npm depName=ajv-formats" in text
+              assert "ajv-cli@${{ env.AJV_CLI_VERSION }}" in text
+              assert "ajv-formats@${{ env.AJV_FORMATS_VERSION }}" in text
+              assert not re.search(r"(?m)^\\s*run:\\s+npm install -g ajv-cli ajv-formats\\s*$", text)
+
+          dockerfile = Path("tools/ci/Dockerfile").read_text()
+          assert dockerfile.startswith("FROM python:3.12-slim-trixie\n")
+          for package in ("bash", "ca-certificates", "git", "jq"):
+              assert f"# renovate: datasource=deb depName={package} suite=trixie" in dockerfile
+          assert "ARG BASH_VERSION=" in dockerfile
+          assert "ARG CA_CERTIFICATES_VERSION=" in dockerfile
+          assert "ARG GIT_VERSION=" in dockerfile
+          assert "ARG JQ_VERSION=" in dockerfile
+          assert 'bash="${BASH_VERSION}"' in dockerfile
+          assert 'ca-certificates="${CA_CERTIFICATES_VERSION}"' in dockerfile
+          assert 'git="${GIT_VERSION}"' in dockerfile
+          assert 'jq="${JQ_VERSION}"' in dockerfile
+
+          sync_wrapper = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text()
+          concrete_tool_image_refs = re.findall(
+              r"ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64}",
+              sync_wrapper + "\n" + Path(".github/workflows/test-ci.yml").read_text(),
+          )
+          assert len(concrete_tool_image_refs) == 1, concrete_tool_image_refs
+
+          example_service = Path("examples/ci/service-config.json").read_text()
+          assert "aaaaaaaa" not in example_service
+          assert "bbbbbbbb" not in example_service
+          assert "ghcr.io/runlix/distroless-runtime:stable@sha256:" in example_service
+          assert "ghcr.io/runlix/distroless-runtime:debug@sha256:" in example_service
+
+          for path in (
+              Path("examples/v1/service-matrix.json"),
+              Path("test-fixtures/v1/service/docker-matrix.json"),
+          ):
+              payload = path.read_text()
+              assert '"image": "ghcr.io/runlix/distroless-runtime"' in payload
+              assert '"tag": "stable"' in payload
+              assert '"digest": "sha256:507dec430a33f3fb5a9290d1d903f770fc11a78e4a12697bb899bd8a395014ac"' in payload
+              assert '"image": "ghcr.io/runlix/distroless"' not in payload
+              assert "abc1234" not in payload
+              assert "test-abc1234" not in payload
+          PY
   validate-sync-wrapper-fixture:
     name: validate-sync-wrapper-fixture
     needs: validate-ci-contracts
@@ -567,7 +694,7 @@ jobs:
     needs: validate-ci-contracts
     uses: ./.github/workflows/validate-release-json.yml
     with:
-      tool-image: ghcr.io/runlix/build-workflow-tools@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf
+      tool-image: ${{ needs.validate-ci-contracts.outputs.fixture_tool_image }}
       release-json-path: test-fixtures/ci/release-record/release.expected.json
 
   build-tool-image-artifact:

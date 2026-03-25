@@ -35,6 +35,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # renovate: datasource=npm depName=ajv-cli
+  AJV_CLI_VERSION: 5.0.0
+  # renovate: datasource=npm depName=ajv-formats
+  AJV_FORMATS_VERSION: 3.0.1
+
 jobs:
   validate-config-contracts:
     runs-on: ubuntu-latest
@@ -48,7 +54,7 @@ jobs:
           node-version: '20'
 
       - name: Install ajv-cli
-        run: npm install -g ajv-cli ajv-formats
+        run: npm install -g ajv-cli@${{ env.AJV_CLI_VERSION }} ajv-formats@${{ env.AJV_FORMATS_VERSION }}
 
       - name: Validate schema structure
         run: |
@@ -130,6 +136,9 @@ jobs:
           assert header.count("- '.github/workflows/test-workflow.yml'") == 2
           assert re.search(r"^permissions:\n  contents: read\n$", header, re.M), header
           assert "packages: write" not in header
+          assert "ajv-cli@" in workflow
+          assert "ajv-formats@" in workflow
+          assert not re.search(r"(?m)^\\s*run:\\s+npm install -g ajv-cli ajv-formats\\s*$", workflow)
           assert "docker/login-action@" not in base_job
           assert "docker/login-action@" not in service_job
           assert "docker/login-action@" not in summary_job

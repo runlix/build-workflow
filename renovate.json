@@ -53,6 +53,61 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update CI config base refs",
+      "managerFilePatterns": [
+        "/^examples\\/ci\\/base-image-config\\.json$/",
+        "/^examples\\/ci\\/service-config\\.json$/",
+        "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/",
+        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/"
+      ],
+      "matchStrings": [
+        "\"BASE_REF\"\\s*:\\s*\"(?<depName>[^:@\\\"]+):(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\"",
+        "\"base_ref\"\\s*:\\s*\"(?<depName>[^:@\\\"]+):(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update build-workflow tool image digest in sync wrapper fixture",
+      "managerFilePatterns": [
+        "/^test-fixtures\\/ci\\/sync-wrapper\\/sync-release-record\\.yml$/"
+      ],
+      "matchStrings": [
+        "tool-image:\\s+(?<depName>ghcr\\.io/runlix/build-workflow-tools)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "currentValueTemplate": "ci",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update pinned ajv tooling versions in workflows",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/build-images-rebuild\\.yml$/",
+        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=npm depName=ajv-cli\\n\\s+AJV_CLI_VERSION:\\s*(?<currentValue>[^\\s]+)",
+        "# renovate: datasource=npm depName=ajv-formats\\n\\s+AJV_FORMATS_VERSION:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Update pinned Debian package versions in CI tool image",
+      "managerFilePatterns": [
+        "/^tools\\/ci\\/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=deb depName=(?<depName>[^\\s]+) suite=(?<suite>[^\\s]+)\\nARG [A-Z_]+=(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "deb",
+      "registryUrlTemplate": "https://deb.debian.org/debian?suite={{suite}}&components=main&binaryArch=amd64",
+      "versioningTemplate": "deb"
     }
   ],
   "packageRules": [
@@ -75,8 +130,32 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/runlix/distroless"],
-      "groupName": "Runlix Base Docker Images",
+      "matchPackageNames": ["ghcr.io/runlix/distroless-runtime"],
+      "groupName": "Runlix Runtime Docker Images",
+      "automerge": false,
+      "schedule": ["before 4am on Monday"]
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/runlix/build-workflow-tools"],
+      "groupName": "Build Workflow Tool Image",
+      "automerge": false,
+      "schedule": ["before 4am on Monday"]
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["npm"],
+      "matchPackageNames": ["ajv-cli", "ajv-formats"],
+      "groupName": "Schema Validation Tooling",
+      "automerge": false,
+      "schedule": ["before 4am on Monday"]
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["deb"],
+      "matchPackageNames": ["bash", "ca-certificates", "git", "jq"],
+      "groupName": "CI Tool Image Debian Packages",
       "automerge": false,
       "schedule": ["before 4am on Monday"]
     }

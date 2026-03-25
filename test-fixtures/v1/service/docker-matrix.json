@@ -2,9 +2,9 @@
   "$schema": "../../../schema/docker-matrix-schema.json",
   "version": "v1.2.3",
   "base_image": {
-    "image": "ghcr.io/runlix/distroless",
-    "tag": "test-abc1234",
-    "digest": "sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8"
+    "image": "ghcr.io/runlix/distroless-runtime",
+    "tag": "stable",
+    "digest": "sha256:507dec430a33f3fb5a9290d1d903f770fc11a78e4a12697bb899bd8a395014ac"
   },
   "variants": [
     {
