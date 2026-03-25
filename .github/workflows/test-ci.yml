@@ -290,8 +290,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          expected_build_push_action_sha='d08e5c354a6adb9ed34480a06d141179aa583294'
-          old_build_push_action_sha='263435318d21b8e681c14492fe198d362a7d2c83'
           expected_app_token_action_sha='f8d387b68d61c58ab83c6c016672934102569859'
 
           test -f .github/workflows/validate.yml
@@ -468,12 +466,12 @@ jobs:
 
           assert "name: publish-immutable" in publish_immutable, "publish-tool-image missing publish-immutable job"
           assert "name: Build and push immutable tool image" in publish_immutable, "publish-tool-image missing immutable build step"
-          assert "DOCKER_BUILD_SUMMARY: false" in publish_immutable, "publish-tool-image must disable docker build summary"
-          assert "DOCKER_BUILD_RECORD_UPLOAD: false" in publish_immutable, "publish-tool-image must disable docker build record upload"
+          assert "docker/build-push-action@" not in publish_immutable, "publish-tool-image must use raw docker buildx commands"
+          assert "docker buildx build \\" in publish_immutable, "publish-tool-image missing docker buildx build command"
+          assert "--metadata-file /tmp/build-metadata.json" in publish_immutable, "publish-tool-image must capture build metadata via metadata file"
+          assert "jq -re '.\"containerimage.digest\"' /tmp/build-metadata.json" in publish_immutable, "publish-tool-image must extract digest from build metadata"
           assert (
-              "ghcr.io/runlix/build-workflow-tools:sha-"
-              + gha_open
-              + " github.sha }}"
+              "ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA}"
               in publish_immutable
           ), "publish-tool-image no longer pushes the immutable sha tag"
           assert "ghcr.io/runlix/build-workflow-tools:ci" not in publish_immutable, "publish-tool-image still pushes :ci from the immutable job"
@@ -541,13 +539,11 @@ jobs:
           assert "name: build-tool-image-artifact" in workflow
           assert "name: verify-tool-image-artifact" in workflow
           assert "name: Build multi-platform tool image" in build_job
-          assert "DOCKER_BUILD_SUMMARY: false" in build_job
-          assert "DOCKER_BUILD_RECORD_UPLOAD: false" in build_job
-          assert "type=cacheonly" in build_job
+          assert "docker/build-push-action@" not in build_job
+          assert build_job.count("docker buildx build \\") == 2
+          assert "--output type=cacheonly" in build_job
           assert "name: Export amd64 tool image tarball" in build_job
-          assert build_job.count("DOCKER_BUILD_SUMMARY: false") == 1
-          assert build_job.count("DOCKER_BUILD_RECORD_UPLOAD: false") == 1
-          assert "type=docker,dest=" in build_job
+          assert "--output type=docker,dest=" in build_job
           assert "name: Upload tool image artifact" in build_job
           assert "name: Download tool image artifact" in verify_job
           assert "docker load -i" in verify_job
@@ -558,21 +554,6 @@ jobs:
           assert "Tool image artifact build" in summary_job
           assert "Tool image artifact verification" in summary_job
           PY
-
-          for workflow_file in \
-            .github/workflows/test-ci.yml \
-            .github/workflows/publish-tool-image.yml
-          do
-            grep -Eq "docker/build-push-action@${expected_build_push_action_sha}" "$workflow_file"
-            if grep -Eq "docker/build-push-action@${old_build_push_action_sha}" "$workflow_file"; then
-              echo "Deprecated build-push-action pin remains in $workflow_file" >&2
-              exit 1
-            fi
-          done
-
-          curl --fail --silent --show-error --location \
-            "https://raw.githubusercontent.com/docker/build-push-action/${expected_build_push_action_sha}/action.yml" \
-            | grep -Eq "^  using: 'node24'$"
 
   validate-sync-wrapper-fixture:
     name: validate-sync-wrapper-fixture
@@ -595,9 +576,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tool_image: ${{ steps.meta.outputs.image_tag }}
-    env:
-      DOCKER_BUILD_SUMMARY: false
-      DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -617,21 +595,30 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Build multi-platform tool image
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        with:
-          context: .
-          file: tools/ci/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          outputs: type=cacheonly
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f tools/ci/Dockerfile \
+            --output type=cacheonly \
+            .
 
       - name: Export amd64 tool image tarball
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        with:
-          context: .
-          file: tools/ci/Dockerfile
-          platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.image_tag }}
-          outputs: type=docker,dest=${{ steps.meta.outputs.artifact_path }}
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.meta.outputs.artifact_path }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          docker buildx build \
+            --platform linux/amd64 \
+            -f tools/ci/Dockerfile \
+            --output type=docker,dest="${ARTIFACT_PATH}" \
+            -t "${IMAGE_TAG}" \
+            .
 
       - name: Upload tool image artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
