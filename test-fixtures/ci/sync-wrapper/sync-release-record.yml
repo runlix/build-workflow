@@ -20,7 +20,7 @@ jobs:
       cancel-in-progress: false
     uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@d93b3a9c7e6fcb970e0f8f4ef5febca6ed16a6fc
     with:
-      tool-image: ghcr.io/runlix/build-workflow-tools@sha256:77f0f999885f898c992cded0d76c3e5f12d74e12080be44b9ea316f6a5a94bdf
+      tool-image: ghcr.io/runlix/build-workflow-tools@sha256:3d293d2c6bcb04d4501bdf33cab134e40469f173209fffffb4853050fe77ce59
     secrets:
       RUNLIX_APP_ID: ${{ secrets.RUNLIX_APP_ID }}
       RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}
