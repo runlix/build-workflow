@@ -17,6 +17,8 @@ on:
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'docs/ci.md'
+      - 'docs/ci/**'
+      - 'docs/v1/README.md'
       - 'examples/ci/**'
       - 'examples/v1/**'
       - 'examples/wrappers/**'
@@ -42,6 +44,8 @@ on:
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'docs/ci.md'
+      - 'docs/ci/**'
+      - 'docs/v1/README.md'
       - 'examples/ci/**'
       - 'examples/v1/**'
       - 'examples/wrappers/**'
@@ -111,6 +115,37 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
+
+      - name: Validate docs navigation and contract names
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rg -Fq '[docs/ci.md](./docs/ci.md)' README.md
+          rg -Fq '[docs/ci/](./docs/ci/)' README.md
+
+          for page in architecture usage workflow-behavior api-reference testing-and-maintenance troubleshooting; do
+            test -f "docs/ci/${page}.md"
+            rg -Fq "./ci/${page}.md" docs/ci.md
+          done
+
+          rg -Fq '[../ci.md](../ci.md)' docs/v1/README.md
+          rg -Fq 'docs/ci/' CONTRIBUTING.md
+
+          rg -Fq 'validate.yml' docs/ci/workflow-behavior.md
+          rg -Fq 'release.yml' docs/ci/workflow-behavior.md
+          rg -Fq 'sync-release-record.yml' docs/ci/workflow-behavior.md
+          rg -Fq 'validate-sync-wrapper.yml' docs/ci/workflow-behavior.md
+          rg -Fq 'validate-release-json.yml' docs/ci/workflow-behavior.md
+          rg -Fq 'release-record' docs/ci/workflow-behavior.md
+          rg -Fq 'validate-main-summary' docs/ci/workflow-behavior.md
+          rg -Fq 'tool-image' docs/ci/api-reference.md
+          rg -Fq '.ci/config.json' docs/ci/api-reference.md
+          rg -Fq 'release-record.json' docs/ci/api-reference.md
+          rg -Fq 'release.json' docs/ci/api-reference.md
+          rg -Fq 'planner/executor split' docs/ci/architecture.md
+          rg -Fq 'publish: false' docs/ci/usage.md
+          rg -Fq 'distroless-runtime' docs/ci/testing-and-maintenance.md
 
       - name: Run direct CLI smoke tests
         shell: bash

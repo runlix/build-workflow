@@ -13,6 +13,7 @@ This repository is maintained for `runlix` image automation. The active path is 
   - `examples/wrappers/`
   - `test-fixtures/ci/`
   - `docs/ci.md`
+  - `docs/ci/`
 - `v1` changes:
   - `.github/workflows/build-images-rebuild.yml`
   - `schema/docker-matrix-schema.json`
@@ -76,7 +77,8 @@ gh workflow run test-workflow.yml --ref YOUR-BRANCH
 When behavior changes, update the docs in the same branch:
 
 - `README.md` for the supported surface
-- `docs/ci.md` for the supported contract
+- `docs/ci.md` for the supported contract landing page
+- `docs/ci/` for focused supported-CI guides
 - `docs/v1/` only if legacy behavior changed
 - `examples/wrappers/*.yml` and `examples/ci/*.json` if the public contract changed
 
