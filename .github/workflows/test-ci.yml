@@ -236,6 +236,7 @@ jobs:
           set -euo pipefail
 
           python3 - <<'PY'
+          import json
           import re
           from pathlib import Path
 
@@ -748,7 +749,8 @@ jobs:
           assert "--build-arg BASE_IMAGE=gcr.io/distroless/base-debian12" not in test_workflow
 
           dockerfile = Path("tools/ci/Dockerfile").read_text()
-          assert dockerfile.startswith("FROM python:3.12-slim-trixie\n")
+          # Renovate owns the Python tag; CI only enforces the approved base-image shape.
+          assert re.match(r"^FROM python:3\.\d+-slim-trixie\n", dockerfile), dockerfile.splitlines()[0]
           for package in ("bash", "ca-certificates", "git", "jq"):
               assert f"# renovate: datasource=deb depName={package} suite=trixie" in dockerfile
           assert "ARG BASH_VERSION=" in dockerfile
@@ -788,13 +790,16 @@ jobs:
               Path("examples/v1/service-matrix.json"),
               Path("test-fixtures/v1/service/docker-matrix.json"),
           ):
-              payload = path.read_text()
-              assert '"image": "ghcr.io/runlix/distroless-runtime"' in payload
-              assert '"tag": "stable"' in payload
-              assert '"digest": "sha256:507dec430a33f3fb5a9290d1d903f770fc11a78e4a12697bb899bd8a395014ac"' in payload
-              assert '"image": "ghcr.io/runlix/distroless"' not in payload
-              assert "abc1234" not in payload
-              assert "test-abc1234" not in payload
+              payload = json.loads(path.read_text())
+              base_image = payload["base_image"]
+              assert base_image["image"] == "ghcr.io/runlix/distroless-runtime"
+              assert base_image["tag"] == "stable"
+              assert re.fullmatch(r"sha256:[0-9a-f]{64}", base_image["digest"])
+
+              raw_payload = json.dumps(payload)
+              assert not re.search(r'"image":\s*"ghcr\.io/runlix/distroless(?::|@|")', raw_payload)
+              assert "abc1234" not in raw_payload
+              assert "test-abc1234" not in raw_payload
           PY
   validate-sync-wrapper-fixture:
     name: validate-sync-wrapper-fixture
