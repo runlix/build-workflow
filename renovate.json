@@ -91,10 +91,8 @@
         "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=npm depName=ajv-cli\\n\\s+AJV_CLI_VERSION:\\s*(?<currentValue>[^\\s]+)",
-        "# renovate: datasource=npm depName=ajv-formats\\n\\s+AJV_FORMATS_VERSION:\\s*(?<currentValue>[^\\s]+)"
-      ],
-      "datasourceTemplate": "npm"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\s+AJV_[A-Z_]+_VERSION:\\s*(?<currentValue>[^\\s]+)"
+      ]
     },
     {
       "customType": "regex",
