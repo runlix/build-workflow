@@ -41,17 +41,19 @@ jobs:
 
       - name: Build and push immutable tool image
         id: build
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-        env:
-          DOCKER_BUILD_SUMMARY: false
-          DOCKER_BUILD_RECORD_UPLOAD: false
-        with:
-          context: .
-          file: tools/ci/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -f tools/ci/Dockerfile \
+            --push \
+            --metadata-file /tmp/build-metadata.json \
+            -t ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA} \
+            .
+
+          printf 'digest=%s\n' "$(jq -re '."containerimage.digest"' /tmp/build-metadata.json)" >> "$GITHUB_OUTPUT"
 
       - name: Summarize immutable tool image refs
         shell: bash
