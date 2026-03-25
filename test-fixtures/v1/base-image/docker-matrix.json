@@ -15,7 +15,7 @@
       "build_args": {
         "UPSTREAM_IMAGE": "gcr.io/distroless/base-debian12",
         "UPSTREAM_TAG": "latest",
-        "UPSTREAM_DIGEST": "sha256:6ae5fe659f28c6afe9cc2903aebc78a5c6ad3aaa3d9d0369760ac6aaea2529c8"
+        "UPSTREAM_DIGEST": "sha256:937c7eaaf6f3f2d38a1f8c4aeff326f0c56e4593ea152e9e8f74d976dde52f56"
       },
       "test_script": "test-fixtures/v1/base-image/test.sh"
     },
@@ -33,7 +33,7 @@
       "build_args": {
         "UPSTREAM_IMAGE": "gcr.io/distroless/base-debian12",
         "UPSTREAM_TAG": "debug",
-        "UPSTREAM_DIGEST": "sha256:e8075f7da06319e4ac863d31fa11354003c809ef9f1b52fe32ef39e876ac16c5"
+        "UPSTREAM_DIGEST": "sha256:1f8759794cab46f0673e14afc03e3623cbd803b683abf7e3143fd041cc2e89f7"
       },
       "test_script": "test-fixtures/v1/base-image/test-debug.sh"
     }
