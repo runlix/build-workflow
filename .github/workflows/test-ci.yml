@@ -641,11 +641,10 @@ jobs:
           assert "/^examples\\/ci\\/base-image-config\\.json$/" in distroless_upstream["managerFilePatterns"]
           assert "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/" in distroless_upstream["managerFilePatterns"]
           assert "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/" in distroless_upstream["managerFilePatterns"]
-          assert "/^\\.github\\/workflows\\/test-workflow\\.yml$/" in distroless_upstream["managerFilePatterns"]
-          assert len(distroless_upstream["matchStrings"]) == 4
+          assert "/^\\.github\\/workflows\\/test-workflow\\.yml$/" not in distroless_upstream["managerFilePatterns"]
+          assert len(distroless_upstream["matchStrings"]) == 2
           assert any("UPSTREAM_TAG" in match for match in distroless_upstream["matchStrings"])
           assert any('"BASE_REF"' in match for match in distroless_upstream["matchStrings"])
-          assert any("BASE_IMAGE=gcr\\.io/distroless/base-debian12" in match for match in distroless_upstream["matchStrings"])
           distroless_test_workflow_managers = [
               manager["description"]
               for manager in renovate["customManagers"]
@@ -655,7 +654,18 @@ jobs:
                   or any("gcr\\.io/distroless/base-debian12" in match for match in manager.get("matchStrings", []))
               )
           ]
-          assert distroless_test_workflow_managers == ["Update distroless upstream image references"]
+          assert distroless_test_workflow_managers == []
+
+          distroless_package_rules = [
+              rule
+              for rule in renovate["packageRules"]
+              if rule.get("groupName") == "Distroless Upstream Docker Images"
+          ]
+          assert len(distroless_package_rules) == 1
+          distroless_package_rule = distroless_package_rules[0]
+          assert set(distroless_package_rule["matchManagers"]) == {"custom.regex", "dockerfile"}
+          assert distroless_package_rule["matchPackageNames"] == ["gcr.io/distroless/base-debian12"]
+          assert distroless_package_rule["matchDatasources"] == ["docker"]
 
           distroless_runtime = descriptions["Update distroless runtime base refs"]
           assert distroless_runtime["depNameTemplate"] == "ghcr.io/runlix/distroless-runtime"
@@ -696,6 +706,12 @@ jobs:
               assert "ajv-formats@${{ env.AJV_FORMATS_VERSION }}" in text
               assert not re.search(r"(?m)^\\s*run:\\s+npm install -g ajv-cli ajv-formats\\s*$", text)
 
+          assert "test-fixtures/v1/base-image/docker-matrix.json" in test_workflow
+          assert "steps.distroless_base_refs.outputs.latest_image" in test_workflow
+          assert "steps.distroless_base_refs.outputs.debug_image" in test_workflow
+          assert "--build-arg UPSTREAM_IMAGE=gcr.io/distroless/base-debian12" not in test_workflow
+          assert "--build-arg BASE_IMAGE=gcr.io/distroless/base-debian12" not in test_workflow
+
           dockerfile = Path("tools/ci/Dockerfile").read_text()
           assert dockerfile.startswith("FROM python:3.12-slim-trixie\n")
           for package in ("bash", "ca-certificates", "git", "jq"):
@@ -721,6 +737,17 @@ jobs:
           assert "bbbbbbbb" not in example_service
           assert "ghcr.io/runlix/distroless-runtime:stable@sha256:" in example_service
           assert "ghcr.io/runlix/distroless-runtime:debug@sha256:" in example_service
+
+          for path in (
+              Path("examples/v1/base-image-matrix.json"),
+              Path("test-fixtures/v1/base-image/docker-matrix.json"),
+          ):
+              payload = path.read_text()
+              assert "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" not in payload
+              assert "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321" not in payload
+              assert '"UPSTREAM_IMAGE": "gcr.io/distroless/base-debian12"' in payload
+              assert '"UPSTREAM_TAG": "latest"' in payload
+              assert '"UPSTREAM_TAG": "debug"' in payload
 
           for path in (
               Path("examples/v1/service-matrix.json"),
