@@ -6,14 +6,22 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update distroless upstream image references in base-image matrices",
+      "description": "Update distroless upstream image references",
       "managerFilePatterns": [
         "/^examples\\/v1\\/base-image-matrix\\.json$/",
-        "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/"
+        "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/",
+        "/^examples\\/ci\\/base-image-config\\.json$/",
+        "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/",
+        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/",
+        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
       ],
       "matchStrings": [
-        "\"UPSTREAM_IMAGE\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+        "\"UPSTREAM_IMAGE\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12\"[\\s\\S]*?\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\"",
+        "\"BASE_REF\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\"",
+        "--build-arg\\s+UPSTREAM_IMAGE=gcr\\.io/distroless/base-debian12\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})",
+        "--build-arg\\s+BASE_IMAGE=gcr\\.io/distroless/base-debian12\\s+\\\\\\n\\s*--build-arg\\s+BASE_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+BASE_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
+      "depNameTemplate": "gcr.io/distroless/base-debian12",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
     },
@@ -32,41 +40,14 @@
     },
     {
       "customType": "regex",
-      "description": "Update distroless upstream image references in test workflow",
+      "description": "Update distroless runtime base refs",
       "managerFilePatterns": [
-        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
+        "/^examples\\/ci\\/service-config\\.json$/"
       ],
       "matchStrings": [
-        "--build-arg\\s+UPSTREAM_IMAGE=(?<depName>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+UPSTREAM_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
+        "\"BASE_REF\"\\s*:\\s*\"ghcr\\.io/runlix/distroless-runtime:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Update service base image references in test workflow",
-      "managerFilePatterns": [
-        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
-      ],
-      "matchStrings": [
-        "--build-arg\\s+BASE_IMAGE=(?<depName>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+BASE_TAG=(?<currentValue>[^\\\\\\s]+)\\s+\\\\\\n\\s*--build-arg\\s+BASE_DIGEST=(?<currentDigest>sha256:[a-f0-9]{64})"
-      ],
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Update CI config base refs",
-      "managerFilePatterns": [
-        "/^examples\\/ci\\/base-image-config\\.json$/",
-        "/^examples\\/ci\\/service-config\\.json$/",
-        "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/",
-        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/"
-      ],
-      "matchStrings": [
-        "\"BASE_REF\"\\s*:\\s*\"(?<depName>[^:@\\\"]+):(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\"",
-        "\"base_ref\"\\s*:\\s*\"(?<depName>[^:@\\\"]+):(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
-      ],
+      "depNameTemplate": "ghcr.io/runlix/distroless-runtime",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
     },
