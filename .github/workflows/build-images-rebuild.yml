@@ -41,6 +41,10 @@ env:
   REGISTRY: ghcr.io
   REGISTRY_ORG: runlix
   CRANE_VERSION: v0.20.3
+  # renovate: datasource=npm depName=ajv-cli
+  AJV_CLI_VERSION: 5.0.0
+  # renovate: datasource=npm depName=ajv-formats
+  AJV_FORMATS_VERSION: 3.0.1
 
 # Permissions required by this workflow.
 permissions:
@@ -106,7 +110,7 @@ jobs:
           node-version: '20'
 
       - name: Install ajv-cli for schema validation
-        run: npm install -g ajv-cli ajv-formats
+        run: npm install -g ajv-cli@${{ env.AJV_CLI_VERSION }} ajv-formats@${{ env.AJV_FORMATS_VERSION }}
 
       - name: Validate schema
         run: |
