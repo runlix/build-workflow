@@ -17,7 +17,7 @@
       "platform": "linux/amd64",
       "dockerfile": "test-fixtures/ci/service/linux-amd64.Dockerfile",
       "build_args": {
-        "BASE_REF": "gcr.io/distroless/base-debian12:latest-amd64@sha256:d5f7dca58e3db53d1de502bd1a747ecb1110cf6b0773af129f951ee11e2e3ed4",
+        "BASE_REF": "gcr.io/distroless/base-debian12:latest-amd64@sha256:1f144c77a9ecaaa132fc3037b4417d9f9fd0b7a50101c696af5cb186876aa2a3",
         "VARIANT": "stable"
       }
     },
@@ -27,7 +27,7 @@
       "platform": "linux/amd64",
       "dockerfile": "test-fixtures/ci/service/linux-amd64.Dockerfile",
       "build_args": {
-        "BASE_REF": "gcr.io/distroless/base-debian12:debug-amd64@sha256:390fbd1c6954d0499687c031097557bd0c3834df0a8f9ad76e5dd86ca8bc22f1",
+        "BASE_REF": "gcr.io/distroless/base-debian12:debug-amd64@sha256:89fa9ceff0554957466172516a5ea031d7485ce4795073a28b20fed941867ce4",
         "VARIANT": "debug"
       }
     }
