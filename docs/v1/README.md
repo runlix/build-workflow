@@ -22,4 +22,4 @@ Primary legacy guides:
 - [release-workflow.md](./release-workflow.md)
 - [renovate.md](./renovate.md)
 
-For new repositories, use `../ci-v2.md` instead.
+For new repositories, use [../ci.md](../ci.md) instead.

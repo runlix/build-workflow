@@ -32,7 +32,7 @@ Do not use branch refs or preview tags in supported callers.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
-The canonical guide is [docs/ci.md](./docs/ci.md).
+The canonical guide is [docs/ci.md](./docs/ci.md). It includes the repository path map, input/path-resolution rules, end-to-end workflow execution flow, tagging and metadata behavior, and failure cases.
 
 ## CI Interface
 
@@ -73,10 +73,12 @@ Release:
 Metadata sync:
 
 1. runs from `main` after a successful `Release` workflow on `release`
-2. downloads `release-metadata.json`
-3. verifies the triggering workflow provenance
+2. verifies the triggering workflow provenance
+3. downloads `release-metadata.json`
 4. writes `releases.json`
 5. commits only when the metadata changed
+
+For the detailed implementation map, including why the workflows are split this way and how the helper scripts pass data between jobs, see [docs/ci.md](./docs/ci.md).
 
 ## Legacy `v1`
 
