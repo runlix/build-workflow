@@ -30,6 +30,11 @@ Expected wrapper permissions:
 
 - `contents: read`
 
+Workflow concurrency:
+
+- `validate-${{ github.repository }}-${{ github.ref }}-${{ inputs.config-path }}`
+- `cancel-in-progress: true`
+
 ### `.github/workflows/release.yml`
 
 Purpose:
@@ -74,6 +79,11 @@ Artifacts:
 - `release-record`
   - file: `release-record.json`
 
+Workflow concurrency:
+
+- `release-${{ github.repository }}`
+- `cancel-in-progress: false`
+
 ### `.github/workflows/sync-release-record.yml`
 
 Purpose:
@@ -108,6 +118,9 @@ Important wrapper requirements:
 - wrapper trigger must be `workflow_run`
 - workflow name must be `Release`
 - branch must be `release`
+- top-level permissions must stay exactly `actions: read` and `contents: read`
+- wrapper must stay thin and must not inline `runs-on`, `steps`, `container`, `env`, or job-level `permissions`
+- wrapper must not add `workflow_dispatch`, `pull_request`, `pull_request_target`, `actions/checkout`, or `secrets: inherit`
 - wrapper `tool-image` must be digest-pinned
 - wrapper should add job concurrency:
   - `group: sync-release-record-${{ github.repository }}`
@@ -213,6 +226,14 @@ Additional invariants enforced by the planner tool:
 - `defaults.context` must exist as a directory
 - the effective test script must exist when configured
 
+Path semantics:
+
+- `config-path` is repo-root-relative after checkout
+- `defaults.context` is the repo-root-relative Docker build context
+- `dockerfile` is a repo-root-relative path passed to `docker buildx build -f`
+- the effective test path is repo-root-relative and executed directly on the runner
+- `release-json-path` and `workflow-path` are also repo-root-relative after checkout
+
 ## Matrix and Tag Semantics
 
 Runner mapping:
@@ -248,6 +269,82 @@ The public CI design depends on these `build-workflow-ci` commands:
 
 `validate-config-payload` is schema-only.
 `validate-config` is stronger: it includes model validation such as duplicate detection, effective test resolution, and context path checks.
+
+### `validate-config`
+
+Returns:
+
+- `image_name`
+- `version`
+- `enabled_count`
+- `manifest_tags`
+- `context_dir`
+
+### `plan-matrix`
+
+Returns one object per enabled target with:
+
+- `name`
+- `image`
+- `version`
+- `manifest_tag`
+- `arch`
+- `platform`
+- `runner`
+- `dockerfile`
+- `context_dir`
+- `test`
+- `build_args`
+- `pr_local_tag`
+- `release_temp_tag`
+
+### `plan-build-target`
+
+Returns one resolved target payload with:
+
+- `name`
+- `image_name`
+- `version`
+- `manifest_tag`
+- `arch`
+- `platform`
+- `dockerfile`
+- `context_dir`
+- `test`
+- `image_tag`
+- `release_temp_tag`
+- `build_args`
+- `labels`
+
+Mode-specific tag behavior:
+
+- `pr`: `image_tag` is `ghcr.io/runlix/<name>:pr-<short_sha>-<target_name>`
+- `release`: `image_tag` is `ghcr.io/runlix/<name>:<manifest_tag>-<arch>-<short_sha>`
+
+### `plan-manifests`
+
+Returns one object per final manifest tag with:
+
+- `image_name`
+- `tag`
+- `refs`
+
+Each `refs` list contains the temporary per-arch release refs that should be assembled into the final manifest tag.
+
+### `render-release-record`
+
+Returns:
+
+- `version`
+- `sha`
+- `short_sha`
+- `published_at`
+- `tags`
+
+### `write-release-json`
+
+- validates the input record first
+- writes the same normalized payload back as pretty JSON with a trailing newline
 
 ## Release Record Shapes
 

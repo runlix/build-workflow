@@ -113,6 +113,21 @@ Defaults behavior:
 - `defaults.test` becomes the effective test when the target omits `test`
 - `defaults.build_args` are merged first, then target `build_args` override or extend them
 
+## Path Semantics
+
+Caller paths are interpreted from the checked-out repository root.
+
+That applies to:
+
+- `config-path`
+- `defaults.context`
+- target `dockerfile`
+- effective `test`
+- `workflow-path`
+- `release-json-path`
+
+The planner does not reinterpret those values relative to the config file directory. Write each path exactly the way the caller repository root should address it after checkout.
+
 ## Base Image vs Service Repositories
 
 Base-image repositories usually:
@@ -214,5 +229,7 @@ That wrapper should:
 - call `validate-release-json.yml` when `release.json` changed
 - call `validate-sync-wrapper.yml` when the sync wrapper changed
 - expose a stable `validate-main-summary` job
+
+On `workflow_dispatch`, the example wrapper forces both validators on so maintainers can run a full metadata check manually.
 
 That summary job is the intended required status check for metadata and sync-wrapper changes on `main`.
