@@ -11,6 +11,11 @@ It runs four jobs:
 3. `build`
 4. `summary`
 
+Workflow concurrency:
+
+- `validate-${{ github.repository }}-${{ github.ref }}-${{ inputs.config-path }}`
+- `cancel-in-progress: true`
+
 ### `validate-inputs`
 
 This job validates `tool-image`.
@@ -82,6 +87,11 @@ It runs four jobs:
 3. `build-and-push`
 4. `publish`
 
+Workflow concurrency:
+
+- `release-${{ github.repository }}`
+- `cancel-in-progress: false`
+
 The first two jobs mirror validate mode.
 
 ### `build-and-push`
@@ -135,6 +145,23 @@ It is uploaded only when `publish: true` under artifact name:
 
 - `release-record`
 
+When `publish: false`, release mode still:
+
+- validates config
+- plans the matrix
+- builds and tests targets
+- renders and validates `release-record.json`
+
+But it skips:
+
+- GHCR login
+- temporary ref pushes
+- manifest creation
+- release-record artifact upload
+- Telegram notification
+
+That means a normal sync run has no artifact to consume from a `publish: false` release run.
+
 Telegram notification behavior:
 
 - only runs when `publish: true`
@@ -173,6 +200,10 @@ Why the SHA match exists:
 
 - the artifact must belong to the exact release commit that triggered sync
 
+This job only runs when:
+
+- `github.event.workflow_run.conclusion == 'success'`
+
 ### `commit-release-json`
 
 This job uses a GitHub App token instead of widening the workflow `GITHUB_TOKEN`.
@@ -209,6 +240,7 @@ That wrapper:
 - runs `validate-release-json.yml` when needed
 - runs `validate-sync-wrapper.yml` when needed
 - exposes `validate-main-summary`
+- forces both validators on during `workflow_dispatch`
 
 ### `validate-sync-wrapper.yml`
 
@@ -219,6 +251,10 @@ It enforces:
 - `workflow_run -> Release / release / completed`
 - exact top-level permissions: `actions: read`, `contents: read`
 - thin-wrapper shape
+- no `workflow_dispatch`
+- no `pull_request` or `pull_request_target`
+- no `actions/checkout`
+- no `secrets: inherit`
 - pinned reusable workflow SHA
 - pinned digest `tool-image`
 - explicit `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` mapping

@@ -27,6 +27,7 @@ It covers:
 - unit tests for the planner tool
 - direct CLI smoke tests
 - local tool image build and smoke tests
+- docs navigation and supported contract-name checks
 - sync wrapper fixture validation
 - release-record fixture validation
 - downstream-like runnable fixture workflows

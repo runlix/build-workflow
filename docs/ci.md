@@ -1,6 +1,6 @@
 # CI
 
-The supported `build-workflow` interface is the versionless CI contract:
+The supported `build-workflow` interface is the versionless `CI` contract:
 
 - `.github/workflows/validate.yml`
 - `.github/workflows/release.yml`
@@ -13,121 +13,36 @@ The supported `build-workflow` interface is the versionless CI contract:
 ## Guide Map
 
 - [Architecture](./ci/architecture.md): provider/caller split, branch model, planner image, and supported boundaries
-- [Usage](./ci/usage.md): repo layout, wrapper placement, config shape, Dockerfiles, pinning, and common caller cases
+- [Usage](./ci/usage.md): repo layout, wrapper placement, path semantics, config shape, Dockerfiles, pinning, and common caller cases
 - [Workflow Behavior](./ci/workflow-behavior.md): validate, release, sync, and main-branch validation end to end
-- [API Reference](./ci/api-reference.md): reusable workflow inputs, permission expectations, config fields, tags, and release-record shapes
+- [API Reference](./ci/api-reference.md): reusable workflow inputs, wrapper requirements, config fields, planner command outputs, tags, and release-record shapes
 - [Testing and Maintenance](./ci/testing-and-maintenance.md): tool responsibilities, fixture coverage, provider CI, and downstream canaries
 - [Troubleshooting](./ci/troubleshooting.md): common failure modes and what they usually mean
 
-## Branch Model
+## Surface Map
 
-- `release`: runtime, build, and CI implementation
-- `main`: metadata and automation configuration
+### Public Caller Surface
 
-Caller repositories should keep thin wrappers on those branches and pin them to a merged full commit SHA from `runlix/build-workflow`.
+| Path | What it does | Why it exists |
+| --- | --- | --- |
+| `.github/workflows/validate.yml` | Validates `.ci/config.json`, plans enabled targets, builds each enabled target locally, runs optional smoke tests, and emits `validate / summary`. | Catches release-branch build and smoke-test regressions before merge without publishing anything. |
+| `.github/workflows/release.yml` | Validates config, builds and tests enabled targets, pushes per-target temporary tags, creates final manifests, renders `release-record.json`, uploads artifact `release-record`, and optionally sends Telegram notifications. | Centralizes the release path so callers publish images and metadata the same way. |
+| `.github/workflows/sync-release-record.yml` | Consumes the `release-record` artifact from a successful `Release` run, rewrites it to `release.json`, and creates or updates a bot-authored PR into `main`. | Keeps metadata updates on `main` reproducible and compatible with protected-branch policies. |
+| `.github/workflows/validate-sync-wrapper.yml` | Inspects the caller's `main` sync wrapper file and enforces the thin-wrapper contract. | Prevents callers from widening permissions, secrets, or behavior around the metadata sync path. |
+| `.github/workflows/validate-release-json.yml` | Validates `release.json` against the same schema used for `release-record.json`. | Gives `main` pull requests a read-only metadata validation check. |
+| `schema/ci-config.schema.json` | JSON Schema for `.ci/config.json`. | Defines the stable caller config shape. |
+| `schema/release-record.schema.json` | JSON Schema for `release-record.json` and `release.json`. | Keeps release artifacts and committed metadata on one contract. |
+| `examples/ci/` | Schema-only config examples. | Shows supported config shape without requiring runnable fixture repos. |
+| `examples/wrappers/` | Starter wrappers for validate, release, sync, and `validate-main`. | Gives callers the supported thin-wrapper patterns and pinning model. |
 
-## Design Pattern
+### Maintainer And Support Paths
 
-The active design is a planner/executor split:
-
-- planner/tool layer: `build-workflow-ci` in `tools/ci/`
-- executor layer: the reusable workflows in `.github/workflows/`
-
-The tool layer owns:
-
-- config validation
-- build-matrix planning
-- per-target build planning
-- manifest planning
-- release-record rendering
-- release-record validation
-- `release.json` writing
-
-The workflow layer owns:
-
-- permissions
-- runner selection
-- checkout and artifact flow
-- Docker build, push, and manifest side effects
-- summary reporting
-
-This is clearer than the earlier script bootstrap because the reusable workflows no longer try to self-checkout implementation files from `runlix/build-workflow`.
-Provider-side CI in `build-workflow` validates the tool, schemas, fixtures, and published planner image. Real reusable-workflow end-to-end behavior is proven in downstream caller repos, with `distroless-runtime` as the default canary.
-
-The planner image is published by `Publish CI Tool Image` on `main` and exposed as:
-
-- immutable digest refs: `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`
-- immutable maintainer tags: `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>`
-- mutable convenience alias: `ghcr.io/runlix/build-workflow-tools:ci`
-
-Only the digest ref and `:sha-<sha>` tag are supported caller inputs.
-
-## Config
-
-The caller contract is one explicit file: `.ci/config.json`.
-
-Top-level keys:
-
-- `image`
-- optional `version`
-- optional `defaults`
-- `targets`
-
-`defaults` supports:
-
-- `context`
-- `test`
-- `build_args`
-
-Each enabled target is one build unit and declares:
-
-- `name`
-- `manifest_tag`
-- `platform`
-- `dockerfile`
-- optional `build_args`
-- optional `test`
-
-`defaults` applies shared values before per-target overrides. The effective build args are:
-
-- `defaults.build_args`
-- then the target `build_args`
-
-The effective test is:
-
-- target `test`
-- otherwise `defaults.test`
-
-Canonical assets:
-
-- schemas: `schema/ci-config.schema.json`, `schema/release-record.schema.json`
-- config examples: `examples/ci/`
-- wrapper examples: `examples/wrappers/`
-- fixtures: `test-fixtures/ci/`
-- contract workflow: `.github/workflows/test-ci.yml`
-
-`image` must be `ghcr.io/runlix/<name>`.
-
-`examples/ci/` are schema-only configuration examples for docs and review.
-`test-fixtures/ci/` are runnable fixture repos used for full validation, matrix planning, build tests, and release-record checks.
-`.github/workflows/test-ci.yml` intentionally does not self-call `.github/workflows/validate.yml` or `.github/workflows/release.yml`; downstream canaries cover caller-context workflow execution.
-
-## Pinning
-
-Supported callers should pin the reusable workflow `uses:` reference to a merged full `build-workflow` commit SHA.
-
-Supported callers should also pass `tool-image`, pinned to `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`.
-Maintainers may also pin to `ghcr.io/runlix/build-workflow-tools:sha-<build-workflow git sha>` when that tag was produced by the standalone publish workflow on `main` or by explicit `workflow_dispatch`.
-The mutable `ghcr.io/runlix/build-workflow-tools:ci` alias tracks the latest published `main` planner image for maintainer convenience only and is not a supported caller input.
-Provider-side self-test uses workflow artifacts to prove the container contract and does not claim the public `sha-<sha>` tag namespace.
-Testing an unmerged planner change in a downstream caller therefore requires an intentional manual publish of that branch commit.
-`config-path` remains a maintainer override for fixtures; `tool-image` is part of the supported caller contract.
-Reusable workflows do not receive repository secrets automatically. Release callers should map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into `.github/workflows/release.yml`.
-Sync callers should map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into `.github/workflows/sync-release-record.yml`.
-The supported sync wrapper is stricter than release-branch validate and release wrappers: `validate-sync-wrapper.yml` requires `tool-image` to stay digest-pinned, not `:sha-<git sha>`.
-Main-side PR validators should call `.github/workflows/validate-sync-wrapper.yml` and `.github/workflows/validate-release-json.yml` from one thin `pull_request` workflow on `main`; those validators are read-only and do not require any secrets.
-Caller repositories should keep that wrapper stable and make its `validate-main-summary` job the required `main` status check before removing any branch-protection bypass for the automation app.
-Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` for manual pre-PR validation when needed.
+| Path | What it does | Why it exists |
+| --- | --- | --- |
+| `tools/ci/` | Contains the `build-workflow-ci` implementation, tests, Dockerfile, and packaging for the planner image. | Reusable workflows run in the caller repo; shipping the planner in a pinned image is how they get stable implementation logic. |
+| `.github/workflows/test-ci.yml` | Provider-side self-test for schemas, fixtures, wrapper examples, planner commands, local planner image behavior, and public workflow contract assertions. | Lets `build-workflow` verify the supported contract without pretending that provider CI can fully stand in for a caller repository. |
+| `.github/workflows/publish-tool-image.yml` | Publishes immutable planner image refs and updates the mutable `:ci` alias on `main`. | Makes the planner image independently pinnable from the reusable workflow SHA. |
+| `test-fixtures/ci/` | Runnable fixture repos for a service image, a base image, a sync wrapper, and release-record samples. | Exercises the supported contract end to end in maintainers' tests and local smoke checks. |
 
 ## Recommended Caller Shape
 
@@ -143,92 +58,35 @@ main branch:
   release.json
 ```
 
-## Workflow Behavior
+Supported callers should:
 
-Validate:
+- keep wrappers thin
+- pin reusable workflows to merged full `build-workflow` commit SHAs
+- pin `tool-image` explicitly
+- keep sync-wrapper `tool-image` digest-pinned
+- treat `ghcr.io/runlix/build-workflow-tools:ci` as maintainer-only, not caller input
 
-1. validates `.ci/config.json`
-2. renders the build matrix
-3. builds each enabled target locally
-4. runs the target test if configured
-5. emits the aggregate check `validate / summary`
+## Design Summary
 
-Release:
+The active design is a planner/executor split:
 
-1. validates `.ci/config.json`
-2. renders the build matrix
-3. builds and tests each enabled target
-4. pushes one temporary single-arch tag per target
-5. creates final manifest tags
-6. uploads `release-record.json` as artifact `release-record`
-7. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+- planner/tool layer: `build-workflow-ci` in `tools/ci/`
+- executor layer: the reusable workflows in `.github/workflows/`
 
-Sync:
+The planner image owns config loading, defaults merging, matrix planning, per-target build planning, manifest planning, release-record rendering and validation, `release.json` writing, and Telegram message rendering.
+The workflow layer owns permissions, runner selection, checkout, artifact flow, Docker side effects, and sync PR automation.
 
-1. runs from `main` after a successful `Release` workflow on `release`
-2. verifies the triggering workflow provenance
-3. downloads `release-record.json` from the triggering run
-4. writes `release.json`
-5. creates or updates a bot-authored pull request into `main` when the metadata changed
-6. enables merge-commit auto-merge on that pull request with the caller-mapped GitHub App credentials
+This is why provider CI validates the planner and wrapper contracts directly instead of treating provider-side self-calls as proof of caller-context release behavior.
 
-Caller sync wrappers should add job-level concurrency with `cancel-in-progress: false` so closely spaced releases queue instead of racing on `main`.
+## Pinning Summary
 
-Validate Sync Wrapper:
+Supported caller `tool-image` inputs are:
 
-1. runs from a caller-managed `pull_request` workflow on `main`
-2. verifies that the sync wrapper stays on `workflow_run` for `Release` on `release`
-3. enforces the thin-wrapper contract for permissions, concurrency, pinned `uses:`, pinned `tool-image`, and explicit GitHub App secret mapping
-4. stays read-only and secret-free
+- `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`
+- `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>`
 
-Validate Release JSON:
+The sync wrapper is intentionally stricter than the release-branch wrappers:
 
-1. runs from a caller-managed `pull_request` workflow on `main`
-2. validates `release.json` with the pinned planner image
-3. stays read-only and secret-free
+- `validate-sync-wrapper.yml` requires the caller sync wrapper to stay digest-pinned
 
-## Why These Paths Exist
-
-- validate is read-only so branch checks can build and test safely without publishing
-- release keeps Docker side effects on the runner while moving config interpretation into the planner image
-- sync standardizes provenance checks and metadata generation instead of rebuilding release state from Git or GHCR
-- main validation exists so metadata automation changes can be gated before merge
-
-## Local Validation
-
-The planner image is also the local validation entrypoint:
-
-```bash
-docker run --rm \
-  -v "$PWD:/workspace" \
-  -w /workspace \
-  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  validate-config .ci/config.json
-```
-
-Additional examples:
-
-```bash
-docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  plan-matrix .ci/config.json --short-sha 1234567
-
-docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  validate-release-record release-record.json
-
-docker run --rm -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  validate-config-payload examples/ci/service-config.json
-```
-
-## Design Rules
-
-- reusable workflows are the public interface
-- `tools/ci/` is the only supported implementation path for the `CI` contract
-- no internal composite-action layer in the supported interface
-- no legacy `docker-matrix` compatibility in the supported interface
-- metadata sync is standardized on `Release`, `release`, `main`, and `release-record`
-- callers should pin both the workflow SHA and the planner image reference explicitly
-- release notifications are optional and should map only the Telegram secrets needed by the release wrapper
-- `publish: false` on the release workflow is for contract testing and maintainer dry runs
+Detailed behavior, exact wrapper rules, planner command outputs, and failure modes live in the focused guides above.

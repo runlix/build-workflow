@@ -9,7 +9,7 @@ If you are starting fresh, use `CI`.
 
 ## Quick Start
 
-Recommended repository shape:
+Recommended caller layout:
 
 ```text
 release branch:
@@ -32,11 +32,11 @@ Starter files:
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
 Pass the planner image explicitly with `tool-image`, pinned by digest in public examples.
-Release-branch maintainers may also use `:sha-<build-workflow git sha>` for branch validation when that immutable tag was published intentionally, but the supported sync wrapper should stay digest-pinned.
+Release-branch maintainers may also use `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>` for branch validation when that immutable tag was published intentionally, but the supported sync wrapper should stay digest-pinned because `validate-sync-wrapper.yml` enforces that contract.
 The mutable `ghcr.io/runlix/build-workflow-tools:ci` tag is only a convenience alias for the latest published `main` tool image and is not a supported caller input.
 Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` when you want to run it manually before opening a PR.
 If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
-For sync write-back on protected `main`, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the sync wrapper.
+For sync write-back on protected `main`, map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the sync wrapper.
 Add a caller-managed `validate-main.yml` wrapper on `main` and make its `validate-main-summary` job the required status check for metadata changes.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
@@ -91,7 +91,7 @@ This avoids the caller-context problems that come from trying to load implementa
 
 The caller contract is one explicit file: `.ci/config.json`.
 
-Top level keys:
+Top-level keys:
 
 - `image`
 - optional `version`
@@ -113,6 +113,7 @@ Each enabled target declares:
 - optional `build_args`
 - optional `test`
 
+Paths in `.ci/config.json` are interpreted from the caller repository root after checkout, not relative to the config file itself.
 Dockerfiles should consume full immutable refs directly via build args such as `BASE_REF` or `BUILDER_REF`.
 
 ## CI Behavior
@@ -132,14 +133,17 @@ Release:
 3. builds and tests each enabled target
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
-6. uploads `release-record.json` as artifact `release-record`
-7. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+6. renders and validates `release-record.json`
+7. uploads `release-record.json` as artifact `release-record`
+8. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+
+`publish: false` keeps validation, planning, build, test, and `release-record.json` rendering, but skips push, manifest creation, artifact upload, and Telegram.
 
 Sync:
 
 1. runs from `main` after a successful `Release` workflow on `release`
 2. verifies the triggering workflow provenance
-3. downloads `release-record.json` from the triggering run
+3. downloads `release-record` from the triggering run
 4. writes `release.json`
 5. creates or updates a bot-authored pull request into `main` when the metadata changed
 6. enables merge-commit auto-merge on that pull request with the caller-mapped GitHub App credentials
@@ -165,13 +169,13 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  render-release-record .ci/config.json \
-  --source-sha 1234567890abcdef1234567890abcdef12345678 \
-  --published-at 2026-03-18T00:00:00Z
+  plan-build-target .ci/config.json --target-name stable-amd64 --mode pr --short-sha 1234567
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  validate-config-payload examples/ci/service-config.json
+  render-release-record .ci/config.json \
+  --source-sha 1234567890abcdef1234567890abcdef12345678 \
+  --published-at 2026-03-18T00:00:00Z
 ```
 
 ## Legacy `v1`
