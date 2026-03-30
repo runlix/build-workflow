@@ -9,8 +9,6 @@ on:
       - '.github/workflows/test-workflow.yml'
       - '.github/workflows/validate.yml'
       - '.github/workflows/release.yml'
-      - '.github/workflows/sync-release-record.yml'
-      - '.github/workflows/validate-sync-wrapper.yml'
       - '.github/workflows/validate-release-json.yml'
       - '.github/workflows/publish-tool-image.yml'
       - '.github/workflows/test-ci.yml'
@@ -23,7 +21,7 @@ on:
       - 'examples/v1/**'
       - 'examples/wrappers/**'
       - 'schema/ci-config.schema.json'
-      - 'schema/release-record.schema.json'
+      - 'schema/release-json.schema.json'
       - 'test-fixtures/ci/**'
       - 'test-fixtures/v1/**'
   push:
@@ -36,8 +34,6 @@ on:
       - '.github/workflows/test-workflow.yml'
       - '.github/workflows/validate.yml'
       - '.github/workflows/release.yml'
-      - '.github/workflows/sync-release-record.yml'
-      - '.github/workflows/validate-sync-wrapper.yml'
       - '.github/workflows/validate-release-json.yml'
       - '.github/workflows/publish-tool-image.yml'
       - '.github/workflows/test-ci.yml'
@@ -50,7 +46,7 @@ on:
       - 'examples/v1/**'
       - 'examples/wrappers/**'
       - 'schema/ci-config.schema.json'
-      - 'schema/release-record.schema.json'
+      - 'schema/release-json.schema.json'
       - 'test-fixtures/ci/**'
       - 'test-fixtures/v1/**'
   workflow_dispatch:
@@ -62,17 +58,29 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  FIXTURE_TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools@sha256:3d293d2c6bcb04d4501bdf33cab134e40469f173209fffffb4853050fe77ce59
+
 jobs:
   validate-ci-contracts:
     name: validate-ci-contracts
-    runs-on: ubuntu-24.04
     outputs:
-      fixture_tool_image: ${{ steps.sync-wrapper-fixture-meta.outputs.tool_image }}
+      fixture_tool_image: ${{ steps.fixture-tool-image.outputs.value }}
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+
+      - name: Export fixture tool image
+        id: fixture-tool-image
+        shell: bash
+        env:
+          FIXTURE_TOOL_IMAGE: ${{ env.FIXTURE_TOOL_IMAGE }}
+        run: |
+          set -euo pipefail
+          printf 'value=%s\n' "$FIXTURE_TOOL_IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Install test dependencies
         shell: bash
@@ -86,7 +94,7 @@ jobs:
           set -euo pipefail
 
           tools/ci/bin/build-workflow-ci validate-schema-file schema/ci-config.schema.json
-          tools/ci/bin/build-workflow-ci validate-schema-file schema/release-record.schema.json
+          tools/ci/bin/build-workflow-ci validate-schema-file schema/release-json.schema.json
 
       - name: Validate examples and fixtures
         shell: bash
@@ -107,8 +115,7 @@ jobs:
             tools/ci/bin/build-workflow-ci validate-config "$file" > /dev/null
           done
 
-          tools/ci/bin/build-workflow-ci validate-release-record test-fixtures/ci/release-record/release-record.json
-          tools/ci/bin/build-workflow-ci validate-release-record test-fixtures/ci/release-record/release.expected.json
+          tools/ci/bin/build-workflow-ci validate-release-json test-fixtures/ci/release-json/release.json
 
       - name: Run unit tests
         shell: bash
@@ -132,17 +139,14 @@ jobs:
           grep -Fq '[../ci.md](../ci.md)' docs/v1/README.md
           grep -Fq 'docs/ci/' CONTRIBUTING.md
 
-          grep -Fq 'validate.yml' docs/ci/workflow-behavior.md
+          if rg -n 'sync-release-record|validate-sync-wrapper|release-record' README.md docs/ci.md docs/ci/ .github/workflows/test-ci.yml; then
+            echo "Legacy sync or release-record references remain in v2 docs" >&2
+            exit 1
+          fi
+
           grep -Fq 'release.yml' docs/ci/workflow-behavior.md
-          grep -Fq 'sync-release-record.yml' docs/ci/workflow-behavior.md
-          grep -Fq 'validate-sync-wrapper.yml' docs/ci/workflow-behavior.md
           grep -Fq 'validate-release-json.yml' docs/ci/workflow-behavior.md
-          grep -Fq 'release-record' docs/ci/workflow-behavior.md
-          grep -Fq 'validate-main-summary' docs/ci/workflow-behavior.md
-          grep -Fq 'tool-image' docs/ci/api-reference.md
-          grep -Fq '.ci/config.json' docs/ci/api-reference.md
-          grep -Fq 'release-record.json' docs/ci/api-reference.md
-          grep -Fq 'release.json' docs/ci/api-reference.md
+          grep -Fq 'release.json' docs/ci/workflow-behavior.md
           grep -Fq 'planner/executor split' docs/ci/architecture.md
           grep -Fq 'publish: false' docs/ci/usage.md
           grep -Fq 'distroless-runtime' docs/ci/testing-and-maintenance.md
@@ -177,27 +181,26 @@ jobs:
             --short-sha 1234567 \
             > /tmp/manifests.json
           jq -e '.[0].refs | length > 0' /tmp/manifests.json > /dev/null
+          jq -e '.[0].platforms[0] == "linux/amd64"' /tmp/manifests.json > /dev/null
 
           tools/ci/bin/build-workflow-ci \
-            render-release-record test-fixtures/ci/service/.ci/config.json \
+            render-release-json test-fixtures/ci/service/.ci/config.json \
             --source-sha 1234567890abcdef1234567890abcdef12345678 \
             --published-at 2026-03-17T12:00:00Z \
-            > /tmp/release-record.actual.json
+            --manifests-path test-fixtures/ci/release-json/manifests.json \
+            > /tmp/release.json
 
-          tools/ci/bin/build-workflow-ci validate-release-record /tmp/release-record.actual.json
-          tools/ci/bin/build-workflow-ci write-release-json /tmp/release-record.actual.json --output /tmp/release.json
-          tools/ci/bin/build-workflow-ci validate-release-record /tmp/release.json
-
-          diff -u test-fixtures/ci/release-record/release.expected.json /tmp/release.json
+          tools/ci/bin/build-workflow-ci validate-release-json /tmp/release.json
+          diff -u test-fixtures/ci/release-json/release.json /tmp/release.json
 
           tools/ci/bin/build-workflow-ci \
-            render-telegram-notification test-fixtures/ci/release-record/release-record.json \
-            --image-name ghcr.io/runlix/test-service \
+            render-telegram-notification test-fixtures/ci/release-json/release.json \
             --repository runlix/test-service \
             --server-url https://github.com \
             --run-id 123456 \
             > /tmp/telegram-message.txt
           grep -F "*Version:* \`1.2.3\`" /tmp/telegram-message.txt > /dev/null
+          grep -F "*Registry:*" /tmp/telegram-message.txt > /dev/null
 
       - name: Build local tool image
         shell: bash
@@ -225,132 +228,10 @@ jobs:
             -v "$PWD:/workspace" \
             -w /workspace \
             build-workflow-tools:test \
-            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci render-release-record test-fixtures/ci/service/.ci/config.json --source-sha 1234567890abcdef1234567890abcdef12345678 --published-at 2026-03-17T12:00:00Z' \
-            > /tmp/container-release-record.json
+            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci render-release-json test-fixtures/ci/service/.ci/config.json --source-sha 1234567890abcdef1234567890abcdef12345678 --published-at 2026-03-17T12:00:00Z --manifests-path test-fixtures/ci/release-json/manifests.json' \
+            > /tmp/container-release.json
 
-          diff -u test-fixtures/ci/release-record/release-record.json /tmp/container-release-record.json
-
-      - name: Validate sync wrapper fixture contract
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY'
-          import json
-          import re
-          from pathlib import Path
-
-          def validate_sync_wrapper(text: str) -> dict[str, str]:
-              workflow = text.replace("\r\n", "\n")
-
-              def require(pattern: str, message: str) -> re.Match[str]:
-                  match = re.search(pattern, workflow, flags=re.MULTILINE)
-                  if match is None:
-                      raise AssertionError(message)
-                  return match
-
-              assert not re.search(r"(?m)^  workflow_dispatch:", workflow), "sync wrapper must not define workflow_dispatch"
-              assert not re.search(r"(?m)^  pull_request(_target)?:", workflow), "sync wrapper must not define pull_request-style triggers"
-              assert not re.search(r"(?m)^ {4}(runs-on|steps|container|env|permissions):", workflow), "sync wrapper must stay thin"
-              assert "actions/checkout@" not in workflow, "sync wrapper must not inline checkout steps"
-              assert "secrets: inherit" not in workflow, "sync wrapper must map explicit app secrets"
-
-              require(r"(?m)^name: Sync Release Record$", "sync wrapper name drifted")
-              require(
-                  r"^on:\n"
-                  r"  workflow_run:\n"
-                  r"    workflows:\n"
-                  r"      - Release\n"
-                  r"    branches:\n"
-                  r"      - release\n"
-                  r"    types:\n"
-                  r"      - completed\n",
-                  "sync wrapper trigger drifted",
-              )
-              permissions_match = require(
-                  r"^permissions:\n(?P<body>(?:  [^\n]+\n)+)\n(?=jobs:\n)",
-                  "sync wrapper permissions block is missing",
-              )
-              assert permissions_match.group("body") == "  actions: read\n  contents: read\n", "sync wrapper permissions drifted"
-              job_match = require(
-                  r"^jobs:\n"
-                  r"  sync:\n"
-                  r"    concurrency:\n"
-                  r"      group: sync-release-record-\$\{\{ github\.repository \}\}\n"
-                  r"      cancel-in-progress: false\n"
-                  r"    uses: runlix/build-workflow/\.github/workflows/sync-release-record\.yml@(?P<workflow_sha>[0-9a-f]{40})\n"
-                  r"    with:\n"
-                  r"      tool-image: (?P<tool_image>ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64})\n"
-                  r"    secrets:\n"
-                  r"      RUNLIX_APP_ID: \$\{\{ secrets\.RUNLIX_APP_ID \}\}\n"
-                  r"      RUNLIX_PRIVATE_KEY: \$\{\{ secrets\.RUNLIX_PRIVATE_KEY \}\}\n?\Z",
-                  "sync wrapper job contract drifted",
-              )
-              return {
-                  "workflow_ref": job_match.group("workflow_sha"),
-                  "tool_image": job_match.group("tool_image"),
-              }
-
-          fixture = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text(encoding="utf-8")
-          payload = validate_sync_wrapper(fixture)
-          assert payload["workflow_ref"] == "d93b3a9c7e6fcb970e0f8f4ef5febca6ed16a6fc"
-          assert payload["tool_image"].startswith("ghcr.io/runlix/build-workflow-tools@sha256:")
-
-          invalid_cases = {
-              "unpinned reusable workflow ref": fixture.replace(
-                  "@d93b3a9c7e6fcb970e0f8f4ef5febca6ed16a6fc",
-                  "@main",
-              ),
-              "wrong trigger workflow": fixture.replace("- Release", "- Validate", 1),
-              "widened permissions": fixture.replace(
-                  "permissions:\n  actions: read\n  contents: read\n",
-                  "permissions:\n  actions: read\n  contents: read\n  packages: write\n",
-                  1,
-              ),
-              "mutable tool image": fixture.replace(
-                  payload["tool_image"],
-                  "ghcr.io/runlix/build-workflow-tools:ci",
-                  1,
-              ),
-              "missing secret mapping": re.sub(
-                  r"(?m)^      RUNLIX_PRIVATE_KEY: .*\n",
-                  "",
-                  fixture,
-                  count=1,
-              ),
-              "removed queueing guard": fixture.replace(
-                  "cancel-in-progress: false",
-                  "cancel-in-progress: true",
-                  1,
-              ),
-          }
-
-          for label, candidate in invalid_cases.items():
-              try:
-                  validate_sync_wrapper(candidate)
-              except AssertionError:
-                  continue
-              raise AssertionError(f"{label} unexpectedly passed validation")
-          PY
-
-      - name: Export sync wrapper fixture metadata
-        id: sync-wrapper-fixture-meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import re
-          from pathlib import Path
-
-          fixture = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text(encoding="utf-8")
-          match = re.search(
-              r"tool-image:\s+(?P<tool_image>ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64})",
-              fixture,
-          )
-          if match is None:
-              raise SystemExit("tool-image pin missing from sync wrapper fixture")
-          print(f"tool_image={match.group('tool_image')}")
-          PY
+          diff -u test-fixtures/ci/release-json/release.json /tmp/container-release.json
 
       - name: Verify public workflow contract
         shell: bash
@@ -358,455 +239,85 @@ jobs:
           set -euo pipefail
 
           expected_app_token_action_sha='f8d387b68d61c58ab83c6c016672934102569859'
+          expected_attest_action_sha='977bb373ede98d70efdf65b84cb5f73e068dcc2a'
 
           test -f .github/workflows/validate.yml
           test -f .github/workflows/release.yml
-          test -f .github/workflows/sync-release-record.yml
-          test -f .github/workflows/validate-sync-wrapper.yml
           test -f .github/workflows/validate-release-json.yml
-          test ! -e .github/workflows/pr-validation.yml
-          test ! -e .github/workflows/sync-release-metadata.yml
-          test ! -e schema/release-metadata.schema.json
-          test ! -e schema/releases.schema.json
-          if grep -InE 'ghcr\.io/runlix/build-workflow-tools:ci' \
+          test ! -e .github/workflows/sync-release-record.yml
+          test ! -e .github/workflows/validate-sync-wrapper.yml
+          test ! -e examples/wrappers/sync-release-record.yml
+          test ! -e test-fixtures/ci/sync-wrapper/sync-release-record.yml
+          test ! -e schema/release-record.schema.json
+
+          if grep -InE 'sync-release-record|validate-sync-wrapper|release-record' \
             .github/workflows/validate.yml \
             .github/workflows/release.yml \
-            .github/workflows/sync-release-record.yml
+            .github/workflows/validate-release-json.yml \
+            examples/wrappers/release.yml \
+            examples/wrappers/validate-main.yml
           then
-            echo "Mutable tool-image defaults remain in public workflows" >&2
+            echo "Legacy sync or release-record references remain in the public v2 contract" >&2
             exit 1
           fi
 
-          for workflow_file in \
-            .github/workflows/validate.yml \
-            .github/workflows/release.yml \
-            .github/workflows/sync-release-record.yml \
-            .github/workflows/validate-sync-wrapper.yml \
-            .github/workflows/validate-release-json.yml
-          do
-            if grep -InE 'scripts/ci/|release-metadata|releases\.json|sync-release-metadata|pr-validation' "$workflow_file"; then
-              echo "Legacy v2 references remain in $workflow_file" >&2
-              exit 1
-            fi
-          done
+          grep -Eq "actions/create-github-app-token@${expected_app_token_action_sha}" .github/workflows/release.yml
+          grep -Eq "actions/attest-build-provenance@${expected_attest_action_sha}" .github/workflows/release.yml
+          grep -Eq '^      RUNLIX_APP_ID:$' .github/workflows/release.yml
+          grep -Eq '^      RUNLIX_PRIVATE_KEY:$' .github/workflows/release.yml
+          grep -Eq '^      TELEGRAM_BOT_TOKEN:$' .github/workflows/release.yml
+          grep -Eq '^      TELEGRAM_CHAT_ID:$' .github/workflows/release.yml
+          grep -Eq 'build-workflow-ci render-release-json' .github/workflows/release.yml
+          grep -Eq 'build-workflow-ci validate-release-json' .github/workflows/release.yml
+          grep -Eq '^      attestations: write$' .github/workflows/release.yml
+          grep -Eq '^      id-token: write$' .github/workflows/release.yml
+          grep -Eq 'gh pr merge "\$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "\$COMMIT_SHA"' .github/workflows/release.yml
 
-          grep -Eq 'TRIGGER_WORKFLOW: \$\{\{ github\.event\.workflow_run\.name \}\}' .github/workflows/sync-release-record.yml
-          grep -Eq 'TRIGGER_BRANCH: \$\{\{ github\.event\.workflow_run\.head_branch \}\}' .github/workflows/sync-release-record.yml
-          grep -Eq 'TRIGGER_REPOSITORY: \$\{\{ github\.event\.workflow_run\.repository\.full_name \}\}' .github/workflows/sync-release-record.yml
-          grep -Eq 'HEAD_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}' .github/workflows/sync-release-record.yml
-          grep -Eq 'run-id: \$\{\{ github\.event\.workflow_run\.id \}\}' .github/workflows/sync-release-record.yml
-          grep -Eq 'RUNLIX_APP_ID:' .github/workflows/sync-release-record.yml
-          grep -Eq 'RUNLIX_PRIVATE_KEY:' .github/workflows/sync-release-record.yml
-          grep -Eq "actions/create-github-app-token@${expected_app_token_action_sha}" .github/workflows/sync-release-record.yml
-          grep -Eq 'permission-contents: write' .github/workflows/sync-release-record.yml
-          grep -Eq 'permission-pull-requests: write' .github/workflows/sync-release-record.yml
-          grep -Eq '^on:$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^  workflow_call:$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^      workflow-path:$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^        default: \.github/workflows/sync-release-record\.yml$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^permissions:$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^  contents: read$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^        uses: actions/checkout@' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^          persist-credentials: false$' .github/workflows/validate-sync-wrapper.yml
-          grep -Eq '^on:$' .github/workflows/validate-release-json.yml
-          grep -Eq '^  workflow_call:$' .github/workflows/validate-release-json.yml
-          grep -Eq '^      tool-image:$' .github/workflows/validate-release-json.yml
-          grep -Eq '^      release-json-path:$' .github/workflows/validate-release-json.yml
-          grep -Eq '^        default: release\.json$' .github/workflows/validate-release-json.yml
-          grep -Eq '^permissions:$' .github/workflows/validate-release-json.yml
-          grep -Eq '^  contents: read$' .github/workflows/validate-release-json.yml
-          python3 - <<'PY'
-          from pathlib import Path
+          grep -Eq 'build-workflow-ci validate-release-json "\$RELEASE_JSON_PATH"' .github/workflows/validate-release-json.yml
 
-          workflow = Path(".github/workflows/sync-release-record.yml").read_text()
-          render = workflow.split("  render-release-json:")[1].split("  commit-release-json:")[0]
-          commit = workflow.split("  commit-release-json:")[1]
-
-          assert "container:" in render
-          assert "uses: actions/checkout@" not in render
-          assert "git push origin HEAD:main" not in render
-          assert "name: Upload normalized release.json artifact" in render
-
-          assert "container:" not in commit
-          assert "actions/create-github-app-token@" in commit
-          assert "uses: actions/checkout@" in commit
-          assert "permission-contents: write" in commit
-          assert "permission-pull-requests: write" in commit
-          assert "steps.app-token.outputs.token" in commit
-          assert "working-directory:" in commit
-          assert "github.workspace" in commit
-          assert "gh auth setup-git" in commit
-          assert 'git push --force-with-lease origin "HEAD:${SYNC_BRANCH}"' in commit
-          assert 'gh pr create --base main --head "$SYNC_BRANCH"' in commit
-          assert 'gh pr merge "$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "$COMMIT_SHA"' in commit
-
-          validate_sync_wrapper = Path(".github/workflows/validate-sync-wrapper.yml").read_text()
-          assert "  tool-image:" not in validate_sync_wrapper.split("jobs:", 1)[0]
-          assert "container:" not in validate_sync_wrapper
-          assert "docker/login-action@" not in validate_sync_wrapper
-          assert "pull_request_target" not in validate_sync_wrapper
-          assert "secrets:" not in validate_sync_wrapper.split("jobs:", 1)[0]
-          assert "sync-release-record.yml@" not in validate_sync_wrapper
-          assert "python3 - <<'PY' > /tmp/validated-sync-wrapper.json" in validate_sync_wrapper
-
-          validate_release_json = Path(".github/workflows/validate-release-json.yml").read_text()
-          assert "container:" in validate_release_json
-          assert "pull_request_target" not in validate_release_json
-          assert "secrets:" not in validate_release_json.split("jobs:", 1)[0]
-          assert "build-workflow-ci validate-release-record" in validate_release_json
-          PY
-
-          grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate.yml
-          grep -Eq 'uses: runlix/build-workflow/.github/workflows/release.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/release.yml
-          grep -Eq 'uses: runlix/build-workflow/.github/workflows/sync-release-record.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/sync-release-record.yml
-          grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate-sync-wrapper.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-main.yml
-          grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate-release-json.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-main.yml
-          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/validate.yml
-          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/release.yml
-          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/sync-release-record.yml
-          grep -Eq 'tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST' examples/wrappers/validate-main.yml
-          grep -Eq 'TELEGRAM_BOT_TOKEN:' examples/wrappers/release.yml
-          grep -Eq 'TELEGRAM_CHAT_ID:' examples/wrappers/release.yml
-          grep -Eq 'RUNLIX_APP_ID:' examples/wrappers/sync-release-record.yml
-          grep -Eq 'RUNLIX_PRIVATE_KEY:' examples/wrappers/sync-release-record.yml
-          grep -Eq 'group: sync-release-record-\$\{\{ github\.repository \}\}' examples/wrappers/sync-release-record.yml
-          grep -Eq 'cancel-in-progress: false' examples/wrappers/sync-release-record.yml
+          grep -Eq '^  attestations: write$' examples/wrappers/release.yml
+          grep -Eq '^  id-token: write$' examples/wrappers/release.yml
+          grep -Eq '^      RUNLIX_APP_ID: ' examples/wrappers/release.yml
+          grep -Eq '^      RUNLIX_PRIVATE_KEY: ' examples/wrappers/release.yml
           grep -Eq '^name: Validate Main$' examples/wrappers/validate-main.yml
-          grep -Eq '^  pull_request:$' examples/wrappers/validate-main.yml
-          grep -Eq '^[[:space:]]+- main$' examples/wrappers/validate-main.yml
-          grep -Eq '^  workflow_dispatch:$' examples/wrappers/validate-main.yml
-          grep -Eq 'workflow-path: \.github/workflows/sync-release-record\.yml' examples/wrappers/validate-main.yml
-          grep -Eq 'release-json-path: release\.json' examples/wrappers/validate-main.yml
-          grep -Eq '^    name: validate-main-summary$' examples/wrappers/validate-main.yml
-          test ! -e examples/wrappers/validate-main-sync-wrapper.yml
+          grep -Eq '^    paths:$' examples/wrappers/validate-main.yml
+          grep -Eq '^      - "release\.json"$' examples/wrappers/validate-main.yml
+          grep -Eq 'uses: runlix/build-workflow/.github/workflows/validate-release-json.yml@YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-main.yml
 
-          test -f test-fixtures/ci/sync-wrapper/sync-release-record.yml
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          workflow = Path(".github/workflows/test-ci.yml").read_text()
-          assert "\non:\n" in workflow, "test-ci missing top-level on block"
-          assert "\nconcurrency:\n" in workflow, "test-ci missing workflow concurrency block"
-
-          on_section = workflow.split("\non:\n", 1)[1].split("\nconcurrency:\n", 1)[0]
-          normalized_on_section = "\n" + on_section
-          push_section = on_section.split("\n  push:\n", 1)[1].split("\n    paths:\n", 1)[0]
-          gha_open = "$" + "{{"
-
-          assert "\n  pull_request:\n" in normalized_on_section, "test-ci missing pull_request trigger"
-          assert "\n  push:\n" in normalized_on_section, "test-ci missing push trigger"
-          assert "\n  workflow_dispatch:\n" in normalized_on_section, "test-ci missing workflow_dispatch trigger"
-          assert "      - main" in push_section, "test-ci push trigger no longer includes main"
-          assert "side/**" not in push_section, "test-ci still auto-runs on side branch pushes"
-          assert "refactor/**" not in push_section, "test-ci still auto-runs on refactor branch pushes"
-          assert "validate-sync-wrapper-fixture:" in workflow, "test-ci missing sync-wrapper fixture self-call"
-          assert "validate-release-json-fixture:" in workflow, "test-ci missing release-json fixture self-call"
-          assert "uses: ./.github/workflows/validate-sync-wrapper.yml" in workflow, "test-ci no longer self-calls validate-sync-wrapper"
-          assert "uses: ./.github/workflows/validate-release-json.yml" in workflow, "test-ci no longer self-calls validate-release-json"
-          assert "workflow-path: test-fixtures/ci/sync-wrapper/sync-release-record.yml" in workflow, "test-ci missing sync-wrapper fixture path"
-          assert "release-json-path: test-fixtures/ci/release-record/release.expected.json" in workflow, "test-ci missing release-json fixture path"
-
-          assert (
-              "group: test-ci-"
-              + gha_open
-              + " github.repository }}-"
-              + gha_open
-              + " github.event.pull_request.number || github.ref }}"
-              in workflow
-          ), "test-ci concurrency group drifted"
-          assert "cancel-in-progress: true" in workflow, "test-ci concurrency should cancel superseded runs"
-          PY
-
+          grep -Eq '^  FIXTURE_TOOL_IMAGE: ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64}$' .github/workflows/test-ci.yml
+          grep -Eq "schema/release-json\\.schema\\.json" .github/workflows/publish-tool-image.yml
           grep -Eq '^[[:space:]]+- main$' .github/workflows/publish-tool-image.yml
           if grep -Eq '^[[:space:]]+- side/\*\*$|^[[:space:]]+- refactor/\*\*$' .github/workflows/publish-tool-image.yml; then
             echo "Standalone tool-image publish still auto-runs on side or refactor branches" >&2
             exit 1
           fi
-          python3 - <<'PY'
-          from pathlib import Path
 
-          workflow = Path(".github/workflows/publish-tool-image.yml").read_text()
-          publish_immutable = workflow.split("  publish-immutable:")[1].split("  update-ci-alias:")[0]
-          update_ci_alias = workflow.split("  update-ci-alias:")[1]
-          gha_open = "$" + "{{"
-
-          assert "name: publish-immutable" in publish_immutable, "publish-tool-image missing publish-immutable job"
-          assert "name: Build and push immutable tool image" in publish_immutable, "publish-tool-image missing immutable build step"
-          assert "docker/build-push-action@" not in publish_immutable, "publish-tool-image must use raw docker buildx commands"
-          assert "docker buildx build \\" in publish_immutable, "publish-tool-image missing docker buildx build command"
-          assert "--metadata-file /tmp/build-metadata.json" in publish_immutable, "publish-tool-image must capture build metadata via metadata file"
-          assert "jq -re '.\"containerimage.digest\"' /tmp/build-metadata.json" in publish_immutable, "publish-tool-image must extract digest from build metadata"
-          assert (
-              "ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA}"
-              in publish_immutable
-          ), "publish-tool-image no longer pushes the immutable sha tag"
-          assert "ghcr.io/runlix/build-workflow-tools:ci" not in publish_immutable, "publish-tool-image still pushes :ci from the immutable job"
-
-          assert "name: update-ci-alias" in update_ci_alias, "publish-tool-image missing update-ci-alias job"
-          assert (
-              "if: "
-              + gha_open
-              + " github.ref == 'refs/heads/main' }}"
-              in update_ci_alias
-          ), "publish-tool-image alias job should still be gated to main"
-          assert (
-              "group: publish-tool-image-ci-"
-              + gha_open
-              + " github.repository }}"
-              in update_ci_alias
-          ), "publish-tool-image alias job concurrency group drifted"
-          assert "cancel-in-progress: true" in update_ci_alias, "publish-tool-image alias job should cancel superseded runs"
-          assert "docker buildx imagetools create \\" in update_ci_alias, "publish-tool-image alias job no longer retags via imagetools"
-          assert (
-              "needs.publish-immutable.outputs.digest" in update_ci_alias
-          ), "publish-tool-image alias job no longer consumes the immutable digest"
-          PY
-
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-
-          workflow = Path(".github/workflows/test-ci.yml").read_text()
-          build_match = re.search(
-              r"^  build-tool-image-artifact:\n(?P<body>.*?)(?=^  verify-tool-image-artifact:\n)",
-              workflow,
-              flags=re.MULTILINE | re.DOTALL,
-          )
-          verify_match = re.search(
-              r"^  verify-tool-image-artifact:\n(?P<body>.*?)(?=^  test-release-record-artifact:\n)",
-              workflow,
-              flags=re.MULTILINE | re.DOTALL,
-          )
-          summary_match = re.search(
-              r"^  test-summary:\n(?P<body>.*)$",
-              workflow,
-              flags=re.MULTILINE | re.DOTALL,
-          )
-
-          assert build_match is not None
-          assert verify_match is not None
-          assert summary_match is not None
-
-          build_job = build_match.group("body")
-          verify_job = verify_match.group("body")
-          summary_job = summary_match.group("body")
-
-          assert "packages: write" not in build_job
-          assert "packages: write" not in verify_job
-          assert "docker/login-action@" not in build_job
-          assert "docker/login-action@" not in verify_job
-          assert "ghcr.io/runlix/build-workflow-tools:ci" not in build_job
-          assert "ghcr.io/runlix/build-workflow-tools:ci" not in verify_job
-          assert "ghcr.io/runlix/build-workflow-tools:sha-" not in build_job
-          assert "ghcr.io/runlix/build-workflow-tools:sha-" not in verify_job
-          assert "ci-test-" not in build_job
-          assert "ci-test-" not in verify_job
-          assert "push: true" not in build_job
-          assert "name: build-tool-image-artifact" in workflow
-          assert "name: verify-tool-image-artifact" in workflow
-          assert "name: Build multi-platform tool image" in build_job
-          assert "docker/build-push-action@" not in build_job
-          assert build_job.count("docker buildx build \\") == 2
-          assert "--output type=cacheonly" in build_job
-          assert "name: Export amd64 tool image tarball" in build_job
-          assert "--output type=docker,dest=" in build_job
-          assert "name: Upload tool image artifact" in build_job
-          assert "name: Download tool image artifact" in verify_job
-          assert "docker load -i" in verify_job
-          assert "actions/upload-artifact@" in build_job
-          assert "actions/download-artifact@" in verify_job
-          assert "build-workflow-tools-test-amd64.tar" in build_job
-          assert "build-workflow-tools:test-amd64" in build_job
-          assert "Tool image artifact build" in summary_job
-          assert "Tool image artifact verification" in summary_job
-          PY
-
-      - name: Verify Renovate coverage contract
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY'
-          import json
-          import re
-          from pathlib import Path
-
-          renovate = json.loads(Path("renovate.json").read_text())
-          descriptions = {manager["description"]: manager for manager in renovate["customManagers"]}
-
-          expected_descriptions = {
-              "Update distroless upstream image references",
-              "Update base image references in service matrices",
-              "Update distroless runtime base refs",
-              "Update build-workflow tool image digest in sync wrapper fixture",
-              "Update pinned ajv tooling versions in workflows",
-              "Update pinned Debian package versions in CI tool image",
-          }
-          assert expected_descriptions.issubset(descriptions), descriptions.keys()
-
-          for manager in renovate["customManagers"]:
-              if manager.get("customType") != "regex":
-                  continue
-
-              match_strings = manager.get("matchStrings", [])
-              has_current_value = (
-                  "currentValueTemplate" in manager
-                  or any("(?<currentValue>" in match for match in match_strings)
-              )
-              has_dep_name = (
-                  "depNameTemplate" in manager
-                  or "packageNameTemplate" in manager
-                  or any("(?<depName>" in match or "(?<packageName>" in match for match in match_strings)
-              )
-              has_datasource = (
-                  "datasourceTemplate" in manager
-                  or any("(?<datasource>" in match for match in match_strings)
-              )
-
-              assert has_current_value, manager["description"]
-              assert has_dep_name, manager["description"]
-              assert has_datasource, manager["description"]
-
-          distroless_upstream = descriptions["Update distroless upstream image references"]
-          assert distroless_upstream["depNameTemplate"] == "gcr.io/distroless/base-debian12"
-          assert distroless_upstream["datasourceTemplate"] == "docker"
-          assert distroless_upstream["versioningTemplate"] == "docker"
-          assert "/^examples\\/v1\\/base-image-matrix\\.json$/" in distroless_upstream["managerFilePatterns"]
-          assert "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/" in distroless_upstream["managerFilePatterns"]
-          assert "/^examples\\/ci\\/base-image-config\\.json$/" in distroless_upstream["managerFilePatterns"]
-          assert "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/" in distroless_upstream["managerFilePatterns"]
-          assert "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/" in distroless_upstream["managerFilePatterns"]
-          assert "/^\\.github\\/workflows\\/test-workflow\\.yml$/" not in distroless_upstream["managerFilePatterns"]
-          assert len(distroless_upstream["matchStrings"]) == 2
-          assert any("UPSTREAM_TAG" in match for match in distroless_upstream["matchStrings"])
-          assert any('"BASE_REF"' in match for match in distroless_upstream["matchStrings"])
-          distroless_test_workflow_managers = [
-              manager["description"]
-              for manager in renovate["customManagers"]
-              if "/^\\.github\\/workflows\\/test-workflow\\.yml$/" in manager.get("managerFilePatterns", [])
-              and (
-                  manager.get("depNameTemplate") == "gcr.io/distroless/base-debian12"
-                  or any("gcr\\.io/distroless/base-debian12" in match for match in manager.get("matchStrings", []))
-              )
-          ]
-          assert distroless_test_workflow_managers == []
-
-          distroless_package_rules = [
-              rule
-              for rule in renovate["packageRules"]
-              if rule.get("groupName") == "Distroless Upstream Docker Images"
-          ]
-          assert len(distroless_package_rules) == 1
-          distroless_package_rule = distroless_package_rules[0]
-          assert set(distroless_package_rule["matchManagers"]) == {"custom.regex", "dockerfile"}
-          assert distroless_package_rule["matchPackageNames"] == ["gcr.io/distroless/base-debian12"]
-          assert distroless_package_rule["matchDatasources"] == ["docker"]
-
-          distroless_runtime = descriptions["Update distroless runtime base refs"]
-          assert distroless_runtime["depNameTemplate"] == "ghcr.io/runlix/distroless-runtime"
-          assert distroless_runtime["datasourceTemplate"] == "docker"
-          assert distroless_runtime["versioningTemplate"] == "docker"
-          assert distroless_runtime["managerFilePatterns"] == ["/^examples\\/ci\\/service-config\\.json$/"]
-          assert len(distroless_runtime["matchStrings"]) == 1
-          assert "ghcr\\.io/runlix/distroless-runtime" in distroless_runtime["matchStrings"][0]
-          assert "/^\\.github\\/workflows\\/test-workflow\\.yml$/" not in distroless_runtime["managerFilePatterns"]
-
-          v1_service_refs = descriptions["Update base image references in service matrices"]
-          assert "/^examples\\/v1\\/service-matrix\\.json$/" in v1_service_refs["managerFilePatterns"]
-          assert "/^test-fixtures\\/v1\\/service\\/docker-matrix\\.json$/" in v1_service_refs["managerFilePatterns"]
-          assert v1_service_refs["datasourceTemplate"] == "docker"
-
-          tool_image = descriptions["Update build-workflow tool image digest in sync wrapper fixture"]
-          assert tool_image["currentValueTemplate"] == "ci"
-          assert tool_image["datasourceTemplate"] == "docker"
-
-          ajv = descriptions["Update pinned ajv tooling versions in workflows"]
-          assert len(ajv["matchStrings"]) == 1
-          assert "(?<datasource>" in ajv["matchStrings"][0]
-          assert "(?<depName>" in ajv["matchStrings"][0]
-          assert "AJV_[A-Z_]+_VERSION" in ajv["matchStrings"][0]
-
-          deb = descriptions["Update pinned Debian package versions in CI tool image"]
-          assert deb["datasourceTemplate"] == "deb"
-          assert "suite={{suite}}" in deb["registryUrlTemplate"]
-
-          workflow = Path(".github/workflows/build-images-rebuild.yml").read_text()
-          test_workflow = Path(".github/workflows/test-workflow.yml").read_text()
-          for text in (workflow, test_workflow):
-              assert "AJV_CLI_VERSION:" in text
-              assert "AJV_FORMATS_VERSION:" in text
-              assert "# renovate: datasource=npm depName=ajv-cli" in text
-              assert "# renovate: datasource=npm depName=ajv-formats" in text
-              assert "ajv-cli@${{ env.AJV_CLI_VERSION }}" in text
-              assert "ajv-formats@${{ env.AJV_FORMATS_VERSION }}" in text
-              assert not re.search(r"(?m)^\\s*run:\\s+npm install -g ajv-cli ajv-formats\\s*$", text)
-
-          assert "test-fixtures/v1/base-image/docker-matrix.json" in test_workflow
-          assert "steps.distroless_base_refs.outputs.latest_image" in test_workflow
-          assert "steps.distroless_base_refs.outputs.debug_image" in test_workflow
-          assert "--build-arg UPSTREAM_IMAGE=gcr.io/distroless/base-debian12" not in test_workflow
-          assert "--build-arg BASE_IMAGE=gcr.io/distroless/base-debian12" not in test_workflow
-
-          dockerfile = Path("tools/ci/Dockerfile").read_text()
-          # Renovate owns the Python tag; CI only enforces the approved base-image shape.
-          assert re.match(r"^FROM python:3\.\d+-slim-trixie\n", dockerfile), dockerfile.splitlines()[0]
-          for package in ("bash", "ca-certificates", "git", "jq"):
-              assert f"# renovate: datasource=deb depName={package} suite=trixie" in dockerfile
-          assert "ARG BASH_VERSION=" in dockerfile
-          assert "ARG CA_CERTIFICATES_VERSION=" in dockerfile
-          assert "ARG GIT_VERSION=" in dockerfile
-          assert "ARG JQ_VERSION=" in dockerfile
-          assert 'bash="${BASH_VERSION}"' in dockerfile
-          assert 'ca-certificates="${CA_CERTIFICATES_VERSION}"' in dockerfile
-          assert 'git="${GIT_VERSION}"' in dockerfile
-          assert 'jq="${JQ_VERSION}"' in dockerfile
-
-          sync_wrapper = Path("test-fixtures/ci/sync-wrapper/sync-release-record.yml").read_text()
-          concrete_tool_image_refs = re.findall(
-              r"ghcr\.io/runlix/build-workflow-tools@sha256:[0-9a-f]{64}",
-              sync_wrapper + "\n" + Path(".github/workflows/test-ci.yml").read_text(),
-          )
-          assert len(concrete_tool_image_refs) == 1, concrete_tool_image_refs
-
-          example_service = Path("examples/ci/service-config.json").read_text()
-          assert "aaaaaaaa" not in example_service
-          assert "bbbbbbbb" not in example_service
-          assert "ghcr.io/runlix/distroless-runtime:stable@sha256:" in example_service
-          assert "ghcr.io/runlix/distroless-runtime:debug@sha256:" in example_service
-
-          for path in (
-              Path("examples/v1/base-image-matrix.json"),
-              Path("test-fixtures/v1/base-image/docker-matrix.json"),
-          ):
-              payload = path.read_text()
-              assert "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" not in payload
-              assert "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321" not in payload
-              assert '"UPSTREAM_IMAGE": "gcr.io/distroless/base-debian12"' in payload
-              assert '"UPSTREAM_TAG": "latest"' in payload
-              assert '"UPSTREAM_TAG": "debug"' in payload
-
-          for path in (
-              Path("examples/v1/service-matrix.json"),
-              Path("test-fixtures/v1/service/docker-matrix.json"),
-          ):
-              payload = json.loads(path.read_text())
-              base_image = payload["base_image"]
-              assert base_image["image"] == "ghcr.io/runlix/distroless-runtime"
-              assert base_image["tag"] == "stable"
-              assert re.fullmatch(r"sha256:[0-9a-f]{64}", base_image["digest"])
-
-              raw_payload = json.dumps(payload)
-              assert not re.search(r'"image":\s*"ghcr\.io/runlix/distroless(?::|@|")', raw_payload)
-              assert "abc1234" not in raw_payload
-              assert "test-abc1234" not in raw_payload
-          PY
-  validate-sync-wrapper-fixture:
-    name: validate-sync-wrapper-fixture
+  test-ci-base-image:
+    name: test-ci-base-image
     needs: validate-ci-contracts
-    uses: ./.github/workflows/validate-sync-wrapper.yml
+    uses: ./.github/workflows/validate.yml
     with:
-      workflow-path: test-fixtures/ci/sync-wrapper/sync-release-record.yml
+      config-path: test-fixtures/ci/base-image/.ci/config.json
+      tool-image: ${{ needs.validate-ci-contracts.outputs.fixture_tool_image }}
+
+  test-ci-service:
+    name: test-ci-service
+    needs: validate-ci-contracts
+    uses: ./.github/workflows/validate.yml
+    with:
+      config-path: test-fixtures/ci/service/.ci/config.json
+      tool-image: ${{ needs.validate-ci-contracts.outputs.fixture_tool_image }}
+
+  test-ci-release-dry-run:
+    name: test-ci-release-dry-run
+    needs: validate-ci-contracts
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release.yml
+    with:
+      config-path: test-fixtures/ci/service/.ci/config.json
+      publish: false
+      tool-image: ${{ needs.validate-ci-contracts.outputs.fixture_tool_image }}
 
   validate-release-json-fixture:
     name: validate-release-json-fixture
@@ -814,166 +325,16 @@ jobs:
     uses: ./.github/workflows/validate-release-json.yml
     with:
       tool-image: ${{ needs.validate-ci-contracts.outputs.fixture_tool_image }}
-      release-json-path: test-fixtures/ci/release-record/release.expected.json
-
-  build-tool-image-artifact:
-    name: build-tool-image-artifact
-    needs: validate-ci-contracts
-    runs-on: ubuntu-24.04
-    outputs:
-      tool_image: ${{ steps.meta.outputs.image_tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Set local image refs
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf 'artifact_name=%s\n' "tool-image-amd64" >> "$GITHUB_OUTPUT"
-          printf 'artifact_path=%s\n' "${RUNNER_TEMP}/build-workflow-tools-test-amd64.tar" >> "$GITHUB_OUTPUT"
-          printf 'image_tag=%s\n' "build-workflow-tools:test-amd64" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
-
-      - name: Build multi-platform tool image
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -f tools/ci/Dockerfile \
-            --output type=cacheonly \
-            .
-
-      - name: Export amd64 tool image tarball
-        shell: bash
-        env:
-          ARTIFACT_PATH: ${{ steps.meta.outputs.artifact_path }}
-          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-
-          docker buildx build \
-            --platform linux/amd64 \
-            -f tools/ci/Dockerfile \
-            --output type=docker,dest="${ARTIFACT_PATH}" \
-            -t "${IMAGE_TAG}" \
-            .
-
-      - name: Upload tool image artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: ${{ steps.meta.outputs.artifact_name }}
-          path: ${{ steps.meta.outputs.artifact_path }}
-          retention-days: 1
-
-  verify-tool-image-artifact:
-    name: verify-tool-image-artifact
-    needs:
-      - validate-ci-contracts
-      - build-tool-image-artifact
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Download tool image artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: tool-image-amd64
-          path: ${{ runner.temp }}/tool-image-artifact
-
-      - name: Load tool image artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker load -i "${{ runner.temp }}/tool-image-artifact/build-workflow-tools-test-amd64.tar"
-
-      - name: Validate service fixture with artifact tool image
-        shell: bash
-        env:
-          TOOL_IMAGE: ${{ needs.build-tool-image-artifact.outputs.tool_image }}
-        run: |
-          set -euo pipefail
-
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            "$TOOL_IMAGE" \
-            validate-config test-fixtures/ci/service/.ci/config.json \
-            > /tmp/published-validate.json
-
-          jq -e '.image_name == "ghcr.io/runlix/test-service"' /tmp/published-validate.json > /dev/null
-          jq -e '.enabled_count == 2' /tmp/published-validate.json > /dev/null
-
-      - name: Render release record with artifact tool image
-        shell: bash
-        env:
-          TOOL_IMAGE: ${{ needs.build-tool-image-artifact.outputs.tool_image }}
-        run: |
-          set -euo pipefail
-
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            "$TOOL_IMAGE" \
-            render-release-record test-fixtures/ci/service/.ci/config.json \
-            --source-sha 1234567890abcdef1234567890abcdef12345678 \
-            --published-at 2026-03-17T12:00:00Z \
-            > /tmp/published-release-record.json
-
-          diff -u test-fixtures/ci/release-record/release-record.json /tmp/published-release-record.json
-
-  test-release-record-artifact:
-    name: test-release-record-artifact
-    needs: validate-ci-contracts
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Upload synthetic release record artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: release-record
-          path: test-fixtures/ci/release-record/release-record.json
-          retention-days: 1
-
-      - name: Download synthetic release record artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-record
-          path: downloaded-artifact
-
-      - name: Validate synthetic artifact contract
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          tools/ci/bin/build-workflow-ci validate-release-record downloaded-artifact/release-record.json
-          tools/ci/bin/build-workflow-ci write-release-json downloaded-artifact/release-record.json --output /tmp/release.json
-
-          diff -u test-fixtures/ci/release-record/release.expected.json /tmp/release.json
+      release-json-path: test-fixtures/ci/release-json/release.json
 
   test-summary:
     name: test-summary
     needs:
       - validate-ci-contracts
-      - validate-sync-wrapper-fixture
+      - test-ci-base-image
+      - test-ci-service
+      - test-ci-release-dry-run
       - validate-release-json-fixture
-      - build-tool-image-artifact
-      - verify-tool-image-artifact
-      - test-release-record-artifact
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
@@ -981,11 +342,10 @@ jobs:
         shell: bash
         env:
           VALIDATE_RESULT: ${{ needs.validate-ci-contracts.result }}
-          SYNC_WRAPPER_RESULT: ${{ needs.validate-sync-wrapper-fixture.result }}
+          BASE_IMAGE_RESULT: ${{ needs.test-ci-base-image.result }}
+          SERVICE_RESULT: ${{ needs.test-ci-service.result }}
+          RELEASE_DRY_RUN_RESULT: ${{ needs.test-ci-release-dry-run.result }}
           RELEASE_JSON_RESULT: ${{ needs.validate-release-json-fixture.result }}
-          IMAGE_RESULT: ${{ needs.build-tool-image-artifact.result }}
-          PUBLISHED_IMAGE_RESULT: ${{ needs.verify-tool-image-artifact.result }}
-          RECORD_RESULT: ${{ needs.test-release-record-artifact.result }}
         run: |
           set -euo pipefail
 
@@ -993,21 +353,13 @@ jobs:
             echo "## CI Workflow Test Summary"
             echo ""
             echo "- Contract validation: \`$VALIDATE_RESULT\`"
-            echo "- Sync wrapper reusable validation: \`$SYNC_WRAPPER_RESULT\`"
-            echo "- Release.json reusable validation: \`$RELEASE_JSON_RESULT\`"
-            echo "- Tool image artifact build: \`$IMAGE_RESULT\`"
-            echo "- Tool image artifact verification: \`$PUBLISHED_IMAGE_RESULT\`"
-            echo "- Release record contract: \`$RECORD_RESULT\`"
+            echo "- Base-image fixture validation: \`$BASE_IMAGE_RESULT\`"
+            echo "- Service fixture validation: \`$SERVICE_RESULT\`"
+            echo "- Release dry run: \`$RELEASE_DRY_RUN_RESULT\`"
+            echo "- release.json fixture validation: \`$RELEASE_JSON_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for result in \
-            "$VALIDATE_RESULT" \
-            "$SYNC_WRAPPER_RESULT" \
-            "$RELEASE_JSON_RESULT" \
-            "$IMAGE_RESULT" \
-            "$PUBLISHED_IMAGE_RESULT" \
-            "$RECORD_RESULT"
-          do
+          for result in "$VALIDATE_RESULT" "$BASE_IMAGE_RESULT" "$SERVICE_RESULT" "$RELEASE_DRY_RUN_RESULT" "$RELEASE_JSON_RESULT"; do
             if [ "$result" != "success" ]; then
               echo "CI workflow tests failed" >&2
               exit 1

@@ -13,7 +13,9 @@ on:
   workflow_dispatch:
 
 permissions:
+  attestations: write
   contents: read
+  id-token: write
   packages: write
 
 jobs:
@@ -24,3 +26,5 @@ jobs:
     secrets:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      RUNLIX_APP_ID: ${{ secrets.RUNLIX_APP_ID }}
+      RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}

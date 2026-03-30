@@ -44,7 +44,9 @@ Purpose:
 - build and test targets
 - push temporary single-arch refs
 - create final manifest tags
-- render and upload `release-record.json`
+- render and upload `release.json`
+- attest published manifests
+- optionally open or update the `main` sync PR
 - optionally send Telegram notification
 
 Inputs:
@@ -68,80 +70,27 @@ Secrets:
   - optional
 - `TELEGRAM_CHAT_ID`
   - optional
+- `RUNLIX_APP_ID`
+  - optional
+- `RUNLIX_PRIVATE_KEY`
+  - optional
 
 Expected wrapper permissions:
 
 - `contents: read`
 - `packages: write`
+- `attestations: write`
+- `id-token: write`
 
 Artifacts:
 
-- `release-record`
-  - file: `release-record.json`
+- `release-json`
+  - file: `release.json`
 
 Workflow concurrency:
 
 - `release-${{ github.repository }}`
 - `cancel-in-progress: false`
-
-### `.github/workflows/sync-release-record.yml`
-
-Purpose:
-
-- validate release-run provenance
-- download `release-record`
-- write normalized `release.json`
-- open or update the sync PR into `main`
-- enable merge-commit auto-merge
-
-Inputs:
-
-- `tool-image`
-  - type: `string`
-  - required: yes
-  - effective supported wrapper contract: `ghcr.io/runlix/build-workflow-tools@sha256:<digest>`
-
-Secrets:
-
-- `RUNLIX_APP_ID`
-  - required
-- `RUNLIX_PRIVATE_KEY`
-  - required
-
-Expected wrapper permissions:
-
-- `actions: read`
-- `contents: read`
-
-Important wrapper requirements:
-
-- wrapper trigger must be `workflow_run`
-- workflow name must be `Release`
-- branch must be `release`
-- top-level permissions must stay exactly `actions: read` and `contents: read`
-- wrapper must stay thin and must not inline `runs-on`, `steps`, `container`, `env`, or job-level `permissions`
-- wrapper must not add `workflow_dispatch`, `pull_request`, `pull_request_target`, `actions/checkout`, or `secrets: inherit`
-- wrapper `tool-image` must be digest-pinned
-- wrapper should add job concurrency:
-  - `group: sync-release-record-${{ github.repository }}`
-  - `cancel-in-progress: false`
-
-### `.github/workflows/validate-sync-wrapper.yml`
-
-Purpose:
-
-- read-only static validation of the caller sync wrapper
-
-Inputs:
-
-- `workflow-path`
-  - type: `string`
-  - required: no
-  - default: `.github/workflows/sync-release-record.yml`
-
-Expected wrapper permissions:
-
-- `contents: read`
 
 ### `.github/workflows/validate-release-json.yml`
 
@@ -232,7 +181,7 @@ Path semantics:
 - `defaults.context` is the repo-root-relative Docker build context
 - `dockerfile` is a repo-root-relative path passed to `docker buildx build -f`
 - the effective test path is repo-root-relative and executed directly on the runner
-- `release-json-path` and `workflow-path` are also repo-root-relative after checkout
+- `release-json-path` is repo-root-relative after checkout
 
 ## Matrix and Tag Semantics
 
@@ -262,9 +211,8 @@ The public CI design depends on these `build-workflow-ci` commands:
 - `plan-matrix`
 - `plan-build-target`
 - `plan-manifests`
-- `render-release-record`
-- `validate-release-record`
-- `write-release-json`
+- `render-release-json`
+- `validate-release-json`
 - `render-telegram-notification`
 
 `validate-config-payload` is schema-only.
@@ -318,55 +266,42 @@ Returns one resolved target payload with:
 
 Mode-specific tag behavior:
 
-- `pr`: `image_tag` is `ghcr.io/runlix/<name>:pr-<short_sha>-<target_name>`
-- `release`: `image_tag` is `ghcr.io/runlix/<name>:<manifest_tag>-<arch>-<short_sha>`
+- `--mode pr` returns the validate-mode `pr-<short_sha>-<target_name>` local tag
+- `--mode release` returns the temporary single-arch release tag
 
 ### `plan-manifests`
 
-Returns one object per final manifest tag with:
+Returns one object per final manifest with:
 
-- `image_name`
 - `tag`
 - `refs`
+- `platforms`
 
-Each `refs` list contains the temporary per-arch release refs that should be assembled into the final manifest tag.
+### `render-release-json`
 
-### `render-release-record`
+Returns the normalized digest-first metadata record that is committed as `release.json`.
 
-Returns:
+### `validate-release-json`
 
-- `version`
-- `sha`
-- `short_sha`
-- `published_at`
-- `tags`
+Validates `release.json` against `schema/release-json.schema.json`.
 
-### `write-release-json`
-
-- validates the input record first
-- writes the same normalized payload back as pretty JSON with a trailing newline
-
-## Release Record Shapes
+## `release.json`
 
 Schema:
 
-- `schema/release-record.schema.json`
+- `schema/release-json.schema.json`
 
-Current fields:
+Top-level fields:
 
+- `image`
 - `version`
-  - string or `null`
 - `sha`
-  - 40 lowercase hex characters
 - `short_sha`
-  - 7 to 40 lowercase hex characters
 - `published_at`
-  - UTC timestamp in `YYYY-MM-DDTHH:MM:SSZ`
-- `tags`
-  - non-empty unique list of manifest tags
+- `manifests`
 
-Current `release.json` shape:
+Each `manifests[]` entry declares:
 
-- same normalized fields as `release-record.json`
-
-The supported CI interface currently treats `release.json` as the normalized latest release record, not a historical index.
+- `tag`
+- `digest`
+- `platforms`

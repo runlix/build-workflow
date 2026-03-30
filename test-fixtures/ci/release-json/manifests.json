@@ -1,0 +1,16 @@
+[
+  {
+    "tag": "1.2.3-debug",
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "platforms": [
+      "linux/amd64"
+    ]
+  },
+  {
+    "tag": "1.2.3-stable",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "platforms": [
+      "linux/amd64"
+    ]
+  }
+]

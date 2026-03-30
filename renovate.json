@@ -50,12 +50,12 @@
     },
     {
       "customType": "regex",
-      "description": "Update build-workflow tool image digest in sync wrapper fixture",
+      "description": "Update build-workflow tool image digest in CI self-test fixtures",
       "managerFilePatterns": [
-        "/^test-fixtures\\/ci\\/sync-wrapper\\/sync-release-record\\.yml$/"
+        "/^\\.github\\/workflows\\/test-ci\\.yml$/"
       ],
       "matchStrings": [
-        "tool-image:\\s+(?<depName>ghcr\\.io/runlix/build-workflow-tools)@(?<currentDigest>sha256:[a-f0-9]{64})"
+        "FIXTURE_TOOL_IMAGE:\\s+(?<depName>ghcr\\.io/runlix/build-workflow-tools)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "currentValueTemplate": "ci",
       "datasourceTemplate": "docker",

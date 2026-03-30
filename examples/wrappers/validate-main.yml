@@ -8,103 +8,17 @@ on:
       - opened
       - synchronize
       - reopened
+    paths:
+      - "release.json"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  detect-changes:
-    name: detect-changes
-    runs-on: ubuntu-24.04
-    outputs:
-      release_json: ${{ steps.filter.outputs.release_json }}
-      sync_wrapper: ${{ steps.filter.outputs.sync_wrapper }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Detect main-scope contract changes
-        id: filter
-        shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            printf 'release_json=true\n' >> "$GITHUB_OUTPUT"
-            printf 'sync_wrapper=true\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/changed-files.txt
-
-          if grep -Fxq 'release.json' /tmp/changed-files.txt; then
-            printf 'release_json=true\n' >> "$GITHUB_OUTPUT"
-          else
-            printf 'release_json=false\n' >> "$GITHUB_OUTPUT"
-          fi
-
-          if grep -Fxq '.github/workflows/sync-release-record.yml' /tmp/changed-files.txt; then
-            printf 'sync_wrapper=true\n' >> "$GITHUB_OUTPUT"
-          else
-            printf 'sync_wrapper=false\n' >> "$GITHUB_OUTPUT"
-          fi
-
-  validate-sync-wrapper:
-    name: validate-sync-wrapper
-    needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.sync_wrapper == 'true' }}
-    uses: runlix/build-workflow/.github/workflows/validate-sync-wrapper.yml@YOUR_BUILD_WORKFLOW_SHA
-    with:
-      workflow-path: .github/workflows/sync-release-record.yml
-
-  validate-release-json:
-    name: validate-release-json
-    needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.release_json == 'true' }}
+  validate-main:
+    name: validate-main
     uses: runlix/build-workflow/.github/workflows/validate-release-json.yml@YOUR_BUILD_WORKFLOW_SHA
     with:
       tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST
       release-json-path: release.json
-
-  validate-main-summary:
-    name: validate-main-summary
-    needs:
-      - detect-changes
-      - validate-sync-wrapper
-      - validate-release-json
-    if: ${{ always() }}
-    runs-on: ubuntu-24.04
-    env:
-      RELEASE_JSON_CHANGED: ${{ needs.detect-changes.outputs.release_json }}
-      RELEASE_JSON_RESULT: ${{ needs.validate-release-json.result }}
-      SYNC_WRAPPER_CHANGED: ${{ needs.detect-changes.outputs.sync_wrapper }}
-      SYNC_WRAPPER_RESULT: ${{ needs.validate-sync-wrapper.result }}
-    steps:
-      - name: Summarize main validation
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          {
-            echo "## Main Validation"
-            echo ""
-            echo "- release.json changed: \`$RELEASE_JSON_CHANGED\`"
-            echo "- sync wrapper changed: \`$SYNC_WRAPPER_CHANGED\`"
-            echo "- release.json validation: \`$RELEASE_JSON_RESULT\`"
-            echo "- sync wrapper validation: \`$SYNC_WRAPPER_RESULT\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          for result in "$RELEASE_JSON_RESULT" "$SYNC_WRAPPER_RESULT"; do
-            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
-              echo "Main validation failed" >&2
-              exit 1
-            fi
-          done

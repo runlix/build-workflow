@@ -8,7 +8,6 @@ Use these files together:
 - `examples/ci/service-config.json`
 - `examples/wrappers/validate.yml`
 - `examples/wrappers/release.yml`
-- `examples/wrappers/sync-release-record.yml`
 - `examples/wrappers/validate-main.yml`
 
 Use `examples/ci/` for schema shape and review.
@@ -24,7 +23,6 @@ On `release`:
 On `main`:
 
 - `validate-main.yml`
-- `sync-release-record.yml`
 - `release.json`
 
 Keep the wrappers thin:
@@ -44,11 +42,6 @@ Every wrapper should pin:
 Maintainer exception:
 
 - `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>` is acceptable for branch testing when that tag was published intentionally
-
-Sync-wrapper exception:
-
-- `.github/workflows/sync-release-record.yml` should keep `tool-image` pinned by digest
-- the supported sync-wrapper validator rejects `:sha-<git sha>` there
 
 Do not use:
 
@@ -74,13 +67,12 @@ Why:
 - Dockerfile changes alter the image
 - wrapper changes alter permissions, workflow SHAs, or planner image pins
 
-The main-branch validator should watch:
+The minimal supported `validate-main.yml` example watches:
 
 - `release.json`
-- `.github/workflows/sync-release-record.yml`
-- the validator wrapper itself
 
-The supported pattern is still to trigger `validate-main.yml` on every PR to `main` and let `detect-changes` decide whether the read-only validators run. That preserves one stable required check, `validate-main-summary`, on every main-side PR.
+and exposes `workflow_dispatch` for wrapper-only or manual validation runs.
+If a caller also wants wrapper edits to auto-run the check, it can add `.github/workflows/validate-main.yml` to the wrapper's own top-level `paths` list without changing the reusable workflow contract.
 
 ## `.ci/config.json`
 
@@ -123,10 +115,10 @@ That applies to:
 - `defaults.context`
 - target `dockerfile`
 - effective `test`
-- `workflow-path`
 - `release-json-path`
 
-The planner does not reinterpret those values relative to the config file directory. Write each path exactly the way the caller repository root should address it after checkout.
+The planner does not reinterpret those values relative to the config file directory.
+Write each path exactly the way the caller repository root should address it after checkout.
 
 ## Base Image vs Service Repositories
 
@@ -176,7 +168,8 @@ When a target has an effective test, the workflow:
 - exports `PLATFORM`
 - executes the script path from config
 
-The smoke test owns the runtime assertions. Common checks include:
+The smoke test owns the runtime assertions.
+Common checks include:
 
 - image labels
 - exposed ports
@@ -187,13 +180,10 @@ The smoke test owns the runtime assertions. Common checks include:
 
 Release wrapper:
 
-- map only `TELEGRAM_BOT_TOKEN`
-- map only `TELEGRAM_CHAT_ID`
-
-Sync wrapper:
-
-- map only `RUNLIX_APP_ID`
-- map only `RUNLIX_PRIVATE_KEY`
+- optionally map `TELEGRAM_BOT_TOKEN`
+- optionally map `TELEGRAM_CHAT_ID`
+- optionally map `RUNLIX_APP_ID`
+- optionally map `RUNLIX_PRIVATE_KEY`
 
 Main validator:
 
@@ -208,14 +198,16 @@ Avoid `secrets: inherit` in supported wrappers.
 - provider contract tests
 - maintainer dry runs
 
-That mode still validates config, plans the matrix, builds targets, runs smoke tests, renders `release-record.json`, and validates that record.
+That mode still validates config, plans the matrix, builds targets, and runs smoke tests.
 
 It skips:
 
 - GHCR login
 - pushing temporary refs
 - manifest creation
-- release-record artifact upload
+- `release.json` rendering and validation
+- attestation
+- optional `main` sync
 - Telegram notification
 
 ## Main-Branch Validation
@@ -224,12 +216,10 @@ Callers should add `validate-main.yml` on `main`.
 
 That wrapper should:
 
-- detect whether `release.json` changed
-- detect whether `sync-release-record.yml` changed
-- call `validate-release-json.yml` when `release.json` changed
-- call `validate-sync-wrapper.yml` when the sync wrapper changed
-- expose a stable `validate-main-summary` job
+- stay read-only
+- call `validate-release-json.yml`
+- validate only `release.json`
+- remain available through `workflow_dispatch` for manual validation
 
-On `workflow_dispatch`, the example wrapper forces both validators on so maintainers can run a full metadata check manually.
-
-That summary job is the intended required status check for metadata and sync-wrapper changes on `main`.
+The example wrapper is intentionally thin.
+Callers should make the wrapper job's status check the required check for `release.json` updates on `main`.
