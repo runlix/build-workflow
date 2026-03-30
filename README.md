@@ -28,7 +28,7 @@ Starter files:
 - canonical guide: [docs/ci-v3.md](./docs/ci-v3.md)
 
 Callers pin only the reusable workflow SHA from `runlix/build-workflow`.
-The reusable workflows derive their matching internal tool image from `github.workflow_sha`, so callers do not pass or pin a separate planner image anymore.
+The reusable workflows derive their matching internal tool image from the pinned reusable workflow ref and fall back to the current repository SHA only for provider self-tests, so callers do not pass or pin a separate planner image anymore.
 If you want automated `main` sync on protected branches, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the publish wrapper.
 The publish wrapper must grant `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`.
 

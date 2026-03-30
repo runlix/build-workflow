@@ -223,8 +223,10 @@ jobs:
           grep -Eq '^      release_json:$' .github/workflows/publish-release.yml
           grep -Eq '^      manifests_json:$' .github/workflows/publish-release.yml
           grep -Eq '^      sync_pr_url:$' .github/workflows/publish-release.yml
-          grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.workflow_sha \}\}' .github/workflows/validate-build.yml
-          grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.workflow_sha \}\}' .github/workflows/publish-release.yml
+          grep -Eq 'WORKFLOW_REF: \$\{\{ github\.workflow_ref \}\}' .github/workflows/validate-build.yml
+          grep -Eq 'WORKFLOW_REF: \$\{\{ github\.workflow_ref \}\}' .github/workflows/publish-release.yml
+          grep -Eq 'tool_image=ghcr\.io/runlix/build-workflow-tools:sha-%s' .github/workflows/validate-build.yml
+          grep -Eq 'tool_image=ghcr\.io/runlix/build-workflow-tools:sha-%s' .github/workflows/publish-release.yml
           grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/validate-build.yml
           grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/publish-release.yml
           if grep -Eq 'update-ci-alias|build-workflow-tools:ci' .github/workflows/publish-tool-image.yml; then

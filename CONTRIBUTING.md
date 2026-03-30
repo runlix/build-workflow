@@ -27,6 +27,7 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 
 - callers pin reusable workflows by merged full commit SHA
 - callers do not pass a `tool-image` input
+- reusable workflows derive the matching internal tool image from the pinned workflow ref
 - callers keep wrapper workflows thin and repo-specific
 - only the publish wrapper maps `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY`
 - `examples/build-config/` are schema-only examples, while `test-fixtures/ci/` are runnable contract fixtures
