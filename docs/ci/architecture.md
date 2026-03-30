@@ -35,24 +35,25 @@ The planner image owns:
 - matrix planning
 - per-target build planning
 - manifest planning
-- release-record rendering and validation
-- `release.json` writing
+- `release.json` rendering and validation
 - Telegram message rendering
 
 The reusable workflows own:
 
 - GitHub permissions
 - runner selection
-- checkout, artifact, and GHCR login flow
+- checkout and GHCR login flow
 - Docker build, push, and manifest side effects
 - summary output and gating behavior
-- sync PR creation and merge
+- attestation
+- optional sync PR creation and merge
 
 Why this split exists:
 
 - reusable workflows should stay thin and declarative
 - the same planner logic can run locally, in provider CI, and in caller workflows
 - callers no longer depend on workflow-time self-checkout of implementation files
+- cross-workflow artifact transport is not part of the supported contract anymore
 
 ## Branch Model
 
@@ -71,15 +72,15 @@ release branch:
 
 main branch:
   .github/workflows/validate-main.yml
-  .github/workflows/sync-release-record.yml
   release.json
 ```
 
 Why this split exists:
 
 - release validation and publishing run from the branch that actually owns Dockerfiles and build inputs
-- metadata automation stays isolated on `main`
-- `main` PRs can validate wrapper and metadata changes without rebuilding runtime images
+- metadata review stays isolated on `main`
+- `main` PRs can validate `release.json` changes without rebuilding runtime images
+- `release.yml` can still write metadata back into `main` through a GitHub App PR when callers opt in
 
 ## Tool Image Publication
 
@@ -88,7 +89,7 @@ The planner image is published only by `.github/workflows/publish-tool-image.yml
 Publication modes:
 
 - push to `main` publishes the immutable `:sha-<git sha>` tag and updates the mutable `:ci` alias
-- `workflow_dispatch` can publish an immutable `:sha-<git sha>` tag for maintainer testing without changing the `:ci` alias unless the run is on `main`
+- `workflow_dispatch` can publish an immutable `:sha-<git sha>` tag for maintainer testing without changing the `:ci` alias
 
 Supported pin forms:
 
@@ -108,7 +109,7 @@ Callers should still pin an immutable digest or immutable `:sha-<sha>` tag.
 
 ## Workflow Families
 
-The supported public workflow surface has two groups.
+The supported public workflow surface has two caller-facing workflows on `release` and one on `main`.
 
 Release-branch orchestration:
 
@@ -117,12 +118,12 @@ Release-branch orchestration:
 
 Main-branch governance:
 
-- `sync-release-record.yml`
-- `validate-sync-wrapper.yml`
 - `validate-release-json.yml`
 
-The first group builds and publishes images.
-The second group validates and updates metadata safely on `main`.
+The first group validates and publishes runtime artifacts.
+The second group validates the committed metadata record on `main`.
+
+The optional GitHub App sync path now lives inside `release.yml` itself rather than in a separate public reusable workflow.
 
 ## Supported Boundaries
 
@@ -142,7 +143,8 @@ The supported interface is intentionally narrow:
 - CLI behavior
 - fixtures
 - local tool image build
-- wrapper-contract fixtures
+- wrapper examples and contract assertions
+- read-only self-calls of the public reusable workflows
 
 It does not prove caller-context reusable workflow behavior by self-calling the public workflows.
 That proof comes from downstream canaries such as `distroless-runtime`, which exercise the public wrappers in a real caller repository.

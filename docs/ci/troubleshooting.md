@@ -69,7 +69,10 @@ If `publish: false`, the workflow intentionally skips:
 - GHCR login
 - push steps
 - manifest creation
+- `release.json` rendering
 - artifact upload
+- attestation
+- optional main sync
 - Telegram notification
 
 That is expected in provider tests and maintainer dry runs.
@@ -89,6 +92,20 @@ Check:
 - `plan-manifests` output
 - `publish` job logs
 
+## Attestation Fails
+
+Common causes:
+
+- the caller wrapper did not grant `attestations: write`
+- the caller wrapper did not grant `id-token: write`
+- registry publication failed before the attestation job ran
+
+Check:
+
+- caller release wrapper permissions
+- `publish` job result
+- `attest` job logs
+
 ## Telegram Notification Fails
 
 The release workflow treats Telegram as non-blocking.
@@ -105,47 +122,19 @@ Common causes:
 - invalid chat ID
 - Telegram API error
 
-## Sync Refuses to Run
-
-The sync reusable workflow is strict about provenance.
-
-It will fail if:
-
-- the triggering workflow is not `Release`
-- the triggering branch is not `release`
-- the triggering repository does not match the caller repo
-- the workflow run did not succeed
-
-Check:
-
-- caller `workflow_run` wrapper
-- source workflow name
-- source branch
-
-## Sync Cannot Download `release-record`
+## Sync Does Not Run
 
 Common causes:
 
-- release wrapper ran with `publish: false`
-- the release workflow failed before artifact upload
-- the artifact name drifted away from `release-record`
+- `publish: false`
+- `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` were not both mapped
+- the release workflow failed before the sync job became eligible
 
 Check:
 
+- release wrapper secret mapping
+- `validate-inputs` outputs
 - release run summary
-- `Upload release record` step
-- artifact list on the triggering run
-
-## Sync Rejects the Record SHA
-
-This means:
-
-- `release-record.json.sha`
-- and `github.event.workflow_run.head_sha`
-
-do not match.
-
-Treat that as a real provenance failure. Do not bypass it by editing the sync workflow contract.
 
 ## Sync Creates No PR
 
@@ -155,7 +144,6 @@ Current behavior:
 
 - no commit is created
 - no new PR is opened
-- any stale open sync PR on `automation/sync-release-record` is closed
 
 ## Sync PR Does Not Merge
 
@@ -163,7 +151,7 @@ Common causes:
 
 - repository does not allow auto-merge
 - merge commits are disabled
-- required main check such as `validate-main-summary` is missing or failing
+- the required main check is missing or failing
 - GitHub App permissions are incomplete
 
 Check:
@@ -173,19 +161,22 @@ Check:
 - branch protection / required checks on `main`
 - GitHub App installation permissions
 
-## Wrapper Validator Fails
+## `validate-main.yml` Does Not Run
 
-For `validate-sync-wrapper.yml`, common causes are:
+Common causes:
 
-- extra steps or `runs-on` added to the wrapper
-- missing concurrency block
-- wrong permissions
-- unpinned `uses:`
-- wrong secret mapping
-- non-digest tool image
+- the wrapper only watches `release.json`, and the PR changed only the wrapper file
+- branch protection expects a different job name than the wrapper actually emits
 
-For `validate-release-json.yml`, common causes are:
+Use:
+
+- `workflow_dispatch` for wrapper-only validation runs
+- or add `.github/workflows/validate-main.yml` to the wrapper's own top-level `paths` list if the repository wants wrapper edits to trigger automatically
+
+## Release JSON Validation Fails
+
+Common causes are:
 
 - missing `release.json`
-- invalid record schema
+- invalid metadata schema
 - wrong planner image pin

@@ -7,7 +7,7 @@ on:
     paths:
       - 'tools/ci/**'
       - 'schema/ci-config.schema.json'
-      - 'schema/release-record.schema.json'
+      - 'schema/release-json.schema.json'
       - '.github/workflows/publish-tool-image.yml'
   workflow_dispatch:
 

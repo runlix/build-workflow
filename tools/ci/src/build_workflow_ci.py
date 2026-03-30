@@ -20,6 +20,7 @@ SCHEMA_DIR = REPO_ROOT / "schema"
 IMAGE_PATTERN = re.compile(r"^ghcr\.io/runlix/[a-z0-9]+([._-][a-z0-9]+)*$")
 NAME_PATTERN = re.compile(r"^[a-z0-9-]+$")
 TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
 PLATFORM_RUNNERS = {
     "linux/amd64": "ubuntu-24.04",
     "linux/arm64": "ubuntu-24.04-arm",
@@ -58,6 +59,13 @@ class Config:
     @property
     def enabled_targets(self) -> list[Target]:
         return [target for target in self.targets if target.enabled]
+
+
+@dataclass(frozen=True)
+class Manifest:
+    tag: str
+    digest: str
+    platforms: tuple[str, ...]
 
 
 def read_json(path: str | Path) -> Any:
@@ -281,64 +289,166 @@ def plan_build_target(config_path: str, target_name: str, mode: str, build_short
 
 def plan_manifests(config_path: str, build_short_sha: str) -> list[dict[str, Any]]:
     config = load_config(config_path)
-    groups: dict[str, list[str]] = defaultdict(list)
+    groups: dict[str, list[dict[str, str]]] = defaultdict(list)
     for target in config.enabled_targets:
-        groups[target.manifest_tag].append(f"{config.image}:{release_temp_tag(target, build_short_sha)}")
+        groups[target.manifest_tag].append(
+            {
+                "platform": target.platform,
+                "ref": f"{config.image}:{release_temp_tag(target, build_short_sha)}",
+            }
+        )
     return [
         {
             "image_name": config.image,
             "tag": manifest_tag,
-            "refs": sorted(refs),
+            "platforms": sorted(item["platform"] for item in entries),
+            "refs": sorted(item["ref"] for item in entries),
         }
-        for manifest_tag, refs in sorted(groups.items())
+        for manifest_tag, entries in sorted(groups.items())
     ]
 
 
-def render_release_record(config_path: str, source_sha: str, published_at: str) -> dict[str, Any]:
+def load_manifest_entries(manifests_path: str) -> list[Manifest]:
+    require_file(manifests_path)
+    payload = read_json(manifests_path)
+    if not isinstance(payload, list):
+        raise CliError("Manifest payload must be a JSON array")
+
+    manifests: list[Manifest] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise CliError("Each manifest entry must be an object")
+
+        tag = item.get("tag")
+        digest = item.get("digest")
+        platforms = item.get("platforms")
+
+        if not isinstance(tag, str) or not TAG_PATTERN.match(tag):
+            raise CliError(f"Invalid manifest tag: {tag}")
+        if not isinstance(digest, str) or not DIGEST_PATTERN.match(digest):
+            raise CliError(f"Invalid manifest digest for tag {tag}: {digest}")
+        if not isinstance(platforms, list) or not platforms:
+            raise CliError(f"Manifest {tag} must declare one or more platforms")
+        if any(not isinstance(platform, str) for platform in platforms):
+            raise CliError(f"Manifest {tag} has a non-string platform entry")
+
+        normalized_platforms = tuple(sorted(set(platforms)))
+        if len(normalized_platforms) != len(platforms):
+            raise CliError(f"Manifest {tag} contains duplicate platforms")
+        for platform in normalized_platforms:
+            if platform not in PLATFORM_RUNNERS:
+                raise CliError(f"Manifest {tag} uses unsupported platform: {platform}")
+
+        manifests.append(Manifest(tag=tag, digest=digest, platforms=normalized_platforms))
+
+    duplicate_tags = sorted({manifest.tag for manifest in manifests if [item.tag for item in manifests].count(manifest.tag) > 1})
+    if duplicate_tags:
+        raise CliError("Duplicate manifest tags detected:\n" + "\n".join(duplicate_tags))
+
+    duplicate_digests = sorted({manifest.digest for manifest in manifests if [item.digest for item in manifests].count(manifest.digest) > 1})
+    if duplicate_digests:
+        raise CliError("Duplicate manifest digests detected:\n" + "\n".join(duplicate_digests))
+
+    return sorted(manifests, key=lambda item: item.tag)
+
+
+def validate_manifest_entries(config: Config, manifests: list[Manifest]) -> None:
+    expected = {
+        manifest_tag: sorted({target.platform for target in config.enabled_targets if target.manifest_tag == manifest_tag})
+        for manifest_tag in sorted({target.manifest_tag for target in config.enabled_targets})
+    }
+    actual = {manifest.tag: list(manifest.platforms) for manifest in manifests}
+
+    if sorted(expected) != sorted(actual):
+        raise CliError(
+            "Rendered manifests do not match enabled config tags:\n"
+            f"expected={', '.join(sorted(expected))}\n"
+            f"actual={', '.join(sorted(actual))}"
+        )
+
+    for tag, expected_platforms in expected.items():
+        actual_platforms = actual[tag]
+        if actual_platforms != expected_platforms:
+            raise CliError(
+                f"Rendered manifest platforms do not match config for {tag}: "
+                f"expected {', '.join(expected_platforms)}; got {', '.join(actual_platforms)}"
+            )
+
+
+def render_release_json(config_path: str, source_sha: str, published_at: str, manifests_path: str) -> dict[str, Any]:
     config = load_config(config_path)
-    return {
+    manifests = load_manifest_entries(manifests_path)
+    validate_manifest_entries(config, manifests)
+    payload = {
+        "image": config.image,
         "version": config.version,
         "sha": source_sha,
         "short_sha": short_sha(source_sha),
         "published_at": published_at,
-        "tags": sorted({target.manifest_tag for target in config.enabled_targets}),
+        "manifests": [
+            {
+                "tag": manifest.tag,
+                "digest": manifest.digest,
+                "platforms": list(manifest.platforms),
+            }
+            for manifest in manifests
+        ],
     }
+    return validate_release_json_payload(payload)
 
 
-def validate_release_record_payload(payload: Any) -> None:
-    validate_schema(payload, "release-record.schema.json")
+def validate_release_json_payload(payload: Any) -> dict[str, Any]:
+    validate_schema(payload, "release-json.schema.json")
+
+    image = payload["image"]
+    if not IMAGE_PATTERN.match(image):
+        raise CliError(f"Unsupported image name: {image}")
+
+    seen_tags: set[str] = set()
+    seen_digests: set[str] = set()
+    for manifest in payload["manifests"]:
+        tag = manifest["tag"]
+        digest = manifest["digest"]
+        platforms = manifest["platforms"]
+
+        if tag in seen_tags:
+            raise CliError(f"Duplicate manifest tag: {tag}")
+        if digest in seen_digests:
+            raise CliError(f"Duplicate manifest digest: {digest}")
+        if platforms != sorted(platforms):
+            raise CliError(f"Manifest {tag} platforms must be sorted")
+        if len(platforms) != len(set(platforms)):
+            raise CliError(f"Manifest {tag} platforms must be unique")
+        for platform in platforms:
+            if platform not in PLATFORM_RUNNERS:
+                raise CliError(f"Manifest {tag} uses unsupported platform: {platform}")
+        seen_tags.add(tag)
+        seen_digests.add(digest)
+
+    return payload
 
 
-def validate_release_record_file(json_path: str) -> dict[str, Any]:
+def validate_release_json_file(json_path: str) -> dict[str, Any]:
     require_file(json_path)
     payload = read_json(json_path)
-    validate_release_record_payload(payload)
-    return payload
-
-
-def write_release_json(record_path: str, output_path: str) -> dict[str, Any]:
-    payload = validate_release_record_file(record_path)
-    output = Path(output_path)
-    output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return payload
+    return validate_release_json_payload(payload)
 
 
 def render_telegram_notification(
-    record_path: str,
-    image_name: str,
+    release_json_path: str,
     repository: str,
     server_url: str,
     run_id: str,
 ) -> str:
-    payload = validate_release_record_file(record_path)
-    service_name = image_name.rsplit("/", 1)[1]
+    payload = validate_release_json_file(release_json_path)
+    service_name = payload["image"].rsplit("/", 1)[1]
     commit_url = f"{server_url}/{repository}/commit/{payload['sha']}"
     run_url = f"{server_url}/{repository}/actions/runs/{run_id}"
     if payload["version"]:
         version_line = f"*Version:* `{payload['version']}`"
     else:
         version_line = f"*Version:* `{payload['short_sha']}` (SHA-based)"
-    tags_text = ", ".join(payload["tags"])
+    tags_text = ", ".join(manifest["tag"] for manifest in payload["manifests"])
     return (
         "🎉 *Docker Release Complete*\n\n"
         f"*Service:* `{service_name}`\n"
@@ -347,7 +457,7 @@ def render_telegram_notification(
         "*Manifests Created:*\n"
         f"`{tags_text}`\n\n"
         "*Registry:*\n"
-        f"`{image_name}`\n\n"
+        f"`{payload['image']}`\n\n"
         f"[View Workflow Run]({run_url})"
     )
 
@@ -376,14 +486,14 @@ def build_parser() -> argparse.ArgumentParser:
     manifests_parser.add_argument("config_path")
     manifests_parser.add_argument("--short-sha", required=True)
 
-    record_parser = subparsers.add_parser("render-release-record")
-    record_parser.add_argument("config_path")
-    record_parser.add_argument("--source-sha", required=True)
-    record_parser.add_argument("--published-at", required=True)
+    release_json_parser = subparsers.add_parser("render-release-json")
+    release_json_parser.add_argument("config_path")
+    release_json_parser.add_argument("--source-sha", required=True)
+    release_json_parser.add_argument("--published-at", required=True)
+    release_json_parser.add_argument("--manifests-path", required=True)
 
     telegram_parser = subparsers.add_parser("render-telegram-notification")
-    telegram_parser.add_argument("record_path")
-    telegram_parser.add_argument("--image-name", required=True)
+    telegram_parser.add_argument("release_json_path")
     telegram_parser.add_argument("--repository", required=True)
     telegram_parser.add_argument("--server-url", required=True)
     telegram_parser.add_argument("--run-id", required=True)
@@ -391,12 +501,8 @@ def build_parser() -> argparse.ArgumentParser:
     validate_schema_parser = subparsers.add_parser("validate-schema-file")
     validate_schema_parser.add_argument("schema_path")
 
-    validate_record_parser = subparsers.add_parser("validate-release-record")
-    validate_record_parser.add_argument("json_path")
-
-    write_record_parser = subparsers.add_parser("write-release-json")
-    write_record_parser.add_argument("record_path")
-    write_record_parser.add_argument("--output", required=True)
+    validate_release_json_parser = subparsers.add_parser("validate-release-json")
+    validate_release_json_parser.add_argument("json_path")
 
     return parser
 
@@ -416,13 +522,12 @@ def main(argv: list[str] | None = None) -> int:
             write_json(plan_build_target(args.config_path, args.target_name, args.mode, args.short_sha))
         elif args.command == "plan-manifests":
             write_json(plan_manifests(args.config_path, args.short_sha))
-        elif args.command == "render-release-record":
-            write_json(render_release_record(args.config_path, args.source_sha, args.published_at))
+        elif args.command == "render-release-json":
+            write_json(render_release_json(args.config_path, args.source_sha, args.published_at, args.manifests_path))
         elif args.command == "render-telegram-notification":
             print(
                 render_telegram_notification(
-                    args.record_path,
-                    args.image_name,
+                    args.release_json_path,
                     args.repository,
                     args.server_url,
                     args.run_id,
@@ -430,10 +535,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "validate-schema-file":
             validate_schema_file(args.schema_path)
-        elif args.command == "validate-release-record":
-            validate_release_record_file(args.json_path)
-        elif args.command == "write-release-json":
-            write_release_json(args.record_path, args.output)
+        elif args.command == "validate-release-json":
+            validate_release_json_file(args.json_path)
         else:
             parser.error(f"Unknown command: {args.command}")
     except CliError as exc:

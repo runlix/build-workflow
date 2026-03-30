@@ -1,0 +1,23 @@
+{
+  "image": "ghcr.io/runlix/test-service",
+  "version": "1.2.3",
+  "sha": "1234567890abcdef1234567890abcdef12345678",
+  "short_sha": "1234567",
+  "published_at": "2026-03-17T12:00:00Z",
+  "manifests": [
+    {
+      "tag": "1.2.3-debug",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "platforms": [
+        "linux/amd64"
+      ]
+    },
+    {
+      "tag": "1.2.3-stable",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "platforms": [
+        "linux/amd64"
+      ]
+    }
+  ]
+}

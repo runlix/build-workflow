@@ -80,19 +80,53 @@ When the caller wrapper job is named `validate`, the user-facing required check 
 
 The release path is `.github/workflows/release.yml`.
 
-It runs four jobs:
+It runs six jobs:
 
 1. `validate-inputs`
 2. `plan`
 3. `build-and-push`
 4. `publish`
+5. `attest`
+6. `sync-main`
 
 Workflow concurrency:
 
 - `release-${{ github.repository }}`
 - `cancel-in-progress: false`
 
-The first two jobs mirror validate mode.
+### `validate-inputs`
+
+This job validates both `tool-image` and optional secret pairing.
+
+It fails fast when:
+
+- `tool-image` is not digest-pinned or an immutable `:sha-<git sha>` tag
+- `RUNLIX_APP_ID` is mapped without `RUNLIX_PRIVATE_KEY`
+- `RUNLIX_PRIVATE_KEY` is mapped without `RUNLIX_APP_ID`
+- `TELEGRAM_BOT_TOKEN` is mapped without `TELEGRAM_CHAT_ID`
+- `TELEGRAM_CHAT_ID` is mapped without `TELEGRAM_BOT_TOKEN`
+
+It also exports booleans that decide whether the optional Telegram and GitHub App paths should run later.
+
+### `plan`
+
+`plan` runs inside the pinned planner image.
+
+It:
+
+- checks out the caller repository
+- computes `short_sha`
+- runs `build-workflow-ci validate-config`
+- runs `build-workflow-ci plan-matrix`
+- runs `build-workflow-ci plan-manifests`
+
+Outputs include:
+
+- `matrix`
+- `manifests`
+- `short_sha`
+- `image_name`
+- `version`
 
 ### `build-and-push`
 
@@ -131,7 +165,7 @@ Why temporary tags exist:
 `publish` owns three responsibilities:
 
 - create manifests
-- render and validate `release-record.json`
+- render and validate `release.json`
 - optionally notify Telegram
 
 Manifest creation uses `plan-manifests` from the planner image, then runs:
@@ -140,27 +174,28 @@ Manifest creation uses `plan-manifests` from the planner image, then runs:
 
 for each unique manifest tag.
 
-`release-record.json` always gets rendered and validated.
-It is uploaded only when `publish: true` under artifact name:
+It resolves each final manifest digest with `docker buildx imagetools inspect` and passes the manifest payload into `build-workflow-ci render-release-json`.
 
-- `release-record`
+`release.json` is uploaded only when `publish: true` under artifact name:
+
+- `release-json`
 
 When `publish: false`, release mode still:
 
 - validates config
 - plans the matrix
 - builds and tests targets
-- renders and validates `release-record.json`
 
 But it skips:
 
 - GHCR login
 - temporary ref pushes
 - manifest creation
-- release-record artifact upload
+- `release.json` rendering and validation
+- release artifact upload
 - Telegram notification
 
-That means a normal sync run has no artifact to consume from a `publish: false` release run.
+That means the optional `main` sync path has no metadata payload to use from a `publish: false` release run.
 
 Telegram notification behavior:
 
@@ -169,42 +204,25 @@ Telegram notification behavior:
 - masks both Telegram secrets before use
 - is non-blocking because the step uses `continue-on-error: true`
 
-## Sync Release Record
+### `attest`
 
-The supported metadata sync path is `.github/workflows/sync-release-record.yml`, called from a caller wrapper triggered by `workflow_run`.
+`attest` runs only when `publish: true`.
 
-It runs two jobs:
+It requests:
 
-1. `render-release-json`
-2. `commit-release-json`
+- `attestations: write`
+- `contents: read`
+- `id-token: write`
+- `packages: write`
 
-### `render-release-json`
+It runs `actions/attest-build-provenance` once per published manifest digest using the final digest resolved in `publish`.
 
-This job runs inside the pinned planner image and requests only:
+### `sync-main`
 
-- `actions: read`
+`sync-main` runs only when:
 
-It:
-
-- verifies the triggering workflow is `Release`
-- verifies the triggering branch is `release`
-- verifies the triggering repository matches the current repository
-- downloads artifact `release-record` from the triggering run
-- validates `release-record.json`
-- verifies `.sha` matches `github.event.workflow_run.head_sha`
-- writes `release.json`
-- validates `release.json`
-- uploads normalized artifact `normalized-release-json`
-
-Why the SHA match exists:
-
-- the artifact must belong to the exact release commit that triggered sync
-
-This job only runs when:
-
-- `github.event.workflow_run.conclusion == 'success'`
-
-### `commit-release-json`
+- `publish: true`
+- `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` were both mapped
 
 This job uses a GitHub App token instead of widening the workflow `GITHUB_TOKEN`.
 
@@ -212,16 +230,14 @@ It:
 
 - creates a GitHub App token with `contents: write` and `pull-requests: write`
 - checks out `main`
-- downloads the normalized `release.json`
-- stages the change on branch `automation/sync-release-record`
-- closes a stale open sync PR if `release.json` already matches `main`
+- stages the rendered `release.json` payload on branch `automation/sync-release-json`
 - creates or updates the sync PR into `main`
 - enables `--auto --merge` with `--match-head-commit`
 
 If no metadata changed:
 
 - no commit is created
-- any stale open sync PR is closed
+- no new PR is opened or updated
 
 If metadata changed:
 
@@ -235,30 +251,9 @@ The supported main-side guard is the caller-managed `validate-main.yml` wrapper 
 
 That wrapper:
 
-- detects whether `release.json` changed
-- detects whether `.github/workflows/sync-release-record.yml` changed
-- runs `validate-release-json.yml` when needed
-- runs `validate-sync-wrapper.yml` when needed
-- exposes `validate-main-summary`
-- forces both validators on during `workflow_dispatch`
-
-### `validate-sync-wrapper.yml`
-
-This reusable validator is read-only and secret-free.
-
-It enforces:
-
-- `workflow_run -> Release / release / completed`
-- exact top-level permissions: `actions: read`, `contents: read`
-- thin-wrapper shape
-- no `workflow_dispatch`
-- no `pull_request` or `pull_request_target`
-- no `actions/checkout`
-- no `secrets: inherit`
-- pinned reusable workflow SHA
-- pinned digest `tool-image`
-- explicit `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` mapping
-- required concurrency group with `cancel-in-progress: false`
+- stays read-only
+- validates only `release.json`
+- remains available through `workflow_dispatch` for manual metadata checks
 
 ### `validate-release-json.yml`
 
@@ -278,7 +273,7 @@ Provider CI focuses on:
 - planner image behavior
 - schemas
 - examples and fixtures
-- release-record transforms
-- wrapper-contract fixtures
+- release-json transforms
+- wrapper-contract assertions
 
 Real caller-context reusable-workflow behavior is validated downstream in repositories such as `distroless-runtime`.

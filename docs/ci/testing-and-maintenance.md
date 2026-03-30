@@ -6,13 +6,11 @@ When supported CI docs drift, check files in this order:
 
 1. `.github/workflows/validate.yml`
 2. `.github/workflows/release.yml`
-3. `.github/workflows/sync-release-record.yml`
-4. `.github/workflows/validate-sync-wrapper.yml`
-5. `.github/workflows/validate-release-json.yml`
-6. `tools/ci/src/build_workflow_ci.py`
-7. schemas in `schema/`
-8. examples and fixtures
-9. docs
+3. `.github/workflows/validate-release-json.yml`
+4. `tools/ci/src/build_workflow_ci.py`
+5. schemas in `schema/`
+6. examples and fixtures
+7. docs
 
 Docs should describe those files, not the other way around.
 
@@ -28,8 +26,7 @@ It covers:
 - direct CLI smoke tests
 - local tool image build and smoke tests
 - docs navigation and supported contract-name checks
-- sync wrapper fixture validation
-- release-record fixture validation
+- release-json fixture validation
 - downstream-like runnable fixture workflows
 
 It also verifies the provider-side tool-image publication contract through:
@@ -50,9 +47,8 @@ Key behaviors:
 - runner mapping from platform
 - PR and release tag planning
 - manifest ref planning
-- release-record rendering
-- release-record validation
-- `release.json` writing
+- release-json rendering
+- release-json validation
 - Telegram message rendering
 
 If supported CI behavior changes, check whether the change belongs in:
@@ -79,22 +75,12 @@ Use fixtures when documenting behavior that depends on effective defaults, smoke
 
 ## Wrapper Validators
 
-`validate-sync-wrapper.yml` is the provider-owned contract for:
-
-- trigger shape
-- wrapper thinness
-- permission exactness
-- secret mapping
-- pinned workflow SHA
-- pinned tool-image digest
-- required concurrency block
-
 `validate-release-json.yml` is the provider-owned contract for:
 
 - `release.json` file existence
-- release-record schema validity
+- release-json schema validity
 
-These validators are intended to be composed by a caller-managed `validate-main.yml`.
+Caller-managed `validate-main.yml` should stay thin and compose only that reusable validator.
 
 ## Tool Image Publication
 
@@ -120,16 +106,18 @@ Use a downstream canary such as `distroless-runtime` to validate:
 
 - release-branch PR validation
 - release publication
-- main-side sync behavior
 - main-side validator behavior
+- optional main-side sync behavior when GitHub App secrets are mapped
 
 That is especially important when changes affect:
 
 - wrapper contracts
 - permissions
-- artifact names
+- release-json shape
 - sync PR behavior
 - planner-image pins
+
+Prefer publishing canary images to a non-production image name when the downstream repo normally ships stable tags from release automation.
 
 ## Documentation Maintenance
 

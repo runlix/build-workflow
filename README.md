@@ -19,25 +19,24 @@ release branch:
 
 main branch:
   .github/workflows/validate-main.yml
-  .github/workflows/sync-release-record.yml
   release.json
 ```
 
 Starter files:
 
 - config examples: `examples/ci/service-config.json` and `examples/ci/base-image-config.json`
-- wrapper workflows: `examples/wrappers/validate.yml`, `examples/wrappers/release.yml`, `examples/wrappers/sync-release-record.yml`, `examples/wrappers/validate-main.yml`
-- schemas: `schema/ci-config.schema.json` and `schema/release-record.schema.json`
+- wrapper workflows: `examples/wrappers/validate.yml`, `examples/wrappers/release.yml`, `examples/wrappers/validate-main.yml`
+- schemas: `schema/ci-config.schema.json` and `schema/release-json.schema.json`
 - CI tool image: `ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST`
 
 Pin the wrapper workflows to a merged full commit SHA from `runlix/build-workflow`.
-Pass the planner image explicitly with `tool-image`, pinned by digest in public examples.
-Release-branch maintainers may also use `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>` for branch validation when that immutable tag was published intentionally, but the supported sync wrapper should stay digest-pinned because `validate-sync-wrapper.yml` enforces that contract.
+Pass the planner image explicitly with `tool-image`, pinned by digest in normal caller usage.
+Maintainers may also use `ghcr.io/runlix/build-workflow-tools:sha-<40-char build-workflow git sha>` for intentional branch validation when that immutable tag was published first.
 The mutable `ghcr.io/runlix/build-workflow-tools:ci` tag is only a convenience alias for the latest published `main` tool image and is not a supported caller input.
-Provider-side `Test CI Workflows` runs automatically on pull requests and on merged `main`; use `workflow_dispatch` when you want to run it manually before opening a PR.
 If you want release notifications, map only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the release wrapper.
-For sync write-back on protected `main`, map only `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the sync wrapper.
-Add a caller-managed `validate-main.yml` wrapper on `main` and make its `validate-main-summary` job the required status check for metadata changes.
+If you want automated `main` sync on protected branches, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the same release wrapper.
+The release wrapper must grant `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`.
+The main-branch wrapper should stay read-only and validate only `release.json`.
 
 The supported contract is intentionally scoped to publishing `ghcr.io/runlix/...` images.
 
@@ -50,13 +49,11 @@ Public reusable workflows:
 
 - `.github/workflows/validate.yml`
 - `.github/workflows/release.yml`
-- `.github/workflows/sync-release-record.yml`
-- `.github/workflows/validate-sync-wrapper.yml`
 - `.github/workflows/validate-release-json.yml`
 
 Canonical assets:
 
-- schemas: `schema/ci-config.schema.json`, `schema/release-record.schema.json`
+- schemas: `schema/ci-config.schema.json`, `schema/release-json.schema.json`
 - config examples: `examples/ci/`
 - wrapper examples: `examples/wrappers/`
 - contract tests: `.github/workflows/test-ci.yml`
@@ -81,11 +78,11 @@ The supported `CI` path uses a planner/executor split:
 
 - reusable workflows are the public orchestration layer
 - the `build-workflow-ci` tool is the planning and validation layer
-- Docker build, push, and manifest creation stay on the GitHub runner
-- pure config validation and release-record generation run inside the CI tool image
+- Docker build, push, manifest creation, attestation, and optional `main` sync stay on the GitHub runner
+- pure config validation and `release.json` rendering run inside the CI tool image
 
 This avoids the caller-context problems that come from trying to load implementation files from a called workflow repository at runtime.
-`build-workflow` does not self-call its reusable workflows in its own CI; caller-context reusable-workflow proof comes from downstream canaries such as `distroless-runtime`.
+`build-workflow` does not treat cross-workflow artifact transport as part of the public contract anymore; `release.yml` owns the full trusted publish path through optional `release.json` PR creation.
 
 ## Config Contract
 
@@ -113,7 +110,6 @@ Each enabled target declares:
 - optional `build_args`
 - optional `test`
 
-Paths in `.ci/config.json` are interpreted from the caller repository root after checkout, not relative to the config file itself.
 Dockerfiles should consume full immutable refs directly via build args such as `BASE_REF` or `BUILDER_REF`.
 
 ## CI Behavior
@@ -129,24 +125,21 @@ Validate:
 Release:
 
 1. validates `.ci/config.json`
-2. renders the build matrix
+2. renders the build matrix and manifest plan
 3. builds and tests each enabled target
 4. pushes one temporary single-arch tag per target
 5. creates final manifest tags
-6. renders and validates `release-record.json`
-7. uploads `release-record.json` as artifact `release-record`
-8. sends an optional non-blocking Telegram notification when the caller maps `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+6. resolves final manifest digests
+7. renders and validates `release.json`
+8. attests published manifests
+9. opens or updates a bot-authored PR into `main` when App credentials are mapped
+10. sends an optional non-blocking Telegram notification when Telegram secrets are mapped
 
-`publish: false` keeps validation, planning, build, test, and `release-record.json` rendering, but skips push, manifest creation, artifact upload, and Telegram.
+Main validation:
 
-Sync:
-
-1. runs from `main` after a successful `Release` workflow on `release`
-2. verifies the triggering workflow provenance
-3. downloads `release-record` from the triggering run
-4. writes `release.json`
-5. creates or updates a bot-authored pull request into `main` when the metadata changed
-6. enables merge-commit auto-merge on that pull request with the caller-mapped GitHub App credentials
+1. runs from `main`
+2. validates only `release.json`
+3. stays read-only and secret-free
 
 ## Local Validation
 
@@ -169,13 +162,14 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  plan-build-target .ci/config.json --target-name stable-amd64 --mode pr --short-sha 1234567
+  render-release-json .ci/config.json \
+  --source-sha 1234567890abcdef1234567890abcdef12345678 \
+  --published-at 2026-03-18T00:00:00Z \
+  --manifests-path test-fixtures/ci/release-json/manifests.json
 
 docker run --rm -v "$PWD:/workspace" -w /workspace \
   ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST \
-  render-release-record .ci/config.json \
-  --source-sha 1234567890abcdef1234567890abcdef12345678 \
-  --published-at 2026-03-18T00:00:00Z
+  validate-release-json release.json
 ```
 
 ## Legacy `v1`
