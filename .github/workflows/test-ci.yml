@@ -59,7 +59,7 @@ permissions:
   contents: read
 
 env:
-  FIXTURE_TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools@sha256:3d293d2c6bcb04d4501bdf33cab134e40469f173209fffffb4853050fe77ce59
+  FIXTURE_TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools@sha256:19bd7aafbb7cc022df4bb37cffb62d00336e5986928bb3b5eee62ca80ca0201d
 
 jobs:
   validate-ci-contracts:
