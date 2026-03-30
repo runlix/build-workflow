@@ -34,7 +34,8 @@ On `main`:
 - `release.json`
 
 Callers pin only the reusable workflow SHA.
-The reusable workflows resolve the matching internal tool image from the pinned reusable workflow ref and fall back to the current repository SHA only for provider self-tests.
+The reusable workflows resolve the matching internal tool image from GitHub's reusable-workflow OIDC `job_workflow_sha` claim.
+All caller wrappers grant `id-token: write` so the provider can request that claim and pull the matching immutable tool image.
 
 ## Build Config
 

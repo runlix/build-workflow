@@ -14,6 +14,7 @@ jobs:
     name: resolve-tool-image
     permissions:
       contents: read
+      id-token: write
     runs-on: ubuntu-24.04
     outputs:
       tool_image: ${{ steps.resolve.outputs.tool_image }}
@@ -22,16 +23,24 @@ jobs:
         id: resolve
         shell: bash
         env:
-          FALLBACK_SHA: ${{ github.sha }}
-          WORKFLOW_REF: ${{ github.workflow_ref }}
+          OIDC_AUDIENCE: build-workflow-tool-image
         run: |
           set -euo pipefail
 
-          workflow_ref="${WORKFLOW_REF##*@}"
-          if [[ "$workflow_ref" =~ ^[0-9a-f]{40}$ ]]; then
-            workflow_commit="$workflow_ref"
-          else
-            workflow_commit="$FALLBACK_SHA"
+          oidc_token="$(
+            curl -fsSL \
+              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" \
+            | jq -r '.value'
+          )"
+
+          workflow_commit="$(
+            python3 -c 'import base64, json, sys; payload = sys.argv[1].split(".")[1]; payload += "=" * (-len(payload) % 4); claims = json.loads(base64.urlsafe_b64decode(payload)); print(claims.get("job_workflow_sha", ""))' "$oidc_token"
+          )"
+
+          if [[ ! "$workflow_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "job_workflow_sha claim missing from reusable workflow OIDC token" >&2
+            exit 1
           fi
 
           printf 'tool_image=ghcr.io/runlix/build-workflow-tools:sha-%s\n' "$workflow_commit" >> "$GITHUB_OUTPUT"
