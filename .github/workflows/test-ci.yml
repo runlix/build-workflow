@@ -272,6 +272,7 @@ jobs:
           grep -Eq 'render-release-json "\$CONFIG_PATH"' .github/workflows/release.yml
           grep -Eq 'validate-release-json release.json' .github/workflows/release.yml
           grep -Eq 'render-telegram-notification "\$RELEASE_JSON_PATH"' .github/workflows/release.yml
+          grep -Eq 'uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2' .github/workflows/release.yml
           grep -Eq '^      attestations: write$' .github/workflows/release.yml
           grep -Eq '^      id-token: write$' .github/workflows/release.yml
           grep -Eq 'gh pr merge "\$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "\$COMMIT_SHA"' .github/workflows/release.yml
