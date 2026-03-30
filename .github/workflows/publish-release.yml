@@ -175,6 +175,7 @@ jobs:
       contents: read
       packages: write
     needs:
+      - validate-inputs
       - plan
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -282,6 +283,7 @@ jobs:
       contents: read
       packages: write
     needs:
+      - validate-inputs
       - plan
       - build
     if: ${{ inputs.publish }}
