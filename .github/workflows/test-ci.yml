@@ -267,8 +267,11 @@ jobs:
           grep -Eq '^      RUNLIX_PRIVATE_KEY:$' .github/workflows/release.yml
           grep -Eq '^      TELEGRAM_BOT_TOKEN:$' .github/workflows/release.yml
           grep -Eq '^      TELEGRAM_CHAT_ID:$' .github/workflows/release.yml
-          grep -Eq 'build-workflow-ci render-release-json' .github/workflows/release.yml
-          grep -Eq 'build-workflow-ci validate-release-json' .github/workflows/release.yml
+          test "$(grep -Ec '^[[:space:]]+--entrypoint build-workflow-ci[[:space:]]*\\$' .github/workflows/release.yml)" -eq 4
+          grep -Eq 'plan-build-target "\$CONFIG_PATH"' .github/workflows/release.yml
+          grep -Eq 'render-release-json "\$CONFIG_PATH"' .github/workflows/release.yml
+          grep -Eq 'validate-release-json release.json' .github/workflows/release.yml
+          grep -Eq 'render-telegram-notification "\$RELEASE_JSON_PATH"' .github/workflows/release.yml
           grep -Eq '^      attestations: write$' .github/workflows/release.yml
           grep -Eq '^      id-token: write$' .github/workflows/release.yml
           grep -Eq 'gh pr merge "\$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "\$COMMIT_SHA"' .github/workflows/release.yml
