@@ -1,5 +1,5 @@
 {
-  "$schema": "../../schema/ci-config.schema.json",
+  "$schema": "../../schema/build-config.schema.json",
   "image": "ghcr.io/runlix/example-base-image",
   "targets": [
     {

@@ -1,53 +1,22 @@
-name: CI Validate Release JSON
+name: Validate Release Metadata
 
 on:
   workflow_call:
     inputs:
-      tool-image:
-        description: Immutable planner image reference pinned to a build-workflow digest or sha tag.
-        required: true
-        type: string
       release-json-path:
         description: Path to the caller release.json file.
         required: false
         default: release.json
         type: string
 
-permissions:
-  contents: read
-
 jobs:
-  validate-inputs:
-    name: validate-inputs
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    outputs:
-      tool_image: ${{ steps.tool-image.outputs.value }}
-    steps:
-      - name: Validate tool image reference
-        id: tool-image
-        shell: bash
-        env:
-          TOOL_IMAGE: ${{ inputs.tool-image }}
-        run: |
-          set -euo pipefail
-
-          if ! grep -Eq '^ghcr\.io/runlix/build-workflow-tools(@sha256:[0-9a-f]{64}|:sha-[0-9a-f]{40})$' <<< "$TOOL_IMAGE"; then
-            echo "tool-image must be ghcr.io/runlix/build-workflow-tools pinned by digest or :sha-<40-char git sha>" >&2
-            exit 1
-          fi
-
-          printf 'value=%s\n' "$TOOL_IMAGE" >> "$GITHUB_OUTPUT"
-
   validate:
     name: validate
-    needs: validate-inputs
     permissions:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ${{ needs.validate-inputs.outputs.tool_image }}
+      image: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
     steps:
       - name: Checkout caller repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -76,8 +45,8 @@ jobs:
           set -euo pipefail
 
           {
-            echo "## Release JSON Validation"
+            echo "## Release Metadata Validation"
             echo ""
             echo "- release.json path: \`$RELEASE_JSON_PATH\`"
-            echo "- Tool image: \`${{ needs.validate-inputs.outputs.tool_image }}\`"
+            echo "- Tool image: \`ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

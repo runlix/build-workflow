@@ -1,4 +1,4 @@
-name: Validate Main
+name: Validate Release Metadata
 
 on:
   pull_request:
@@ -16,9 +16,8 @@ permissions:
   contents: read
 
 jobs:
-  validate-main:
-    name: validate-main
-    uses: runlix/build-workflow/.github/workflows/validate-release-json.yml@YOUR_BUILD_WORKFLOW_SHA
+  validate-release-metadata:
+    name: validate-release-metadata
+    uses: runlix/build-workflow/.github/workflows/validate-release-metadata.yml@YOUR_BUILD_WORKFLOW_SHA
     with:
-      tool-image: ghcr.io/runlix/build-workflow-tools@sha256:YOUR_TOOL_IMAGE_DIGEST
       release-json-path: release.json

@@ -1,34 +1,48 @@
-name: CI Release
+name: Publish Release
 
 on:
   workflow_call:
     inputs:
-      config-path:
+      build-config-path:
         description: Maintainer override for contract fixtures.
         required: false
-        default: .ci/config.json
+        default: .ci/build.json
         type: string
       publish:
         description: Whether to push images, attest published manifests, and sync release.json.
         required: false
         default: true
         type: boolean
-      tool-image:
-        description: Immutable planner image reference pinned to a build-workflow digest or sha tag.
-        required: true
-        type: string
     secrets:
-      TELEGRAM_BOT_TOKEN:
-        required: false
-      TELEGRAM_CHAT_ID:
-        required: false
       RUNLIX_APP_ID:
         required: false
       RUNLIX_PRIVATE_KEY:
         required: false
+    outputs:
+      image:
+        description: Published image name from the build config.
+        value: ${{ jobs.plan.outputs.image_name }}
+      manifests_json:
+        description: Published manifest metadata when publish is true.
+        value: ${{ jobs.publish.outputs.manifests_json }}
+      published_at:
+        description: Publication timestamp used in release.json when publish is true.
+        value: ${{ jobs.publish.outputs.published_at }}
+      release_json:
+        description: Rendered release.json payload when publish is true.
+        value: ${{ jobs.publish.outputs.release_json }}
+      short_sha:
+        description: Short source SHA used in temporary tags.
+        value: ${{ jobs.plan.outputs.short_sha }}
+      sync_pr_url:
+        description: Metadata sync PR URL when App credentials are configured.
+        value: ${{ jobs.sync-main.outputs.pr_url }}
+      version:
+        description: Version from the build config, if present.
+        value: ${{ jobs.plan.outputs.version }}
 
 concurrency:
-  group: release-${{ github.repository }}
+  group: publish-release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -39,32 +53,13 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       has_sync_credentials: ${{ steps.secret-shape.outputs.has_sync_credentials }}
-      has_telegram_credentials: ${{ steps.secret-shape.outputs.has_telegram_credentials }}
-      tool_image: ${{ steps.tool-image.outputs.value }}
     steps:
-      - name: Validate tool image reference
-        id: tool-image
-        shell: bash
-        env:
-          TOOL_IMAGE: ${{ inputs.tool-image }}
-        run: |
-          set -euo pipefail
-
-          if ! grep -Eq '^ghcr\.io/runlix/build-workflow-tools(@sha256:[0-9a-f]{64}|:sha-[0-9a-f]{40})$' <<< "$TOOL_IMAGE"; then
-            echo "tool-image must be ghcr.io/runlix/build-workflow-tools pinned by digest or :sha-<40-char git sha>" >&2
-            exit 1
-          fi
-
-          printf 'value=%s\n' "$TOOL_IMAGE" >> "$GITHUB_OUTPUT"
-
-      - name: Validate optional secret mapping
+      - name: Validate optional sync secret mapping
         id: secret-shape
         shell: bash
         env:
           RUNLIX_APP_ID: ${{ secrets.RUNLIX_APP_ID }}
           RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
 
@@ -77,28 +72,17 @@ jobs:
             has_sync_credentials=true
           fi
 
-          has_telegram_credentials=false
-          if [ -n "$TELEGRAM_BOT_TOKEN" ] || [ -n "$TELEGRAM_CHAT_ID" ]; then
-            if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-              echo "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be mapped together" >&2
-              exit 1
-            fi
-            has_telegram_credentials=true
-          fi
-
-          {
-            printf 'has_sync_credentials=%s\n' "$has_sync_credentials"
-            printf 'has_telegram_credentials=%s\n' "$has_telegram_credentials"
-          } >> "$GITHUB_OUTPUT"
+          printf 'has_sync_credentials=%s\n' "$has_sync_credentials" >> "$GITHUB_OUTPUT"
 
   plan:
     name: plan
-    needs: validate-inputs
+    needs:
+      - validate-inputs
     permissions:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ${{ needs.validate-inputs.outputs.tool_image }}
+      image: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
     outputs:
       image_name: ${{ steps.validate.outputs.image_name }}
       manifests: ${{ steps.plan-manifests.outputs.manifests }}
@@ -118,15 +102,15 @@ jobs:
           set -euo pipefail
           printf 'short_sha=%s\n' "${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Validate CI config
+      - name: Validate build config
         id: validate
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
         run: |
           set -euo pipefail
 
-          build-workflow-ci validate-config "$CONFIG_PATH" > /tmp/validate-config.json
+          build-workflow-ci validate-config "$BUILD_CONFIG_PATH" > /tmp/validate-config.json
 
           {
             printf 'image_name=%s\n' "$(jq -r '.image_name' /tmp/validate-config.json)"
@@ -137,33 +121,32 @@ jobs:
         id: plan
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ steps.context.outputs.short_sha }}
         run: |
           set -euo pipefail
 
-          build-workflow-ci plan-matrix "$CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-matrix.json
+          build-workflow-ci plan-matrix "$BUILD_CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-matrix.json
           printf 'matrix=%s\n' "$(jq -c . /tmp/plan-matrix.json)" >> "$GITHUB_OUTPUT"
 
       - name: Plan manifests
         id: plan-manifests
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ steps.context.outputs.short_sha }}
         run: |
           set -euo pipefail
 
-          build-workflow-ci plan-manifests "$CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-manifests.json
+          build-workflow-ci plan-manifests "$BUILD_CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-manifests.json
           printf 'manifests=%s\n' "$(jq -c . /tmp/plan-manifests.json)" >> "$GITHUB_OUTPUT"
 
-  build-and-push:
-    name: build-and-push
+  build:
+    name: build
     permissions:
       contents: read
       packages: write
     needs:
-      - validate-inputs
       - plan
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -191,58 +174,56 @@ jobs:
         id: plan-build
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
         run: |
           set -euo pipefail
 
           docker run --rm \
-            --entrypoint build-workflow-ci \
             -v "$PWD:/workspace" \
             -w /workspace \
             "$TOOL_IMAGE" \
-            plan-build-target "$CONFIG_PATH" \
+            plan-build-target "$BUILD_CONFIG_PATH" \
             --target-name "$TARGET_NAME" \
             --mode release \
             --short-sha "$SHORT_SHA" \
             > /tmp/build-target-plan.json
 
           {
+            printf 'context_dir=%s\n' "$(jq -r '.context_dir' /tmp/build-target-plan.json)"
+            printf 'dockerfile=%s\n' "$(jq -r '.dockerfile' /tmp/build-target-plan.json)"
             printf 'image_tag=%s\n' "$(jq -r '.image_tag' /tmp/build-target-plan.json)"
             printf 'platform=%s\n' "$(jq -r '.platform' /tmp/build-target-plan.json)"
             printf 'test_script=%s\n' "$(jq -r '.test // ""' /tmp/build-target-plan.json)"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build target
+      - name: Render build-push inputs
+        id: build-inputs
         shell: bash
         run: |
           set -euo pipefail
 
-          image_tag="$(jq -r '.image_tag' /tmp/build-target-plan.json)"
-          platform="$(jq -r '.platform' /tmp/build-target-plan.json)"
-          dockerfile="$(jq -r '.dockerfile' /tmp/build-target-plan.json)"
-          context_dir="$(jq -r '.context_dir' /tmp/build-target-plan.json)"
+          {
+            echo 'build_args<<EOF'
+            jq -r '.build_args | to_entries[]? | "\(.key)=\(.value)"' /tmp/build-target-plan.json
+            echo 'EOF'
+            echo 'labels<<EOF'
+            jq -r '.labels | to_entries[]? | "\(.key)=\(.value)"' /tmp/build-target-plan.json
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
-          build_args=()
-          while IFS=$'\t' read -r key value; do
-            build_args+=(--build-arg "$key=$value")
-          done < <(jq -r '.build_args | to_entries[] | [.key, .value] | @tsv' /tmp/build-target-plan.json)
-
-          label_args=()
-          while IFS=$'\t' read -r key value; do
-            label_args+=(--label "$key=$value")
-          done < <(jq -r '.labels | to_entries[] | [.key, .value] | @tsv' /tmp/build-target-plan.json)
-
-          docker buildx build \
-            --platform "$platform" \
-            -f "$dockerfile" \
-            "${build_args[@]}" \
-            "${label_args[@]}" \
-            --load \
-            -t "$image_tag" \
-            "$context_dir"
+      - name: Build target
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          build-args: ${{ steps.build-inputs.outputs.build_args }}
+          context: ${{ steps.plan-build.outputs.context_dir }}
+          file: ${{ steps.plan-build.outputs.dockerfile }}
+          labels: ${{ steps.build-inputs.outputs.labels }}
+          load: true
+          platforms: ${{ steps.plan-build.outputs.platform }}
+          tags: ${{ steps.plan-build.outputs.image_tag }}
 
       - name: Run target test
         if: ${{ steps.plan-build.outputs.test_script != '' }}
@@ -255,7 +236,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Running test script: $TEST_SCRIPT"
           chmod +x "$TEST_SCRIPT"
           "$TEST_SCRIPT"
 
@@ -274,11 +254,12 @@ jobs:
       contents: read
       packages: write
     needs:
-      - validate-inputs
       - plan
-      - build-and-push
+      - build
+    if: ${{ inputs.publish }}
     outputs:
-      published_manifests: ${{ steps.manifest-metadata.outputs.payload }}
+      manifests_json: ${{ steps.manifest-metadata.outputs.payload }}
+      published_at: ${{ steps.published-at.outputs.value }}
       release_json: ${{ steps.release-json.outputs.payload }}
     runs-on: ubuntu-24.04
     steps:
@@ -288,7 +269,6 @@ jobs:
           persist-credentials: false
 
       - name: Log in to GHCR
-        if: ${{ inputs.publish }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
         with:
           registry: ghcr.io
@@ -296,12 +276,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        if: ${{ inputs.publish }}
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Resolve publication timestamp
         id: published-at
-        if: ${{ inputs.publish }}
         shell: bash
         run: |
           set -euo pipefail
@@ -309,7 +287,6 @@ jobs:
 
       - name: Create manifests and collect metadata
         id: manifest-metadata
-        if: ${{ inputs.publish }}
         shell: bash
         env:
           IMAGE_NAME: ${{ needs.plan.outputs.image_name }}
@@ -327,7 +304,6 @@ jobs:
             mapfile -t refs < <(jq -r '.refs[]' <<< "$manifest")
             final_ref="${IMAGE_NAME}:${tag}"
 
-            echo "Creating manifest for $final_ref"
             docker buildx imagetools create -t "$final_ref" "${refs[@]}"
 
             digest="$(docker buildx imagetools inspect "$final_ref" --format '{{json .Manifest}}' | jq -r '.digest')"
@@ -343,19 +319,17 @@ jobs:
             mv "${manifest_file}.tmp" "$manifest_file"
           done < <(jq -c '.[]' <<< "$MANIFESTS_JSON")
 
-          payload="$(jq -c 'sort_by(.tag)' "$manifest_file")"
-          printf 'payload=%s\n' "$payload" >> "$GITHUB_OUTPUT"
+          printf 'payload=%s\n' "$(jq -c 'sort_by(.tag)' "$manifest_file")" >> "$GITHUB_OUTPUT"
 
       - name: Render release.json
         id: release-json
-        if: ${{ inputs.publish }}
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           MANIFESTS_PAYLOAD: ${{ steps.manifest-metadata.outputs.payload }}
           PUBLISHED_AT: ${{ steps.published-at.outputs.value }}
           SOURCE_SHA: ${{ github.sha }}
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
         run: |
           set -euo pipefail
 
@@ -363,12 +337,11 @@ jobs:
           printf '%s\n' "$MANIFESTS_PAYLOAD" > "$manifest_file"
 
           docker run --rm \
-            --entrypoint build-workflow-ci \
             -v "$PWD:/workspace" \
             -w /workspace \
             -v "$RUNNER_TEMP:$RUNNER_TEMP" \
             "$TOOL_IMAGE" \
-            render-release-json "$CONFIG_PATH" \
+            render-release-json "$BUILD_CONFIG_PATH" \
             --source-sha "$SOURCE_SHA" \
             --published-at "$PUBLISHED_AT" \
             --manifests-path "$manifest_file" \
@@ -377,70 +350,19 @@ jobs:
           printf 'payload=%s\n' "$(jq -c . release.json)" >> "$GITHUB_OUTPUT"
 
       - name: Validate release.json
-        if: ${{ inputs.publish }}
         shell: bash
         env:
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
         run: |
           set -euo pipefail
-
-          docker run --rm \
-            --entrypoint build-workflow-ci \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            "$TOOL_IMAGE" \
-            validate-release-json release.json
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$TOOL_IMAGE" validate-release-json release.json
 
       - name: Upload release.json artifact
-        if: ${{ inputs.publish }}
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: release-json
           path: release.json
           retention-days: 7
-
-      - name: Send Telegram notification
-        if: ${{ inputs.publish && needs.validate-inputs.outputs.has_telegram_credentials == 'true' }}
-        continue-on-error: true
-        shell: bash
-        env:
-          RELEASE_JSON_PATH: release.json
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          SERVER_URL: ${{ github.server_url }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
-        run: |
-          set -euo pipefail
-
-          echo "::add-mask::$TELEGRAM_BOT_TOKEN"
-          echo "::add-mask::$TELEGRAM_CHAT_ID"
-
-          docker run --rm \
-            --entrypoint build-workflow-ci \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            "$TOOL_IMAGE" \
-            render-telegram-notification "$RELEASE_JSON_PATH" \
-            --repository "$REPOSITORY" \
-            --server-url "$SERVER_URL" \
-            --run-id "$RUN_ID" \
-            > /tmp/telegram-message.txt
-
-          if ! response="$(
-            curl --fail-with-body -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text=$(cat /tmp/telegram-message.txt)" \
-              --data-urlencode "parse_mode=Markdown" \
-              --data-urlencode "disable_web_page_preview=true"
-          )"; then
-            echo "Telegram notification request failed" >&2
-            exit 1
-          fi
-
-          jq -e '.ok == true' <<< "$response" > /dev/null
-          echo "Telegram notification sent."
 
   attest:
     name: attest
@@ -457,7 +379,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.publish.outputs.published_manifests) }}
+        include: ${{ fromJson(needs.publish.outputs.manifests_json) }}
     steps:
       - name: Log in to GHCR
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
@@ -482,6 +404,8 @@ jobs:
       - validate-inputs
     permissions:
       contents: read
+    outputs:
+      pr_url: ${{ steps.sync-pr.outputs.url }}
     runs-on: ubuntu-24.04
     steps:
       - name: Create GitHub App token
@@ -508,7 +432,6 @@ jobs:
           RELEASE_JSON: ${{ needs.publish.outputs.release_json }}
           SYNC_BRANCH: automation/sync-release-json
         shell: bash
-        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
 
@@ -524,7 +447,6 @@ jobs:
           git add release.json
 
           if git diff --staged --quiet; then
-            echo "No metadata changes to commit"
             printf 'has_changes=false\n' >> "$GITHUB_OUTPUT"
             printf 'sync_branch=%s\n' "$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
             exit 0
@@ -543,10 +465,12 @@ jobs:
           git commit -m "$commit_title"
           git push --force-with-lease origin "HEAD:${SYNC_BRANCH}"
 
-          printf 'has_changes=true\n' >> "$GITHUB_OUTPUT"
-          printf 'sync_branch=%s\n' "$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
-          printf 'commit_sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          printf 'commit_title=%s\n' "$commit_title" >> "$GITHUB_OUTPUT"
+          {
+            printf 'has_changes=true\n'
+            printf 'sync_branch=%s\n' "$SYNC_BRANCH"
+            printf 'commit_sha=%s\n' "$(git rev-parse HEAD)"
+            printf 'commit_title=%s\n' "$commit_title"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Close stale sync PR
         if: ${{ steps.sync-branch.outputs.has_changes != 'true' }}
@@ -558,12 +482,9 @@ jobs:
           set -euo pipefail
 
           pr_number="$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
-          if [ -z "$pr_number" ]; then
-            echo "No open sync PR to close"
-            exit 0
+          if [ -n "$pr_number" ]; then
+            gh pr close "$pr_number" --comment "Closing stale sync PR because \`release.json\` already matches \`main\`."
           fi
-
-          gh pr close "$pr_number" --comment "Closing stale sync PR because \`release.json\` already matches \`main\`."
 
       - name: Create or update sync PR
         id: sync-pr
@@ -580,7 +501,7 @@ jobs:
 
           body_file="${RUNNER_TEMP}/sync-pr-body.md"
           {
-            echo "Automated update of \`release.json\` from a successful release run."
+            echo "Automated update of \`release.json\` from a successful publish run."
             echo ""
             echo "- Source workflow run: https://github.com/${{ github.repository }}/actions/runs/${SOURCE_RUN_ID}"
             echo "- Source commit: \`${SOURCE_SHA}\`"
@@ -600,8 +521,10 @@ jobs:
             exit 1
           }
 
-          printf 'number=%s\n' "$pr_number" >> "$GITHUB_OUTPUT"
-          printf 'url=%s\n' "$(gh pr view "$pr_number" --json url --jq '.url')" >> "$GITHUB_OUTPUT"
+          {
+            printf 'number=%s\n' "$pr_number"
+            printf 'url=%s\n' "$(gh pr view "$pr_number" --json url --jq '.url')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Enable sync PR merge
         if: ${{ steps.sync-branch.outputs.has_changes == 'true' }}
@@ -614,31 +537,6 @@ jobs:
           set -euo pipefail
 
           auto_merge_enabled="$(gh pr view "$PR_NUMBER" --json autoMergeRequest --jq '.autoMergeRequest != null')"
-          if [ "$auto_merge_enabled" = "true" ]; then
-            echo "Sync PR auto-merge is already enabled"
-            exit 0
+          if [ "$auto_merge_enabled" != "true" ]; then
+            gh pr merge "$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "$COMMIT_SHA"
           fi
-
-          gh pr merge "$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "$COMMIT_SHA"
-
-      - name: Summarize sync PR state
-        shell: bash
-        env:
-          HAS_CHANGES: ${{ steps.sync-branch.outputs.has_changes }}
-          PR_NUMBER: ${{ steps.sync-pr.outputs.number }}
-          PR_URL: ${{ steps.sync-pr.outputs.url }}
-          SYNC_BRANCH: ${{ steps.sync-branch.outputs.sync_branch }}
-        run: |
-          set -euo pipefail
-
-          {
-            echo "## Sync PR"
-            echo ""
-            echo "- Sync branch: \`$SYNC_BRANCH\`"
-            if [ "$HAS_CHANGES" = "true" ]; then
-              echo "- PR: [#$PR_NUMBER]($PR_URL)"
-              echo "- Merge mode: \`merge\` via bot-authored pull request"
-            else
-              echo "- Result: \`release.json\` already matched \`main\`"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"

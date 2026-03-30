@@ -111,7 +111,7 @@ def validate_schema(payload: Any, schema_name: str) -> None:
 def validate_config_payload(config_path: str) -> dict[str, Any]:
     require_file(config_path)
     payload = read_json(config_path)
-    validate_schema(payload, "ci-config.schema.json")
+    validate_schema(payload, "build-config.schema.json")
     return payload
 
 
@@ -434,34 +434,6 @@ def validate_release_json_file(json_path: str) -> dict[str, Any]:
     return validate_release_json_payload(payload)
 
 
-def render_telegram_notification(
-    release_json_path: str,
-    repository: str,
-    server_url: str,
-    run_id: str,
-) -> str:
-    payload = validate_release_json_file(release_json_path)
-    service_name = payload["image"].rsplit("/", 1)[1]
-    commit_url = f"{server_url}/{repository}/commit/{payload['sha']}"
-    run_url = f"{server_url}/{repository}/actions/runs/{run_id}"
-    if payload["version"]:
-        version_line = f"*Version:* `{payload['version']}`"
-    else:
-        version_line = f"*Version:* `{payload['short_sha']}` (SHA-based)"
-    tags_text = ", ".join(manifest["tag"] for manifest in payload["manifests"])
-    return (
-        "🎉 *Docker Release Complete*\n\n"
-        f"*Service:* `{service_name}`\n"
-        f"{version_line}\n"
-        f"*Commit:* [`{payload['short_sha']}`]({commit_url})\n\n"
-        "*Manifests Created:*\n"
-        f"`{tags_text}`\n\n"
-        "*Registry:*\n"
-        f"`{payload['image']}`\n\n"
-        f"[View Workflow Run]({run_url})"
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="build-workflow-ci")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -492,12 +464,6 @@ def build_parser() -> argparse.ArgumentParser:
     release_json_parser.add_argument("--published-at", required=True)
     release_json_parser.add_argument("--manifests-path", required=True)
 
-    telegram_parser = subparsers.add_parser("render-telegram-notification")
-    telegram_parser.add_argument("release_json_path")
-    telegram_parser.add_argument("--repository", required=True)
-    telegram_parser.add_argument("--server-url", required=True)
-    telegram_parser.add_argument("--run-id", required=True)
-
     validate_schema_parser = subparsers.add_parser("validate-schema-file")
     validate_schema_parser.add_argument("schema_path")
 
@@ -524,15 +490,6 @@ def main(argv: list[str] | None = None) -> int:
             write_json(plan_manifests(args.config_path, args.short_sha))
         elif args.command == "render-release-json":
             write_json(render_release_json(args.config_path, args.source_sha, args.published_at, args.manifests_path))
-        elif args.command == "render-telegram-notification":
-            print(
-                render_telegram_notification(
-                    args.release_json_path,
-                    args.repository,
-                    args.server_url,
-                    args.run_id,
-                )
-            )
         elif args.command == "validate-schema-file":
             validate_schema_file(args.schema_path)
         elif args.command == "validate-release-json":
