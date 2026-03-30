@@ -14,13 +14,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-tool-image:
+    name: resolve-tool-image
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      tool_image: ${{ steps.resolve.outputs.tool_image }}
+    steps:
+      - name: Resolve provider tool image
+        id: resolve
+        shell: bash
+        env:
+          FALLBACK_SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          workflow_ref="${WORKFLOW_REF##*@}"
+          if [[ "$workflow_ref" =~ ^[0-9a-f]{40}$ ]]; then
+            workflow_commit="$workflow_ref"
+          else
+            workflow_commit="$FALLBACK_SHA"
+          fi
+
+          printf 'tool_image=ghcr.io/runlix/build-workflow-tools:sha-%s\n' "$workflow_commit" >> "$GITHUB_OUTPUT"
+
   plan:
     name: plan
     permissions:
       contents: read
+    needs:
+      - resolve-tool-image
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
+      image: ${{ needs.resolve-tool-image.outputs.tool_image }}
     outputs:
       enabled_count: ${{ steps.validate.outputs.enabled_count }}
       image_name: ${{ steps.validate.outputs.image_name }}
@@ -75,6 +103,7 @@ jobs:
     permissions:
       contents: read
     needs:
+      - resolve-tool-image
       - plan
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -97,7 +126,7 @@ jobs:
           BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
+          TOOL_IMAGE: ${{ needs.resolve-tool-image.outputs.tool_image }}
         run: |
           set -euo pipefail
 

@@ -34,7 +34,7 @@ On `main`:
 - `release.json`
 
 Callers pin only the reusable workflow SHA.
-The reusable workflows resolve the matching internal tool image from `github.workflow_sha`.
+The reusable workflows resolve the matching internal tool image from the pinned reusable workflow ref and fall back to the current repository SHA only for provider self-tests.
 
 ## Build Config
 

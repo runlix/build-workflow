@@ -53,7 +53,26 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       has_sync_credentials: ${{ steps.secret-shape.outputs.has_sync_credentials }}
+      tool_image: ${{ steps.resolve-tool-image.outputs.tool_image }}
     steps:
+      - name: Resolve provider tool image
+        id: resolve-tool-image
+        shell: bash
+        env:
+          FALLBACK_SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          workflow_ref="${WORKFLOW_REF##*@}"
+          if [[ "$workflow_ref" =~ ^[0-9a-f]{40}$ ]]; then
+            workflow_commit="$workflow_ref"
+          else
+            workflow_commit="$FALLBACK_SHA"
+          fi
+
+          printf 'tool_image=ghcr.io/runlix/build-workflow-tools:sha-%s\n' "$workflow_commit" >> "$GITHUB_OUTPUT"
+
       - name: Validate optional sync secret mapping
         id: secret-shape
         shell: bash
@@ -82,7 +101,7 @@ jobs:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
+      image: ${{ needs.validate-inputs.outputs.tool_image }}
     outputs:
       image_name: ${{ steps.validate.outputs.image_name }}
       manifests: ${{ steps.plan-manifests.outputs.manifests }}
@@ -177,7 +196,7 @@ jobs:
           BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -329,7 +348,7 @@ jobs:
           MANIFESTS_PAYLOAD: ${{ steps.manifest-metadata.outputs.payload }}
           PUBLISHED_AT: ${{ steps.published-at.outputs.value }}
           SOURCE_SHA: ${{ github.sha }}
-          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
 
@@ -352,7 +371,7 @@ jobs:
       - name: Validate release.json
         shell: bash
         env:
-          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
+          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/workspace" -w /workspace "$TOOL_IMAGE" validate-release-json release.json
