@@ -1,0 +1,26 @@
+name: Validate Build
+
+on:
+  pull_request:
+    branches:
+      - release
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - ".ci/build.json"
+      - ".ci/*.sh"
+      - ".dockerignore"
+      - "linux-*.Dockerfile"
+      - ".github/workflows/validate-build.yml"
+      - ".github/workflows/publish-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    uses: runlix/build-workflow/.github/workflows/validate-build.yml@YOUR_BUILD_WORKFLOW_SHA

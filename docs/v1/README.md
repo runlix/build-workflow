@@ -22,4 +22,4 @@ Primary legacy guides:
 - [release-workflow.md](./release-workflow.md)
 - [renovate.md](./renovate.md)
 
-For new repositories, use the supported CI guide at [../ci.md](../ci.md) instead.
+For new repositories, use the supported CI guide at [../ci-v3.md](../ci-v3.md) instead.

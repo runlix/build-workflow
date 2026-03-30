@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'tools/ci/**'
-      - 'schema/ci-config.schema.json'
+      - 'schema/build-config.schema.json'
       - 'schema/release-json.schema.json'
       - '.github/workflows/publish-tool-image.yml'
   workflow_dispatch:
@@ -41,19 +41,13 @@ jobs:
 
       - name: Build and push immutable tool image
         id: build
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -f tools/ci/Dockerfile \
-            --push \
-            --metadata-file /tmp/build-metadata.json \
-            -t ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA} \
-            .
-
-          printf 'digest=%s\n' "$(jq -re '."containerimage.digest"' /tmp/build-metadata.json)" >> "$GITHUB_OUTPUT"
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: tools/ci/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
 
       - name: Summarize immutable tool image refs
         shell: bash
@@ -65,47 +59,4 @@ jobs:
             echo ""
             echo "- Git SHA tag: \`ghcr.io/runlix/build-workflow-tools:sha-${GITHUB_SHA}\`"
             echo "- Digest ref: \`ghcr.io/runlix/build-workflow-tools@${{ steps.build.outputs.digest }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  update-ci-alias:
-    name: update-ci-alias
-    if: ${{ github.ref == 'refs/heads/main' }}
-    needs: publish-immutable
-    permissions:
-      contents: read
-      packages: write
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: publish-tool-image-ci-${{ github.repository }}
-      cancel-in-progress: true
-    steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
-
-      - name: Update mutable ci alias
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          docker buildx imagetools create \
-            -t ghcr.io/runlix/build-workflow-tools:ci \
-            ghcr.io/runlix/build-workflow-tools@${{ needs.publish-immutable.outputs.digest }}
-
-      - name: Summarize mutable ci alias
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          {
-            echo "## Updated CI Alias"
-            echo ""
-            echo "- Mutable alias: \`ghcr.io/runlix/build-workflow-tools:ci\`"
-            echo "- Current digest: \`ghcr.io/runlix/build-workflow-tools@${{ needs.publish-immutable.outputs.digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

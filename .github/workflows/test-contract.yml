@@ -1,0 +1,346 @@
+name: Test CI Contract
+
+on:
+  pull_request:
+    paths:
+      - 'renovate.json'
+      - 'tools/ci/**'
+      - '.github/workflows/build-images-rebuild.yml'
+      - '.github/workflows/test-workflow.yml'
+      - '.github/workflows/validate-build.yml'
+      - '.github/workflows/publish-release.yml'
+      - '.github/workflows/validate-release-metadata.yml'
+      - '.github/workflows/publish-tool-image.yml'
+      - '.github/workflows/test-contract.yml'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'docs/ci-v3.md'
+      - 'docs/v1/README.md'
+      - 'examples/build-config/**'
+      - 'examples/v1/**'
+      - 'examples/wrappers/**'
+      - 'schema/build-config.schema.json'
+      - 'schema/release-json.schema.json'
+      - 'test-fixtures/ci/**'
+      - 'test-fixtures/v1/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'renovate.json'
+      - 'tools/ci/**'
+      - '.github/workflows/build-images-rebuild.yml'
+      - '.github/workflows/test-workflow.yml'
+      - '.github/workflows/validate-build.yml'
+      - '.github/workflows/publish-release.yml'
+      - '.github/workflows/validate-release-metadata.yml'
+      - '.github/workflows/publish-tool-image.yml'
+      - '.github/workflows/test-contract.yml'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'docs/ci-v3.md'
+      - 'docs/v1/README.md'
+      - 'examples/build-config/**'
+      - 'examples/v1/**'
+      - 'examples/wrappers/**'
+      - 'schema/build-config.schema.json'
+      - 'schema/release-json.schema.json'
+      - 'test-fixtures/ci/**'
+      - 'test-fixtures/v1/**'
+  workflow_dispatch:
+
+concurrency:
+  group: test-contract-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate-contract:
+    name: validate-contract
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user -r tools/ci/requirements.txt
+
+      - name: Validate schema structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/ci/bin/build-workflow-ci validate-schema-file schema/build-config.schema.json
+          tools/ci/bin/build-workflow-ci validate-schema-file schema/release-json.schema.json
+
+      - name: Validate examples and fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for file in \
+            examples/build-config/base-image.json \
+            examples/build-config/service-image.json
+          do
+            tools/ci/bin/build-workflow-ci validate-config-payload "$file"
+          done
+
+          for file in \
+            test-fixtures/ci/base-image/.ci/build.json \
+            test-fixtures/ci/service/.ci/build.json
+          do
+            tools/ci/bin/build-workflow-ci validate-config "$file" > /dev/null
+          done
+
+          tools/ci/bin/build-workflow-ci validate-release-json test-fixtures/ci/release-json/release.json
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
+
+      - name: Validate docs navigation and contract names
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -Fq '[docs/ci-v3.md](./docs/ci-v3.md)' README.md
+          grep -Fq '[../ci-v3.md](../ci-v3.md)' docs/v1/README.md
+
+          if rg -n 'tool-image|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|validate-release-json\.yml|validate\.yml|release\.yml' \
+            README.md docs/ci-v3.md examples/wrappers .github/workflows/test-contract.yml
+          then
+            echo "Old v2 contract names or secrets remain in the v3 docs surface" >&2
+            exit 1
+          fi
+
+      - name: Run direct CLI smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tools/ci/bin/build-workflow-ci validate-config test-fixtures/ci/service/.ci/build.json > /tmp/validate.json
+          jq -e '.image_name == "ghcr.io/runlix/test-service"' /tmp/validate.json > /dev/null
+          jq -e '.context_dir == "test-fixtures/ci/service"' /tmp/validate.json > /dev/null
+
+          tools/ci/bin/build-workflow-ci \
+            plan-matrix test-fixtures/ci/service/.ci/build.json \
+            --short-sha 1234567 \
+            > /tmp/matrix.json
+          jq -e 'length == 2' /tmp/matrix.json > /dev/null
+          jq -e '.[0].manifest_tag != null' /tmp/matrix.json > /dev/null
+
+          tools/ci/bin/build-workflow-ci \
+            plan-build-target test-fixtures/ci/service/.ci/build.json \
+            --target-name stable-amd64 \
+            --mode pr \
+            --short-sha 1234567 \
+            > /tmp/build-target.json
+          jq -e '.image_tag == "ghcr.io/runlix/test-service:pr-1234567-stable-amd64"' /tmp/build-target.json > /dev/null
+          jq -e '.build_args.BASE_REF != null' /tmp/build-target.json > /dev/null
+
+          tools/ci/bin/build-workflow-ci \
+            plan-manifests test-fixtures/ci/service/.ci/build.json \
+            --short-sha 1234567 \
+            > /tmp/manifests.json
+          jq -e '.[0].refs | length > 0' /tmp/manifests.json > /dev/null
+          jq -e '.[0].platforms[0] == "linux/amd64"' /tmp/manifests.json > /dev/null
+
+          tools/ci/bin/build-workflow-ci \
+            render-release-json test-fixtures/ci/service/.ci/build.json \
+            --source-sha 1234567890abcdef1234567890abcdef12345678 \
+            --published-at 2026-03-17T12:00:00Z \
+            --manifests-path test-fixtures/ci/release-json/manifests.json \
+            > /tmp/release.json
+
+          tools/ci/bin/build-workflow-ci validate-release-json /tmp/release.json
+          diff -u test-fixtures/ci/release-json/release.json /tmp/release.json
+
+      - name: Build local tool image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f tools/ci/Dockerfile -t build-workflow-tools:test .
+
+      - name: Run tool image smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            --entrypoint bash \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            build-workflow-tools:test \
+            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci validate-config test-fixtures/ci/base-image/.ci/build.json' \
+            > /tmp/container-validate.json
+
+          jq -e '.enabled_count == 2' /tmp/container-validate.json > /dev/null
+
+          docker run --rm \
+            --entrypoint bash \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            build-workflow-tools:test \
+            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci render-release-json test-fixtures/ci/service/.ci/build.json --source-sha 1234567890abcdef1234567890abcdef12345678 --published-at 2026-03-17T12:00:00Z --manifests-path test-fixtures/ci/release-json/manifests.json' \
+            > /tmp/container-release.json
+
+          diff -u test-fixtures/ci/release-json/release.json /tmp/container-release.json
+
+      - name: Verify public workflow contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f .github/workflows/validate-build.yml
+          test -f .github/workflows/publish-release.yml
+          test -f .github/workflows/validate-release-metadata.yml
+          test ! -e .github/workflows/validate.yml
+          test ! -e .github/workflows/release.yml
+          test ! -e .github/workflows/validate-release-json.yml
+          test -f schema/build-config.schema.json
+          test ! -e schema/ci-config.schema.json
+
+          if rg -n 'TELEGRAM_|tool-image:' \
+            .github/workflows/validate-build.yml \
+            .github/workflows/publish-release.yml \
+            .github/workflows/validate-release-metadata.yml \
+            examples/wrappers
+          then
+            echo "Old public inputs or secrets remain in the v3 contract" >&2
+            exit 1
+          fi
+
+          grep -Eq '^      build-config-path:$' .github/workflows/validate-build.yml
+          grep -Eq '^      build-config-path:$' .github/workflows/publish-release.yml
+          grep -Eq '^      release_json:$' .github/workflows/publish-release.yml
+          grep -Eq '^      manifests_json:$' .github/workflows/publish-release.yml
+          grep -Eq '^      sync_pr_url:$' .github/workflows/publish-release.yml
+          grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.workflow_sha \}\}' .github/workflows/validate-build.yml
+          grep -Eq 'ghcr\.io/runlix/build-workflow-tools:sha-\$\{\{ github\.workflow_sha \}\}' .github/workflows/publish-release.yml
+          grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/validate-build.yml
+          grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/publish-release.yml
+          if grep -Eq 'update-ci-alias|build-workflow-tools:ci' .github/workflows/publish-tool-image.yml; then
+            echo "Mutable ci alias handling remains in publish-tool-image.yml" >&2
+            exit 1
+          fi
+
+  publish-self-test-tool-image:
+    name: publish-self-test-tool-image
+    needs:
+      - validate-contract
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Publish current commit tool image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: tools/ci/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
+
+  test-base-image:
+    name: test-base-image
+    needs:
+      - publish-self-test-tool-image
+    uses: ./.github/workflows/validate-build.yml
+    with:
+      build-config-path: test-fixtures/ci/base-image/.ci/build.json
+
+  test-service:
+    name: test-service
+    needs:
+      - publish-self-test-tool-image
+    uses: ./.github/workflows/validate-build.yml
+    with:
+      build-config-path: test-fixtures/ci/service/.ci/build.json
+
+  test-release-dry-run:
+    name: test-release-dry-run
+    needs:
+      - publish-self-test-tool-image
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/publish-release.yml
+    with:
+      build-config-path: test-fixtures/ci/service/.ci/build.json
+      publish: false
+
+  validate-release-json-fixture:
+    name: validate-release-json-fixture
+    needs:
+      - publish-self-test-tool-image
+    uses: ./.github/workflows/validate-release-metadata.yml
+    with:
+      release-json-path: test-fixtures/ci/release-json/release.json
+
+  test-summary:
+    name: test-summary
+    needs:
+      - validate-contract
+      - publish-self-test-tool-image
+      - test-base-image
+      - test-service
+      - test-release-dry-run
+      - validate-release-json-fixture
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Summarize CI workflow tests
+        shell: bash
+        env:
+          CONTRACT_RESULT: ${{ needs.validate-contract.result }}
+          FIXTURE_IMAGE_RESULT: ${{ needs.publish-self-test-tool-image.result }}
+          BASE_IMAGE_RESULT: ${{ needs.test-base-image.result }}
+          SERVICE_RESULT: ${{ needs.test-service.result }}
+          RELEASE_DRY_RUN_RESULT: ${{ needs.test-release-dry-run.result }}
+          RELEASE_JSON_RESULT: ${{ needs.validate-release-json-fixture.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## CI Contract Test Summary"
+            echo ""
+            echo "- Contract validation: \`$CONTRACT_RESULT\`"
+            echo "- Tool image publish: \`$FIXTURE_IMAGE_RESULT\`"
+            echo "- Base-image fixture validation: \`$BASE_IMAGE_RESULT\`"
+            echo "- Service fixture validation: \`$SERVICE_RESULT\`"
+            echo "- Release dry run: \`$RELEASE_DRY_RUN_RESULT\`"
+            echo "- release.json fixture validation: \`$RELEASE_JSON_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for result in "$CONTRACT_RESULT" "$FIXTURE_IMAGE_RESULT" "$BASE_IMAGE_RESULT" "$SERVICE_RESULT" "$RELEASE_DRY_RUN_RESULT" "$RELEASE_JSON_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "CI contract tests failed" >&2
+              exit 1
+            fi
+          done

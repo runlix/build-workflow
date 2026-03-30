@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Runlix CI Config",
+  "title": "Runlix Build Config",
   "type": "object",
   "properties": {
     "$schema": {

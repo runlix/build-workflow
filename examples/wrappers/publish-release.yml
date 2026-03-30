@@ -1,0 +1,26 @@
+name: Publish Release
+
+on:
+  push:
+    branches:
+      - release
+    paths:
+      - ".ci/build.json"
+      - ".ci/*.sh"
+      - ".dockerignore"
+      - "linux-*.Dockerfile"
+      - ".github/workflows/publish-release.yml"
+  workflow_dispatch:
+
+permissions:
+  attestations: write
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  publish:
+    uses: runlix/build-workflow/.github/workflows/publish-release.yml@YOUR_BUILD_WORKFLOW_SHA
+    secrets:
+      RUNLIX_APP_ID: ${{ secrets.RUNLIX_APP_ID }}
+      RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}

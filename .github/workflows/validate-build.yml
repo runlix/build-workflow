@@ -1,61 +1,33 @@
-name: CI Validate
+name: Validate Build
 
 on:
   workflow_call:
     inputs:
-      config-path:
+      build-config-path:
         description: Maintainer override for contract fixtures.
         required: false
-        default: .ci/config.json
-        type: string
-      tool-image:
-        description: Immutable planner image reference pinned to a build-workflow digest or sha tag.
-        required: true
+        default: .ci/build.json
         type: string
 
 concurrency:
-  group: validate-${{ github.repository }}-${{ github.ref }}-${{ inputs.config-path }}
+  group: validate-build-${{ github.repository }}-${{ github.ref }}-${{ inputs.build-config-path }}
   cancel-in-progress: true
 
 jobs:
-  validate-inputs:
-    name: validate-inputs
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    outputs:
-      tool_image: ${{ steps.tool-image.outputs.value }}
-    steps:
-      - name: Validate tool image reference
-        id: tool-image
-        shell: bash
-        env:
-          TOOL_IMAGE: ${{ inputs.tool-image }}
-        run: |
-          set -euo pipefail
-
-          if ! grep -Eq '^ghcr\.io/runlix/build-workflow-tools(@sha256:[0-9a-f]{64}|:sha-[0-9a-f]{40})$' <<< "$TOOL_IMAGE"; then
-            echo "tool-image must be ghcr.io/runlix/build-workflow-tools pinned by digest or :sha-<40-char git sha>" >&2
-            exit 1
-          fi
-
-          printf 'value=%s\n' "$TOOL_IMAGE" >> "$GITHUB_OUTPUT"
-
   plan:
     name: plan
-    needs: validate-inputs
     permissions:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ${{ needs.validate-inputs.outputs.tool_image }}
+      image: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
     outputs:
+      enabled_count: ${{ steps.validate.outputs.enabled_count }}
+      image_name: ${{ steps.validate.outputs.image_name }}
+      manifest_tags: ${{ steps.validate.outputs.manifest_tags }}
       matrix: ${{ steps.plan.outputs.matrix }}
       short_sha: ${{ steps.context.outputs.short_sha }}
-      image_name: ${{ steps.validate.outputs.image_name }}
       version: ${{ steps.validate.outputs.version }}
-      enabled_count: ${{ steps.validate.outputs.enabled_count }}
-      manifest_tags: ${{ steps.validate.outputs.manifest_tags }}
     steps:
       - name: Checkout service repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -69,33 +41,33 @@ jobs:
           set -euo pipefail
           printf 'short_sha=%s\n' "${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Validate CI config
+      - name: Validate build config
         id: validate
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
         run: |
           set -euo pipefail
 
-          build-workflow-ci validate-config "$CONFIG_PATH" > /tmp/validate-config.json
+          build-workflow-ci validate-config "$BUILD_CONFIG_PATH" > /tmp/validate-config.json
 
           {
             printf 'image_name=%s\n' "$(jq -r '.image_name' /tmp/validate-config.json)"
             printf 'version=%s\n' "$(jq -r '.version // ""' /tmp/validate-config.json)"
             printf 'enabled_count=%s\n' "$(jq -r '.enabled_count' /tmp/validate-config.json)"
-            printf 'manifest_tags=%s\n' "$(jq -r '.manifest_tags | join(", ")' /tmp/validate-config.json)"
+            printf 'manifest_tags=%s\n' "$(jq -c '.manifest_tags' /tmp/validate-config.json)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Plan build matrix
         id: plan
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ steps.context.outputs.short_sha }}
         run: |
           set -euo pipefail
 
-          build-workflow-ci plan-matrix "$CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-matrix.json
+          build-workflow-ci plan-matrix "$BUILD_CONFIG_PATH" --short-sha "$SHORT_SHA" > /tmp/plan-matrix.json
           printf 'matrix=%s\n' "$(jq -c . /tmp/plan-matrix.json)" >> "$GITHUB_OUTPUT"
 
   build:
@@ -103,7 +75,6 @@ jobs:
     permissions:
       contents: read
     needs:
-      - validate-inputs
       - plan
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -123,10 +94,10 @@ jobs:
         id: plan-build
         shell: bash
         env:
-          CONFIG_PATH: ${{ inputs.config-path }}
+          BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ghcr.io/runlix/build-workflow-tools:sha-${{ github.workflow_sha }}
         run: |
           set -euo pipefail
 
@@ -134,7 +105,7 @@ jobs:
             -v "$PWD:/workspace" \
             -w /workspace \
             "$TOOL_IMAGE" \
-            plan-build-target "$CONFIG_PATH" \
+            plan-build-target "$BUILD_CONFIG_PATH" \
             --target-name "$TARGET_NAME" \
             --mode pr \
             --short-sha "$SHORT_SHA" \
@@ -144,36 +115,35 @@ jobs:
             printf 'image_tag=%s\n' "$(jq -r '.image_tag' /tmp/build-target-plan.json)"
             printf 'platform=%s\n' "$(jq -r '.platform' /tmp/build-target-plan.json)"
             printf 'test_script=%s\n' "$(jq -r '.test // ""' /tmp/build-target-plan.json)"
+            printf 'dockerfile=%s\n' "$(jq -r '.dockerfile' /tmp/build-target-plan.json)"
+            printf 'context_dir=%s\n' "$(jq -r '.context_dir' /tmp/build-target-plan.json)"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build target
+      - name: Render build-push inputs
+        id: build-inputs
         shell: bash
         run: |
           set -euo pipefail
 
-          image_tag="$(jq -r '.image_tag' /tmp/build-target-plan.json)"
-          platform="$(jq -r '.platform' /tmp/build-target-plan.json)"
-          dockerfile="$(jq -r '.dockerfile' /tmp/build-target-plan.json)"
-          context_dir="$(jq -r '.context_dir' /tmp/build-target-plan.json)"
+          {
+            echo 'build_args<<EOF'
+            jq -r '.build_args | to_entries[]? | "\(.key)=\(.value)"' /tmp/build-target-plan.json
+            echo 'EOF'
+            echo 'labels<<EOF'
+            jq -r '.labels | to_entries[]? | "\(.key)=\(.value)"' /tmp/build-target-plan.json
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
-          build_args=()
-          while IFS=$'\t' read -r key value; do
-            build_args+=(--build-arg "$key=$value")
-          done < <(jq -r '.build_args | to_entries[] | [.key, .value] | @tsv' /tmp/build-target-plan.json)
-
-          label_args=()
-          while IFS=$'\t' read -r key value; do
-            label_args+=(--label "$key=$value")
-          done < <(jq -r '.labels | to_entries[] | [.key, .value] | @tsv' /tmp/build-target-plan.json)
-
-          docker buildx build \
-            --platform "$platform" \
-            -f "$dockerfile" \
-            "${build_args[@]}" \
-            "${label_args[@]}" \
-            --load \
-            -t "$image_tag" \
-            "$context_dir"
+      - name: Build target
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          build-args: ${{ steps.build-inputs.outputs.build_args }}
+          context: ${{ steps.plan-build.outputs.context_dir }}
+          file: ${{ steps.plan-build.outputs.dockerfile }}
+          labels: ${{ steps.build-inputs.outputs.labels }}
+          load: true
+          platforms: ${{ steps.plan-build.outputs.platform }}
+          tags: ${{ steps.plan-build.outputs.image_tag }}
 
       - name: Run target test
         if: ${{ steps.plan-build.outputs.test_script != '' }}
@@ -186,7 +156,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Running test script: $TEST_SCRIPT"
           chmod +x "$TEST_SCRIPT"
           "$TEST_SCRIPT"
 
@@ -203,13 +172,14 @@ jobs:
       - name: Generate validation summary
         shell: bash
         env:
-          PLAN_RESULT: ${{ needs.plan.result }}
           BUILD_RESULT: ${{ needs.build.result }}
-          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           IMAGE_NAME: ${{ needs.plan.outputs.image_name }}
+          MANIFEST_TAGS: ${{ needs.plan.outputs.manifest_tags }}
           MATRIX_JSON: ${{ needs.plan.outputs.matrix }}
+          PLAN_RESULT: ${{ needs.plan.result }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
         run: |
           set -euo pipefail
 
@@ -220,33 +190,23 @@ jobs:
             echo "- Commit: \`$SHORT_SHA\`"
             echo "- Plan result: \`$PLAN_RESULT\`"
             echo "- Build result: \`$BUILD_RESULT\`"
-            echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$PLAN_RESULT" = "success" ] && [ -n "${MATRIX_JSON:-}" ]; then
-            target_count="$(jq 'length' <<< "$MATRIX_JSON")"
-            manifest_tags="$(jq -r '[.[].manifest_tag] | unique | join(", ")' <<< "$MATRIX_JSON")"
-
             {
+              echo ""
               echo "### Build Plan"
               echo ""
               echo "- Image: \`$IMAGE_NAME\`"
-              echo "- Enabled targets: \`$target_count\`"
-              echo "- Manifest tags: \`$manifest_tags\`"
-              echo ""
-              echo "| Target | Platform | Manifest Tag | Dockerfile | Test |"
-              echo "| --- | --- | --- | --- | --- |"
-              jq -r '
-                .[]
-                | "| \(.name) | \(.platform) | \(.manifest_tag) | \(.dockerfile) | "
-                  + (if (.test // "") == "" then "no" else "yes" end)
-                  + " |"
-              ' <<< "$MATRIX_JSON"
-              echo ""
+              echo "- Enabled targets: \`$(jq 'length' <<< "$MATRIX_JSON")\`"
+              echo "- Manifest tags: \`$(jq -r 'join(", ")' <<< "$MANIFEST_TAGS")\`"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "[View workflow run]($RUN_URL)" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo ""
+            echo "[View workflow run]($RUN_URL)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$PLAN_RESULT" != "success" ]; then
             echo "Validation or matrix planning failed." >&2
