@@ -8,14 +8,11 @@
       "customType": "regex",
       "description": "Update distroless upstream image references",
       "managerFilePatterns": [
-        "/^examples\\/v1\\/base-image-matrix\\.json$/",
-        "/^test-fixtures\\/v1\\/base-image\\/docker-matrix\\.json$/",
-        "/^examples\\/ci\\/base-image-config\\.json$/",
-        "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/config\\.json$/",
-        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/config\\.json$/"
+        "/^examples\\/build-config\\/base-image\\.json$/",
+        "/^test-fixtures\\/ci\\/base-image\\/\\.ci\\/build\\.json$/",
+        "/^test-fixtures\\/ci\\/service\\/\\.ci\\/build\\.json$/"
       ],
       "matchStrings": [
-        "\"UPSTREAM_IMAGE\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12\"[\\s\\S]*?\"UPSTREAM_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"UPSTREAM_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\"",
         "\"BASE_REF\"\\s*:\\s*\"gcr\\.io/distroless/base-debian12:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "depNameTemplate": "gcr.io/distroless/base-debian12",
@@ -24,22 +21,9 @@
     },
     {
       "customType": "regex",
-      "description": "Update base image references in service matrices",
-      "managerFilePatterns": [
-        "/^examples\\/v1\\/service-matrix\\.json$/",
-        "/^test-fixtures\\/v1\\/service\\/docker-matrix\\.json$/"
-      ],
-      "matchStrings": [
-        "\"base_image\"\\s*:\\s*\\{[\\s\\S]*?\"image\"\\s*:\\s*\"(?<depName>[^\"]+)\"[\\s\\S]*?\"tag\"\\s*:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?\"digest\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
-      ],
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
       "description": "Update distroless runtime base refs",
       "managerFilePatterns": [
-        "/^examples\\/ci\\/service-config\\.json$/"
+        "/^examples\\/build-config\\/service-image\\.json$/"
       ],
       "matchStrings": [
         "\"BASE_REF\"\\s*:\\s*\"ghcr\\.io/runlix/distroless-runtime:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
@@ -47,30 +31,6 @@
       "depNameTemplate": "ghcr.io/runlix/distroless-runtime",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Update build-workflow tool image digest in CI self-test fixtures",
-      "managerFilePatterns": [
-        "/^\\.github\\/workflows\\/test-ci\\.yml$/"
-      ],
-      "matchStrings": [
-        "FIXTURE_TOOL_IMAGE:\\s+(?<depName>ghcr\\.io/runlix/build-workflow-tools)@(?<currentDigest>sha256:[a-f0-9]{64})"
-      ],
-      "currentValueTemplate": "ci",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Update pinned ajv tooling versions in workflows",
-      "managerFilePatterns": [
-        "/^\\.github\\/workflows\\/build-images-rebuild\\.yml$/",
-        "/^\\.github\\/workflows\\/test-workflow\\.yml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\n\\s+AJV_[A-Z_]+_VERSION:\\s*(?<currentValue>[^\\s]+)"
-      ]
     },
     {
       "customType": "regex",
@@ -114,16 +74,8 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/runlix/build-workflow-tools"],
-      "groupName": "Build Workflow Tool Image",
-      "automerge": false,
-      "schedule": ["before 4am on Monday"]
-    },
-    {
-      "matchManagers": ["custom.regex"],
-      "matchDatasources": ["npm"],
-      "matchPackageNames": ["ajv-cli", "ajv-formats"],
-      "groupName": "Schema Validation Tooling",
+      "matchPackageNames": ["ghcr.io/runlix/distroless-runtime"],
+      "groupName": "Runlix Runtime Docker Images",
       "automerge": false,
       "schedule": ["before 4am on Monday"]
     },

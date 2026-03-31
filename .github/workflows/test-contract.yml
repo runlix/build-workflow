@@ -5,8 +5,6 @@ on:
     paths:
       - 'renovate.json'
       - 'tools/ci/**'
-      - '.github/workflows/build-images-rebuild.yml'
-      - '.github/workflows/test-workflow.yml'
       - '.github/workflows/validate-build.yml'
       - '.github/workflows/publish-release.yml'
       - '.github/workflows/validate-release-metadata.yml'
@@ -15,22 +13,17 @@ on:
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'docs/ci-v3.md'
-      - 'docs/v1/README.md'
       - 'examples/build-config/**'
-      - 'examples/v1/**'
       - 'examples/wrappers/**'
       - 'schema/build-config.schema.json'
       - 'schema/release-json.schema.json'
       - 'test-fixtures/ci/**'
-      - 'test-fixtures/v1/**'
   push:
     branches:
       - main
     paths:
       - 'renovate.json'
       - 'tools/ci/**'
-      - '.github/workflows/build-images-rebuild.yml'
-      - '.github/workflows/test-workflow.yml'
       - '.github/workflows/validate-build.yml'
       - '.github/workflows/publish-release.yml'
       - '.github/workflows/validate-release-metadata.yml'
@@ -39,14 +32,11 @@ on:
       - 'README.md'
       - 'CONTRIBUTING.md'
       - 'docs/ci-v3.md'
-      - 'docs/v1/README.md'
       - 'examples/build-config/**'
-      - 'examples/v1/**'
       - 'examples/wrappers/**'
       - 'schema/build-config.schema.json'
       - 'schema/release-json.schema.json'
       - 'test-fixtures/ci/**'
-      - 'test-fixtures/v1/**'
   workflow_dispatch:
 
 concurrency:
@@ -112,12 +102,11 @@ jobs:
           set -euo pipefail
 
           grep -Fq '[docs/ci-v3.md](./docs/ci-v3.md)' README.md
-          grep -Fq '[../ci-v3.md](../ci-v3.md)' docs/v1/README.md
 
-          if rg -n 'tool-image|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|validate-release-json\.yml|validate\.yml|release\.yml' \
-            README.md docs/ci-v3.md examples/wrappers .github/workflows/test-contract.yml
+          if rg -n 'tool-image|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|build-images-rebuild\.yml|test-workflow\.yml|docker-matrix|docs/v1|examples/v1|test-fixtures/v1|schema/docker-matrix-schema\.json' \
+            README.md CONTRIBUTING.md docs/ci-v3.md examples/wrappers .github/workflows/test-contract.yml renovate.json
           then
-            echo "Old v2 contract names or secrets remain in the v3 docs surface" >&2
+            echo "Removed legacy surfaces remain referenced in the supported contract" >&2
             exit 1
           fi
 
@@ -202,11 +191,13 @@ jobs:
           test -f .github/workflows/validate-build.yml
           test -f .github/workflows/publish-release.yml
           test -f .github/workflows/validate-release-metadata.yml
-          test ! -e .github/workflows/validate.yml
-          test ! -e .github/workflows/release.yml
-          test ! -e .github/workflows/validate-release-json.yml
+          test ! -e .github/workflows/build-images-rebuild.yml
+          test ! -e .github/workflows/test-workflow.yml
           test -f schema/build-config.schema.json
-          test ! -e schema/ci-config.schema.json
+          test ! -e schema/docker-matrix-schema.json
+          test ! -e docs/v1
+          test ! -e examples/v1
+          test ! -e test-fixtures/v1
 
           if rg -n 'TELEGRAM_|tool-image:' \
             .github/workflows/validate-build.yml \
@@ -229,6 +220,7 @@ jobs:
           grep -Eq 'job_workflow_sha' .github/workflows/publish-release.yml
           grep -Eq 'id-token: write' examples/wrappers/validate-build.yml
           grep -Eq 'id-token: write' examples/wrappers/validate-release-metadata.yml
+          grep -Eq '".github/workflows/validate-release-metadata.yml"' examples/wrappers/validate-release-metadata.yml
           grep -Eq 'tool_image=ghcr\.io/runlix/build-workflow-tools:sha-%s' .github/workflows/validate-build.yml
           grep -Eq 'tool_image=ghcr\.io/runlix/build-workflow-tools:sha-%s' .github/workflows/publish-release.yml
           grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/validate-build.yml

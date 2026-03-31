@@ -10,6 +10,7 @@ on:
       - reopened
     paths:
       - "release.json"
+      - ".github/workflows/validate-release-metadata.yml"
   workflow_dispatch:
 
 permissions:

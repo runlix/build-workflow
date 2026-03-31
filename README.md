@@ -1,9 +1,6 @@
 # Build Workflow
 
-`build-workflow` exposes one supported interface for new repositories and one legacy interface for existing consumers:
-
-- `CI v3`: reusable workflows for build validation, release publishing, and release metadata validation
-- `v1`: the legacy `docker-matrix` workflow surface
+`build-workflow` exposes one supported interface: `CI v3`.
 
 ## Quick Start
 
@@ -60,13 +57,3 @@ The supported CI path uses a narrow public contract and an internal planner/exec
 - pure config validation and `release.json` rendering run inside the internal tool image that matches the reusable workflow commit
 
 This keeps callers simple while avoiding workflow-time self-checkout of implementation files from the provider repository.
-
-## Legacy `v1`
-
-`v1` remains available for existing repositories:
-
-- reusable workflow: `.github/workflows/build-images-rebuild.yml`
-- schema: `schema/docker-matrix-schema.json`
-- docs: [docs/v1/README.md](./docs/v1/README.md)
-- examples: `examples/v1/`
-- fixtures: `test-fixtures/v1/`
