@@ -27,9 +27,12 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 
 - callers pin reusable workflows by merged full commit SHA
 - callers also pin `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>` and pass it as `tool-image`
+- `build-workflow` ships from `main`; there is no separate supported provider `release` branch
+- downstream side-branch validation requires the matching exact-commit tool image to be published before callers pin that branch SHA
 - `validate-build` and `validate-release-metadata` wrappers only need `contents: read`
 - publish wrappers grant `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`
 - callers keep wrapper workflows thin and repo-specific
 - only the publish wrapper maps `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY`
 - `main` metadata wrappers should trigger on `release.json` and their own workflow file so required checks still run when the wrapper changes
 - `examples/build-config/` are schema-only examples, while `test-fixtures/ci/` are runnable contract fixtures
+- `Test CI Contract` intentionally exercises both a local tool-image smoke path and a published exact-commit tool-image path

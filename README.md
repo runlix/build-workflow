@@ -29,6 +29,12 @@ Callers pin two immutable refs from `runlix/build-workflow`:
 - the reusable workflow SHA
 - the matching tool image tag `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>`
 
+Supported caller pins come from merged commits on `build-workflow` `main`.
+There is no separate supported provider `release` branch.
+
+For side-branch validation of downstream callers, publish the exact commit tool image first.
+Until `ghcr.io/runlix/build-workflow-tools:sha-<that branch sha>` exists, caller workflows pinned to that branch SHA will fail to pull `tool-image`.
+
 If you want automated `main` sync on protected branches, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the publish wrapper.
 Only the publish wrapper needs `id-token: write` because attestation runs inside the provider publish workflow.
 The publish wrapper must also grant `contents: read`, `packages: write`, and `attestations: write`.
