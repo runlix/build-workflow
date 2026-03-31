@@ -24,10 +24,13 @@ Starter files:
 - schemas: `schema/build-config.schema.json`, `schema/release-json.schema.json`
 - canonical guide: [docs/ci-v3.md](./docs/ci-v3.md)
 
-Callers pin only the reusable workflow SHA from `runlix/build-workflow`.
-The reusable workflows derive their matching internal tool image from GitHub's reusable-workflow OIDC `job_workflow_sha` claim, so callers do not pass or pin a separate planner image anymore.
+Callers pin two immutable refs from `runlix/build-workflow`:
+
+- the reusable workflow SHA
+- the matching tool image tag `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>`
+
 If you want automated `main` sync on protected branches, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the publish wrapper.
-All wrappers must grant `id-token: write` so the provider can resolve the matching internal tool image.
+Only the publish wrapper needs `id-token: write` because attestation runs inside the provider publish workflow.
 The publish wrapper must also grant `contents: read`, `packages: write`, and `attestations: write`.
 
 ## Supported CI Surface
@@ -54,6 +57,6 @@ The supported CI path uses a narrow public contract and an internal planner/exec
 - reusable workflows are the public orchestration layer
 - `build-workflow-ci` is the internal planning and validation layer
 - Docker build, push, manifest creation, attestation, and optional `main` sync stay on the GitHub runner
-- pure config validation and `release.json` rendering run inside the internal tool image that matches the reusable workflow commit
+- pure config validation and `release.json` rendering run inside the immutable tool image pinned alongside the reusable workflow SHA
 
 This keeps callers simple while avoiding workflow-time self-checkout of implementation files from the provider repository.

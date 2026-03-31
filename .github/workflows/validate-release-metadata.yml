@@ -8,52 +8,19 @@ on:
         required: false
         default: release.json
         type: string
+      tool-image:
+        description: Immutable internal tool image tag matching the pinned reusable workflow commit.
+        required: true
+        type: string
 
 jobs:
-  resolve-tool-image:
-    name: resolve-tool-image
-    permissions:
-      contents: read
-      id-token: write
-    runs-on: ubuntu-24.04
-    outputs:
-      tool_image: ${{ steps.resolve.outputs.tool_image }}
-    steps:
-      - name: Resolve provider tool image
-        id: resolve
-        shell: bash
-        env:
-          OIDC_AUDIENCE: build-workflow-tool-image
-        run: |
-          set -euo pipefail
-
-          oidc_token="$(
-            curl -fsSL \
-              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" \
-            | jq -r '.value'
-          )"
-
-          workflow_commit="$(
-            python3 -c 'import base64, json, sys; payload = sys.argv[1].split(".")[1]; payload += "=" * (-len(payload) % 4); claims = json.loads(base64.urlsafe_b64decode(payload)); print(claims.get("job_workflow_sha", ""))' "$oidc_token"
-          )"
-
-          if [[ ! "$workflow_commit" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "job_workflow_sha claim missing from reusable workflow OIDC token" >&2
-            exit 1
-          fi
-
-          printf 'tool_image=ghcr.io/runlix/build-workflow-tools:sha-%s\n' "$workflow_commit" >> "$GITHUB_OUTPUT"
-
   validate:
     name: validate
-    needs:
-      - resolve-tool-image
     permissions:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ${{ needs.resolve-tool-image.outputs.tool_image }}
+      image: ${{ inputs.tool-image }}
     steps:
       - name: Checkout caller repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -85,5 +52,5 @@ jobs:
             echo "## Release Metadata Validation"
             echo ""
             echo "- release.json path: \`$RELEASE_JSON_PATH\`"
-            echo "- Tool image: \`${{ needs.resolve-tool-image.outputs.tool_image }}\`"
+            echo "- Tool image: \`${{ inputs.tool-image }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

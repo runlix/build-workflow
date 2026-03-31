@@ -8,56 +8,23 @@ on:
         required: false
         default: .ci/build.json
         type: string
+      tool-image:
+        description: Immutable internal tool image tag matching the pinned reusable workflow commit.
+        required: true
+        type: string
 
 concurrency:
   group: validate-build-${{ github.repository }}-${{ github.ref }}-${{ inputs.build-config-path }}
   cancel-in-progress: true
 
 jobs:
-  resolve-tool-image:
-    name: resolve-tool-image
-    permissions:
-      contents: read
-      id-token: write
-    runs-on: ubuntu-24.04
-    outputs:
-      tool_image: ${{ steps.resolve.outputs.tool_image }}
-    steps:
-      - name: Resolve provider tool image
-        id: resolve
-        shell: bash
-        env:
-          OIDC_AUDIENCE: build-workflow-tool-image
-        run: |
-          set -euo pipefail
-
-          oidc_token="$(
-            curl -fsSL \
-              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" \
-            | jq -r '.value'
-          )"
-
-          workflow_commit="$(
-            python3 -c 'import base64, json, sys; payload = sys.argv[1].split(".")[1]; payload += "=" * (-len(payload) % 4); claims = json.loads(base64.urlsafe_b64decode(payload)); print(claims.get("job_workflow_sha", ""))' "$oidc_token"
-          )"
-
-          if [[ ! "$workflow_commit" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "job_workflow_sha claim missing from reusable workflow OIDC token" >&2
-            exit 1
-          fi
-
-          printf 'tool_image=ghcr.io/runlix/build-workflow-tools:sha-%s\n' "$workflow_commit" >> "$GITHUB_OUTPUT"
-
   plan:
     name: plan
     permissions:
       contents: read
-    needs:
-      - resolve-tool-image
     runs-on: ubuntu-24.04
     container:
-      image: ${{ needs.resolve-tool-image.outputs.tool_image }}
+      image: ${{ inputs.tool-image }}
     outputs:
       enabled_count: ${{ steps.validate.outputs.enabled_count }}
       image_name: ${{ steps.validate.outputs.image_name }}
@@ -108,11 +75,10 @@ jobs:
           printf 'matrix=%s\n' "$(jq -c . /tmp/plan-matrix.json)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: build
+    name: build (${{ matrix.name }})
     permissions:
       contents: read
     needs:
-      - resolve-tool-image
       - plan
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -135,7 +101,7 @@ jobs:
           BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ${{ needs.resolve-tool-image.outputs.tool_image }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
         run: |
           set -euo pipefail
 
@@ -218,6 +184,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
         run: |
           set -euo pipefail
 
@@ -228,6 +195,7 @@ jobs:
             echo "- Commit: \`$SHORT_SHA\`"
             echo "- Plan result: \`$PLAN_RESULT\`"
             echo "- Build result: \`$BUILD_RESULT\`"
+            echo "- Tool image: \`$TOOL_IMAGE\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$PLAN_RESULT" = "success" ] && [ -n "${MATRIX_JSON:-}" ]; then

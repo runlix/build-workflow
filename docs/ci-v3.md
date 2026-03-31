@@ -33,9 +33,13 @@ On `main`:
 - `.github/workflows/validate-release-metadata.yml`
 - `release.json`
 
-Callers pin only the reusable workflow SHA.
-The reusable workflows resolve the matching internal tool image from GitHub's reusable-workflow OIDC `job_workflow_sha` claim.
-All caller wrappers grant `id-token: write` so the provider can request that claim and pull the matching immutable tool image.
+Callers pin two immutable refs:
+
+- the reusable workflow SHA
+- the matching internal tool image tag `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>`
+
+`validate-build.yml` and `validate-release-metadata.yml` only need `contents: read`.
+`publish-release.yml` also needs `packages: write`, `attestations: write`, and `id-token: write` because the provider publish workflow pushes images and attests the final manifests.
 The `main` metadata wrapper should trigger on `release.json` and its own workflow file so required checks still run when the wrapper changes.
 
 ## Build Config

@@ -26,9 +26,9 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 ## CI v3 Rules
 
 - callers pin reusable workflows by merged full commit SHA
-- callers do not pass a `tool-image` input
-- reusable workflows derive the matching internal tool image from the reusable-workflow OIDC `job_workflow_sha` claim
-- all caller wrappers grant `id-token: write`
+- callers also pin `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>` and pass it as `tool-image`
+- `validate-build` and `validate-release-metadata` wrappers only need `contents: read`
+- publish wrappers grant `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`
 - callers keep wrapper workflows thin and repo-specific
 - only the publish wrapper maps `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY`
 - `main` metadata wrappers should trigger on `release.json` and their own workflow file so required checks still run when the wrapper changes

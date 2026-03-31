@@ -13,6 +13,10 @@ on:
         required: false
         default: true
         type: boolean
+      tool-image:
+        description: Immutable internal tool image tag matching the pinned reusable workflow commit.
+        required: true
+        type: string
     secrets:
       RUNLIX_APP_ID:
         required: false
@@ -50,38 +54,10 @@ jobs:
     name: validate-inputs
     permissions:
       contents: read
-      id-token: write
     runs-on: ubuntu-24.04
     outputs:
       has_sync_credentials: ${{ steps.secret-shape.outputs.has_sync_credentials }}
-      tool_image: ${{ steps.resolve-tool-image.outputs.tool_image }}
     steps:
-      - name: Resolve provider tool image
-        id: resolve-tool-image
-        shell: bash
-        env:
-          OIDC_AUDIENCE: build-workflow-tool-image
-        run: |
-          set -euo pipefail
-
-          oidc_token="$(
-            curl -fsSL \
-              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" \
-            | jq -r '.value'
-          )"
-
-          workflow_commit="$(
-            python3 -c 'import base64, json, sys; payload = sys.argv[1].split(".")[1]; payload += "=" * (-len(payload) % 4); claims = json.loads(base64.urlsafe_b64decode(payload)); print(claims.get("job_workflow_sha", ""))' "$oidc_token"
-          )"
-
-          if [[ ! "$workflow_commit" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "job_workflow_sha claim missing from reusable workflow OIDC token" >&2
-            exit 1
-          fi
-
-          printf 'tool_image=ghcr.io/runlix/build-workflow-tools:sha-%s\n' "$workflow_commit" >> "$GITHUB_OUTPUT"
-
       - name: Validate optional sync secret mapping
         id: secret-shape
         shell: bash
@@ -110,7 +86,7 @@ jobs:
       contents: read
     runs-on: ubuntu-24.04
     container:
-      image: ${{ needs.validate-inputs.outputs.tool_image }}
+      image: ${{ inputs.tool-image }}
     outputs:
       image_name: ${{ steps.validate.outputs.image_name }}
       manifests: ${{ steps.plan-manifests.outputs.manifests }}
@@ -170,7 +146,7 @@ jobs:
           printf 'manifests=%s\n' "$(jq -c . /tmp/plan-manifests.json)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: build
+    name: build (${{ matrix.name }})
     permissions:
       contents: read
       packages: write
@@ -206,7 +182,7 @@ jobs:
           BUILD_CONFIG_PATH: ${{ inputs.build-config-path }}
           SHORT_SHA: ${{ needs.plan.outputs.short_sha }}
           TARGET_NAME: ${{ matrix.name }}
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
         run: |
           set -euo pipefail
 
@@ -359,7 +335,7 @@ jobs:
           MANIFESTS_PAYLOAD: ${{ steps.manifest-metadata.outputs.payload }}
           PUBLISHED_AT: ${{ steps.published-at.outputs.value }}
           SOURCE_SHA: ${{ github.sha }}
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
         run: |
           set -euo pipefail
 
@@ -382,7 +358,7 @@ jobs:
       - name: Validate release.json
         shell: bash
         env:
-          TOOL_IMAGE: ${{ needs.validate-inputs.outputs.tool_image }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/workspace" -w /workspace "$TOOL_IMAGE" validate-release-json release.json
@@ -395,7 +371,7 @@ jobs:
           retention-days: 7
 
   attest:
-    name: attest
+    name: attest (${{ matrix.tag }})
     if: ${{ inputs.publish }}
     permissions:
       attestations: write

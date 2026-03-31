@@ -103,7 +103,7 @@ jobs:
 
           grep -Fq '[docs/ci-v3.md](./docs/ci-v3.md)' README.md
 
-          if rg -n 'tool-image|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|build-images-rebuild\.yml|test-workflow\.yml|docker-matrix|docs/v1|examples/v1|test-fixtures/v1|schema/docker-matrix-schema\.json' \
+          if rg -n 'TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|build-images-rebuild\.yml|test-workflow\.yml|docker-matrix|docs/v1|examples/v1|test-fixtures/v1|schema/docker-matrix-schema\.json|job_workflow_sha|ACTIONS_ID_TOKEN_REQUEST_URL' \
             README.md CONTRIBUTING.md docs/ci-v3.md examples/wrappers .github/workflows/test-contract.yml renovate.json
           then
             echo "Removed legacy surfaces remain referenced in the supported contract" >&2
@@ -199,30 +199,38 @@ jobs:
           test ! -e examples/v1
           test ! -e test-fixtures/v1
 
-          if rg -n 'TELEGRAM_|tool-image:' \
+          if rg -n 'TELEGRAM_|job_workflow_sha|ACTIONS_ID_TOKEN_REQUEST_URL' \
             .github/workflows/validate-build.yml \
             .github/workflows/publish-release.yml \
             .github/workflows/validate-release-metadata.yml \
-            examples/wrappers
+            README.md \
+            CONTRIBUTING.md \
+            docs/ci-v3.md
           then
-            echo "Old public inputs or secrets remain in the v3 contract" >&2
+            echo "Removed provider internals remain in the v3 contract" >&2
             exit 1
           fi
 
           grep -Eq '^      build-config-path:$' .github/workflows/validate-build.yml
           grep -Eq '^      build-config-path:$' .github/workflows/publish-release.yml
+          grep -Eq '^      tool-image:$' .github/workflows/validate-build.yml
+          grep -Eq '^      tool-image:$' .github/workflows/publish-release.yml
+          grep -Eq '^      tool-image:$' .github/workflows/validate-release-metadata.yml
           grep -Eq '^      release_json:$' .github/workflows/publish-release.yml
           grep -Eq '^      manifests_json:$' .github/workflows/publish-release.yml
           grep -Eq '^      sync_pr_url:$' .github/workflows/publish-release.yml
-          grep -Eq 'ACTIONS_ID_TOKEN_REQUEST_URL' .github/workflows/validate-build.yml
-          grep -Eq 'job_workflow_sha' .github/workflows/validate-build.yml
-          grep -Eq 'ACTIONS_ID_TOKEN_REQUEST_URL' .github/workflows/publish-release.yml
-          grep -Eq 'job_workflow_sha' .github/workflows/publish-release.yml
-          grep -Eq 'id-token: write' examples/wrappers/validate-build.yml
-          grep -Eq 'id-token: write' examples/wrappers/validate-release-metadata.yml
+          grep -Eq '^  workflow_call:$' .github/workflows/publish-tool-image.yml
+          grep -Eq '^      tool_image:$' .github/workflows/publish-tool-image.yml
+          grep -Eq '^      digest:$' .github/workflows/publish-tool-image.yml
+          grep -Eq 'tool-image: ghcr\.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-build.yml
+          grep -Eq 'tool-image: ghcr\.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/publish-release.yml
+          grep -Eq 'tool-image: ghcr\.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-release-metadata.yml
+          grep -Eq 'id-token: write' examples/wrappers/publish-release.yml
+          if rg -n 'id-token: write' examples/wrappers/validate-build.yml examples/wrappers/validate-release-metadata.yml; then
+            echo "Read-only validation wrappers should not require id-token: write" >&2
+            exit 1
+          fi
           grep -Eq '".github/workflows/validate-release-metadata.yml"' examples/wrappers/validate-release-metadata.yml
-          grep -Eq 'tool_image=ghcr\.io/runlix/build-workflow-tools:sha-%s' .github/workflows/validate-build.yml
-          grep -Eq 'tool_image=ghcr\.io/runlix/build-workflow-tools:sha-%s' .github/workflows/publish-release.yml
           grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/validate-build.yml
           grep -Eq 'docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83' .github/workflows/publish-release.yml
           if grep -Eq 'update-ci-alias|build-workflow-tools:ci' .github/workflows/publish-tool-image.yml; then
@@ -237,31 +245,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Log in to GHCR
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
-
-      - name: Publish current commit tool image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          context: .
-          file: tools/ci/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ghcr.io/runlix/build-workflow-tools:sha-${{ github.sha }}
+    uses: ./.github/workflows/publish-tool-image.yml
 
   test-base-image:
     name: test-base-image
@@ -269,10 +253,10 @@ jobs:
       - publish-self-test-tool-image
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/validate-build.yml
     with:
       build-config-path: test-fixtures/ci/base-image/.ci/build.json
+      tool-image: ${{ needs.publish-self-test-tool-image.outputs.tool_image }}
 
   test-service:
     name: test-service
@@ -280,10 +264,10 @@ jobs:
       - publish-self-test-tool-image
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/validate-build.yml
     with:
       build-config-path: test-fixtures/ci/service/.ci/build.json
+      tool-image: ${{ needs.publish-self-test-tool-image.outputs.tool_image }}
 
   test-release-dry-run:
     name: test-release-dry-run
@@ -298,6 +282,7 @@ jobs:
     with:
       build-config-path: test-fixtures/ci/service/.ci/build.json
       publish: false
+      tool-image: ${{ needs.publish-self-test-tool-image.outputs.tool_image }}
 
   validate-release-json-fixture:
     name: validate-release-json-fixture
@@ -305,10 +290,10 @@ jobs:
       - publish-self-test-tool-image
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/validate-release-metadata.yml
     with:
       release-json-path: test-fixtures/ci/release-json/release.json
+      tool-image: ${{ needs.publish-self-test-tool-image.outputs.tool_image }}
 
   test-summary:
     name: test-summary
