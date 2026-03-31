@@ -371,7 +371,7 @@ jobs:
           retention-days: 7
 
   attest:
-    name: ${{ format('attest ({0})', matrix.tag || 'skipped') }}
+    name: attest
     if: ${{ inputs.publish }}
     permissions:
       attestations: write
