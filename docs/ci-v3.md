@@ -40,6 +40,7 @@ Callers pin two immutable refs:
 
 Supported provider pins come from merged commits on `build-workflow` `main`.
 There is no separate supported provider `release` branch.
+Merged `main` commits automatically publish the matching exact-commit `tool-image` tag.
 
 For side-branch validation, publish the matching exact-commit tool image before asking a downstream repository to pin that branch SHA.
 If the matching `tool-image` tag does not exist yet, caller workflows will fail before planning begins.

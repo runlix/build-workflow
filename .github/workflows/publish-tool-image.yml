@@ -1,6 +1,9 @@
 name: Publish CI Tool Image
 
 on:
+  push:
+    branches:
+      - main
   workflow_call:
     outputs:
       digest:

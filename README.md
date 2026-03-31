@@ -31,6 +31,7 @@ Callers pin two immutable refs from `runlix/build-workflow`:
 
 Supported caller pins come from merged commits on `build-workflow` `main`.
 There is no separate supported provider `release` branch.
+Merged commits on `main` automatically publish the matching exact-commit tool image tag.
 
 For side-branch validation of downstream callers, publish the exact commit tool image first.
 Until `ghcr.io/runlix/build-workflow-tools:sha-<that branch sha>` exists, caller workflows pinned to that branch SHA will fail to pull `tool-image`.

@@ -28,6 +28,7 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 - callers pin reusable workflows by merged full commit SHA
 - callers also pin `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>` and pass it as `tool-image`
 - `build-workflow` ships from `main`; there is no separate supported provider `release` branch
+- merged `main` commits automatically publish the matching exact-commit tool image tag
 - downstream side-branch validation requires the matching exact-commit tool image to be published before callers pin that branch SHA
 - `validate-build` and `validate-release-metadata` wrappers only need `contents: read`
 - publish wrappers grant `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`
