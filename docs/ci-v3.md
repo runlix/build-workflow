@@ -38,6 +38,12 @@ Callers pin two immutable refs:
 - the reusable workflow SHA
 - the matching internal tool image tag `ghcr.io/runlix/build-workflow-tools:sha-<same workflow sha>`
 
+Supported provider pins come from merged commits on `build-workflow` `main`.
+There is no separate supported provider `release` branch.
+
+For side-branch validation, publish the matching exact-commit tool image before asking a downstream repository to pin that branch SHA.
+If the matching `tool-image` tag does not exist yet, caller workflows will fail before planning begins.
+
 `validate-build.yml` and `validate-release-metadata.yml` only need `contents: read`.
 `publish-release.yml` also needs `packages: write`, `attestations: write`, and `id-token: write` because the provider publish workflow pushes images and attests the final manifests.
 The `main` metadata wrapper should trigger on `release.json` and its own workflow file so required checks still run when the wrapper changes.
