@@ -19,9 +19,10 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   validate:
     name: validate
     uses: runlix/build-workflow/.github/workflows/validate-build.yml@YOUR_BUILD_WORKFLOW_SHA
+    with:
+      tool-image: ghcr.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA
