@@ -31,4 +31,5 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 - all caller wrappers grant `id-token: write`
 - callers keep wrapper workflows thin and repo-specific
 - only the publish wrapper maps `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY`
+- `main` metadata wrappers should trigger on `release.json` and their own workflow file so required checks still run when the wrapper changes
 - `examples/build-config/` are schema-only examples, while `test-fixtures/ci/` are runnable contract fixtures

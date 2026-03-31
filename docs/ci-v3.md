@@ -36,6 +36,7 @@ On `main`:
 Callers pin only the reusable workflow SHA.
 The reusable workflows resolve the matching internal tool image from GitHub's reusable-workflow OIDC `job_workflow_sha` claim.
 All caller wrappers grant `id-token: write` so the provider can request that claim and pull the matching immutable tool image.
+The `main` metadata wrapper should trigger on `release.json` and its own workflow file so required checks still run when the wrapper changes.
 
 ## Build Config
 
