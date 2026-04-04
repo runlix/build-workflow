@@ -18,25 +18,6 @@ on:
       - 'schema/build-config.schema.json'
       - 'schema/release-json.schema.json'
       - 'test-fixtures/ci/**'
-  push:
-    branches:
-      - main
-    paths:
-      - 'renovate.json'
-      - 'tools/ci/**'
-      - '.github/workflows/validate-build.yml'
-      - '.github/workflows/publish-release.yml'
-      - '.github/workflows/validate-release-metadata.yml'
-      - '.github/workflows/publish-tool-image.yml'
-      - '.github/workflows/test-contract.yml'
-      - 'README.md'
-      - 'CONTRIBUTING.md'
-      - 'docs/ci-v3.md'
-      - 'examples/build-config/**'
-      - 'examples/wrappers/**'
-      - 'schema/build-config.schema.json'
-      - 'schema/release-json.schema.json'
-      - 'test-fixtures/ci/**'
   workflow_dispatch:
 
 concurrency:
