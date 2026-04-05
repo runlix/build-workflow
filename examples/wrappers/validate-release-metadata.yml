@@ -9,7 +9,10 @@ on:
       - synchronize
       - reopened
     paths:
+      - "README.md"
+      - "links.json"
       - "release.json"
+      - "renovate.json"
       - ".github/workflows/validate-release-metadata.yml"
   workflow_dispatch:
 

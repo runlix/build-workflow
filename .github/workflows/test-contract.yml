@@ -237,6 +237,10 @@ jobs:
           grep -Eq 'TELEGRAM_BOT_TOKEN: \$\{\{ secrets.TELEGRAM_BOT_TOKEN \}\}' examples/wrappers/publish-release.yml
           grep -Eq 'TELEGRAM_CHAT_ID: \$\{\{ secrets.TELEGRAM_CHAT_ID \}\}' examples/wrappers/publish-release.yml
           grep -Eq 'id-token: write' examples/wrappers/publish-release.yml
+          grep -Eq '"README.md"' examples/wrappers/validate-release-metadata.yml
+          grep -Eq '"links.json"' examples/wrappers/validate-release-metadata.yml
+          grep -Eq '"release.json"' examples/wrappers/validate-release-metadata.yml
+          grep -Eq '"renovate.json"' examples/wrappers/validate-release-metadata.yml
           if rg -n 'id-token: write' examples/wrappers/validate-build.yml examples/wrappers/validate-release-metadata.yml; then
             echo "Read-only validation wrappers should not require id-token: write" >&2
             exit 1

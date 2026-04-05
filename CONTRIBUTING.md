@@ -36,6 +36,6 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 - callers keep wrapper workflows thin and repo-specific
 - only the publish wrapper maps `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY`
 - only the publish wrapper may map `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, and they must be mapped together when used
-- `main` metadata wrappers should trigger on `release.json` and their own workflow file so required checks still run when the wrapper changes
+- `main` metadata wrappers should trigger on `release.json`, their own workflow file, and any other `main`-owned metadata or automation files covered by the same required check
 - `examples/build-config/` are schema-only examples, while `test-fixtures/ci/` are runnable contract fixtures
 - `Test CI Contract` intentionally exercises both a local tool-image smoke path and a published exact-commit tool-image path
