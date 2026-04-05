@@ -20,6 +20,7 @@ tools/ci/bin/build-workflow-ci validate-schema-file schema/release-json.schema.j
 tools/ci/bin/build-workflow-ci validate-config-payload examples/build-config/service-image.json
 tools/ci/bin/build-workflow-ci validate-config test-fixtures/ci/service/.ci/build.json
 tools/ci/bin/build-workflow-ci validate-release-json test-fixtures/ci/release-json/release.json
+tools/ci/bin/build-workflow-ci render-telegram-notification test-fixtures/ci/release-json/release.json --repository runlix/test-service --server-url https://github.com --run-id 123456 --sync-pr-url https://github.com/runlix/test-service/pull/42
 python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 ```
 
@@ -34,6 +35,7 @@ python3 -m unittest discover -s tools/ci/tests -p 'test_*.py'
 - publish wrappers grant `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`
 - callers keep wrapper workflows thin and repo-specific
 - only the publish wrapper maps `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY`
+- only the publish wrapper may map `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, and they must be mapped together when used
 - `main` metadata wrappers should trigger on `release.json` and their own workflow file so required checks still run when the wrapper changes
 - `examples/build-config/` are schema-only examples, while `test-fixtures/ci/` are runnable contract fixtures
 - `Test CI Contract` intentionally exercises both a local tool-image smoke path and a published exact-commit tool-image path

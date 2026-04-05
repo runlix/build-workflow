@@ -37,6 +37,8 @@ For side-branch validation of downstream callers, publish the exact commit tool 
 Until `ghcr.io/runlix/build-workflow-tools:sha-<that branch sha>` exists, caller workflows pinned to that branch SHA will fail to pull `tool-image`.
 
 If you want automated `main` sync on protected branches, map `RUNLIX_APP_ID` and `RUNLIX_PRIVATE_KEY` into the publish wrapper.
+If you want Telegram release notifications, map `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` into the publish wrapper.
+Telegram delivery is optional and best-effort after the release cycle completes successfully.
 Only the publish wrapper needs `id-token: write` because attestation runs inside the provider publish workflow.
 The publish wrapper must also grant `contents: read`, `packages: write`, and `attestations: write`.
 

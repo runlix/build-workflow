@@ -1,0 +1,23 @@
+{
+  "image": "ghcr.io/runlix/test-base-image",
+  "version": null,
+  "sha": "fedcba9876543210fedcba9876543210fedcba98",
+  "short_sha": "fedcba9",
+  "published_at": "2026-03-17T12:00:00Z",
+  "manifests": [
+    {
+      "tag": "debug",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "platforms": [
+        "linux/amd64"
+      ]
+    },
+    {
+      "tag": "stable",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "platforms": [
+        "linux/amd64"
+      ]
+    }
+  ]
+}
