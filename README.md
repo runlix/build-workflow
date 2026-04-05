@@ -41,6 +41,7 @@ If you want Telegram release notifications, map `TELEGRAM_BOT_TOKEN` and `TELEGR
 Telegram delivery is optional and best-effort after the release cycle completes successfully.
 Only the publish wrapper needs `id-token: write` because attestation runs inside the provider publish workflow.
 The publish wrapper must also grant `contents: read`, `packages: write`, and `attestations: write`.
+The `main` metadata wrapper should trigger on `release.json`, its own workflow file, and any other `main`-owned metadata or automation files covered by the same required check.
 
 ## Supported CI Surface
 

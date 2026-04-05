@@ -50,7 +50,7 @@ If the matching `tool-image` tag does not exist yet, caller workflows will fail 
 `publish-release.yml` also needs `packages: write`, `attestations: write`, and `id-token: write` because the provider publish workflow pushes images and attests the final manifests.
 Optional Telegram delivery is configured by mapping `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` together in the publish wrapper.
 Telegram delivery is best-effort and happens after the successful publish cycle completes.
-The `main` metadata wrapper should trigger on `release.json` and its own workflow file so required checks still run when the wrapper changes.
+The `main` metadata wrapper should trigger on `release.json`, its own workflow file, and any other `main`-owned metadata or automation files covered by the same required check so required checks still run for metadata/config-only PRs.
 
 ## Build Config
 

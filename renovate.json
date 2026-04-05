@@ -74,14 +74,6 @@
     },
     {
       "matchManagers": ["custom.regex"],
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/runlix/distroless-runtime"],
-      "groupName": "Runlix Runtime Docker Images",
-      "automerge": false,
-      "schedule": ["before 4am on Monday"]
-    },
-    {
-      "matchManagers": ["custom.regex"],
       "matchDatasources": ["deb"],
       "matchPackageNames": ["bash", "ca-certificates", "git", "jq"],
       "groupName": "CI Tool Image Debian Packages",
