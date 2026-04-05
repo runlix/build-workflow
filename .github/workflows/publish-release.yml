@@ -507,9 +507,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          pr_number="$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$pr_number" ]; then
-            gh pr close "$pr_number" --comment "Closing stale sync PR because \`release.json\` already matches \`main\`."
+          if pr_url="$(gh pr view "$SYNC_BRANCH" --json state,url --jq 'select(.state == "OPEN") | .url' 2>/dev/null)" && [ -n "$pr_url" ]; then
+            gh pr close "$pr_url" --comment "Closing stale sync PR because \`release.json\` already matches \`main\`."
           fi
 
       - name: Create or update sync PR
@@ -534,22 +533,17 @@ jobs:
             echo "- Sync branch: \`${SYNC_BRANCH}\`"
           } > "$body_file"
 
-          pr_number="$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$pr_number" ]; then
-            gh pr edit "$pr_number" --title "$COMMIT_TITLE" --body-file "$body_file"
+          if pr_url="$(gh pr view "$SYNC_BRANCH" --json state,url --jq 'select(.state == "OPEN") | .url' 2>/dev/null)" && [ -n "$pr_url" ]; then
+            gh pr edit "$pr_url" --title "$COMMIT_TITLE" --body-file "$body_file"
           else
-            gh pr create --base main --head "$SYNC_BRANCH" --title "$COMMIT_TITLE" --body-file "$body_file" > /dev/null
-            pr_number="$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
+            pr_url="$(gh pr create --base main --head "$SYNC_BRANCH" --title "$COMMIT_TITLE" --body-file "$body_file")"
           fi
 
-          [ -n "$pr_number" ] || {
-            echo "Failed to resolve sync PR number" >&2
-            exit 1
-          }
+          pr_number="$(gh pr view "$pr_url" --json number --jq '.number')"
 
           {
             printf 'number=%s\n' "$pr_number"
-            printf 'url=%s\n' "$(gh pr view "$pr_number" --json url --jq '.url')"
+            printf 'url=%s\n' "$pr_url"
           } >> "$GITHUB_OUTPUT"
 
       - name: Enable sync PR merge
