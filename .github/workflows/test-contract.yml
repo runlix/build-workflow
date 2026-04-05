@@ -84,7 +84,7 @@ jobs:
 
           grep -Fq '[docs/ci-v3.md](./docs/ci-v3.md)' README.md
 
-          if rg -n 'TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|build-images-rebuild\.yml|test-workflow\.yml|docker-matrix|docs/v1|examples/v1|test-fixtures/v1|schema/docker-matrix-schema\.json|job_workflow_sha|ACTIONS_ID_TOKEN_REQUEST_URL' \
+          if rg -n 'build-images-rebuild\.yml|test-workflow\.yml|docker-matrix|docs/v1|examples/v1|test-fixtures/v1|schema/docker-matrix-schema\.json|job_workflow_sha|ACTIONS_ID_TOKEN_REQUEST_URL' \
             README.md CONTRIBUTING.md docs/ci-v3.md examples/wrappers .github/workflows/test-contract.yml renovate.json
           then
             echo "Removed legacy surfaces remain referenced in the supported contract" >&2
@@ -133,6 +133,23 @@ jobs:
           tools/ci/bin/build-workflow-ci validate-release-json /tmp/release.json
           diff -u test-fixtures/ci/release-json/release.json /tmp/release.json
 
+          tools/ci/bin/build-workflow-ci \
+            render-telegram-notification test-fixtures/ci/release-json/release.json \
+            --repository runlix/test-service \
+            --server-url https://github.com \
+            --run-id 123456 \
+            --sync-pr-url https://github.com/runlix/test-service/pull/42 \
+            > /tmp/telegram-versioned.txt
+          diff -u test-fixtures/ci/release-json/telegram-message-versioned.txt /tmp/telegram-versioned.txt
+
+          tools/ci/bin/build-workflow-ci \
+            render-telegram-notification test-fixtures/ci/release-json/base-image-release.json \
+            --repository runlix/test-base-image \
+            --server-url https://github.com \
+            --run-id 654321 \
+            > /tmp/telegram-sha-based.txt
+          diff -u test-fixtures/ci/release-json/telegram-message-sha-based.txt /tmp/telegram-sha-based.txt
+
       - name: Build local tool image
         shell: bash
         run: |
@@ -164,6 +181,16 @@ jobs:
 
           diff -u test-fixtures/ci/release-json/release.json /tmp/container-release.json
 
+          docker run --rm \
+            --entrypoint bash \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            build-workflow-tools:test \
+            --noprofile --norc -e -o pipefail -c 'command -v build-workflow-ci >/dev/null && build-workflow-ci render-telegram-notification test-fixtures/ci/release-json/release.json --repository runlix/test-service --server-url https://github.com --run-id 123456 --sync-pr-url https://github.com/runlix/test-service/pull/42' \
+            > /tmp/container-telegram.txt
+
+          diff -u test-fixtures/ci/release-json/telegram-message-versioned.txt /tmp/container-telegram.txt
+
       - name: Verify public workflow contract
         shell: bash
         run: |
@@ -180,9 +207,8 @@ jobs:
           test ! -e examples/v1
           test ! -e test-fixtures/v1
 
-          if rg -n 'TELEGRAM_|job_workflow_sha|ACTIONS_ID_TOKEN_REQUEST_URL' \
+          if rg -n 'job_workflow_sha|ACTIONS_ID_TOKEN_REQUEST_URL' \
             .github/workflows/validate-build.yml \
-            .github/workflows/publish-release.yml \
             .github/workflows/validate-release-metadata.yml \
             README.md \
             CONTRIBUTING.md \
@@ -194,6 +220,8 @@ jobs:
 
           grep -Eq '^      build-config-path:$' .github/workflows/validate-build.yml
           grep -Eq '^      build-config-path:$' .github/workflows/publish-release.yml
+          grep -Eq '^      TELEGRAM_BOT_TOKEN:$' .github/workflows/publish-release.yml
+          grep -Eq '^      TELEGRAM_CHAT_ID:$' .github/workflows/publish-release.yml
           grep -Eq '^      tool-image:$' .github/workflows/validate-build.yml
           grep -Eq '^      tool-image:$' .github/workflows/publish-release.yml
           grep -Eq '^      tool-image:$' .github/workflows/validate-release-metadata.yml
@@ -206,9 +234,20 @@ jobs:
           grep -Eq 'tool-image: ghcr\.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-build.yml
           grep -Eq 'tool-image: ghcr\.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/publish-release.yml
           grep -Eq 'tool-image: ghcr\.io/runlix/build-workflow-tools:sha-YOUR_BUILD_WORKFLOW_SHA' examples/wrappers/validate-release-metadata.yml
+          grep -Eq 'TELEGRAM_BOT_TOKEN: \$\{\{ secrets.TELEGRAM_BOT_TOKEN \}\}' examples/wrappers/publish-release.yml
+          grep -Eq 'TELEGRAM_CHAT_ID: \$\{\{ secrets.TELEGRAM_CHAT_ID \}\}' examples/wrappers/publish-release.yml
           grep -Eq 'id-token: write' examples/wrappers/publish-release.yml
           if rg -n 'id-token: write' examples/wrappers/validate-build.yml examples/wrappers/validate-release-metadata.yml; then
             echo "Read-only validation wrappers should not require id-token: write" >&2
+            exit 1
+          fi
+          if rg -n 'TELEGRAM_' \
+            .github/workflows/validate-build.yml \
+            .github/workflows/validate-release-metadata.yml \
+            examples/wrappers/validate-build.yml \
+            examples/wrappers/validate-release-metadata.yml
+          then
+            echo "Telegram secrets should only appear in publish surfaces" >&2
             exit 1
           fi
           grep -Eq '".github/workflows/validate-release-metadata.yml"' examples/wrappers/validate-release-metadata.yml

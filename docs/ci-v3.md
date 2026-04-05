@@ -17,6 +17,7 @@
   - renders and uploads `release.json`
   - attests published manifests
   - optionally opens or updates a `main` sync PR when App credentials are mapped
+  - optionally sends a Telegram release notification when both Telegram secrets are mapped
 - `validate-release-metadata.yml`
   - read-only validation of `release.json`
 
@@ -47,6 +48,8 @@ If the matching `tool-image` tag does not exist yet, caller workflows will fail 
 
 `validate-build.yml` and `validate-release-metadata.yml` only need `contents: read`.
 `publish-release.yml` also needs `packages: write`, `attestations: write`, and `id-token: write` because the provider publish workflow pushes images and attests the final manifests.
+Optional Telegram delivery is configured by mapping `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` together in the publish wrapper.
+Telegram delivery is best-effort and happens after the successful publish cycle completes.
 The `main` metadata wrapper should trigger on `release.json` and its own workflow file so required checks still run when the wrapper changes.
 
 ## Build Config
@@ -110,4 +113,12 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
   --source-sha 1234567890abcdef1234567890abcdef12345678 \
   --published-at 2026-03-18T00:00:00Z \
   --manifests-path test-fixtures/ci/release-json/manifests.json
+
+docker run --rm -v "$PWD:/workspace" -w /workspace \
+  build-workflow-tools:test \
+  render-telegram-notification test-fixtures/ci/release-json/release.json \
+  --repository runlix/test-service \
+  --server-url https://github.com \
+  --run-id 123456 \
+  --sync-pr-url https://github.com/runlix/test-service/pull/42
 ```

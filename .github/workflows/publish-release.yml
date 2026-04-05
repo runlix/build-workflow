@@ -22,6 +22,10 @@ on:
         required: false
       RUNLIX_PRIVATE_KEY:
         required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
     outputs:
       image:
         description: Published image name from the build config.
@@ -57,17 +61,22 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       has_sync_credentials: ${{ steps.secret-shape.outputs.has_sync_credentials }}
+      has_telegram_credentials: ${{ steps.secret-shape.outputs.has_telegram_credentials }}
     steps:
-      - name: Validate optional sync secret mapping
+      - name: Validate optional sync and Telegram secret mapping
         id: secret-shape
         shell: bash
         env:
           RUNLIX_APP_ID: ${{ secrets.RUNLIX_APP_ID }}
           RUNLIX_PRIVATE_KEY: ${{ secrets.RUNLIX_PRIVATE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
 
           has_sync_credentials=false
+          has_telegram_credentials=false
+
           if [ -n "$RUNLIX_APP_ID" ] || [ -n "$RUNLIX_PRIVATE_KEY" ]; then
             if [ -z "$RUNLIX_APP_ID" ] || [ -z "$RUNLIX_PRIVATE_KEY" ]; then
               echo "RUNLIX_APP_ID and RUNLIX_PRIVATE_KEY must be mapped together" >&2
@@ -76,7 +85,18 @@ jobs:
             has_sync_credentials=true
           fi
 
-          printf 'has_sync_credentials=%s\n' "$has_sync_credentials" >> "$GITHUB_OUTPUT"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] || [ -n "$TELEGRAM_CHAT_ID" ]; then
+            if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+              echo "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be mapped together" >&2
+              exit 1
+            fi
+            has_telegram_credentials=true
+          fi
+
+          {
+            printf 'has_sync_credentials=%s\n' "$has_sync_credentials"
+            printf 'has_telegram_credentials=%s\n' "$has_telegram_credentials"
+          } >> "$GITHUB_OUTPUT"
 
   plan:
     name: plan
@@ -546,3 +566,112 @@ jobs:
           if [ "$auto_merge_enabled" != "true" ]; then
             gh pr merge "$PR_NUMBER" --auto --merge --delete-branch --match-head-commit "$COMMIT_SHA"
           fi
+
+  notify-telegram:
+    name: notify-telegram
+    if: ${{ always() && inputs.publish }}
+    needs:
+      - validate-inputs
+      - publish
+      - attest
+      - sync-main
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Send Telegram notification
+        id: telegram
+        shell: bash
+        env:
+          ATTEST_RESULT: ${{ needs.attest.result }}
+          HAS_SYNC_CREDENTIALS: ${{ needs.validate-inputs.outputs.has_sync_credentials }}
+          HAS_TELEGRAM_CREDENTIALS: ${{ needs.validate-inputs.outputs.has_telegram_credentials }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          RELEASE_JSON: ${{ needs.publish.outputs.release_json }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+          SYNC_PR_URL: ${{ needs.sync-main.outputs.pr_url }}
+          SYNC_RESULT: ${{ needs.sync-main.result }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TOOL_IMAGE: ${{ inputs.tool-image }}
+        run: |
+          set -euo pipefail
+
+          status="skipped"
+          detail="Telegram secrets are not configured."
+
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "::add-mask::$TELEGRAM_BOT_TOKEN"
+          fi
+          if [ -n "$TELEGRAM_CHAT_ID" ]; then
+            echo "::add-mask::$TELEGRAM_CHAT_ID"
+          fi
+
+          if [ "$HAS_TELEGRAM_CREDENTIALS" != "true" ]; then
+            :
+          elif [ "$PUBLISH_RESULT" != "success" ] || [ "$ATTEST_RESULT" != "success" ] || { [ "$HAS_SYNC_CREDENTIALS" = "true" ] && [ "$SYNC_RESULT" != "success" ]; }; then
+            detail="Release cycle did not complete successfully; skipping Telegram notification."
+          else
+            printf '%s\n' "$RELEASE_JSON" | jq . > "$RUNNER_TEMP/release.json"
+
+            render_args=(
+              docker run --rm
+              -v "$RUNNER_TEMP:$RUNNER_TEMP"
+              -w "$RUNNER_TEMP"
+              "$TOOL_IMAGE"
+              render-telegram-notification "$RUNNER_TEMP/release.json"
+              --repository "$REPOSITORY"
+              --server-url "$SERVER_URL"
+              --run-id "$RUN_ID"
+            )
+
+            if [ -n "$SYNC_PR_URL" ]; then
+              render_args+=(--sync-pr-url "$SYNC_PR_URL")
+            fi
+
+            if ! "${render_args[@]}" > "$RUNNER_TEMP/telegram-message.txt"; then
+              status="failed"
+              detail="Failed to render Telegram notification payload."
+            else
+              response="$(
+                curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                  --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                  --data-urlencode "text@${RUNNER_TEMP}/telegram-message.txt" \
+                  --data-urlencode "parse_mode=Markdown" \
+                  --data-urlencode "disable_web_page_preview=true"
+              )" || response=""
+
+              if [ -z "$response" ]; then
+                status="failed"
+                detail="Telegram notification request failed before the API returned a response."
+              elif jq -e '.ok == true' <<< "$response" > /dev/null 2>&1; then
+                status="sent"
+                detail="Telegram notification sent."
+              else
+                status="failed"
+                detail="$(jq -r '.description // "Unknown Telegram API error"' <<< "$response" 2>/dev/null || echo "Unknown Telegram API error")"
+              fi
+            fi
+          fi
+
+          {
+            printf 'status=%s\n' "$status"
+            printf 'detail=%s\n' "$detail"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize Telegram delivery
+        shell: bash
+        env:
+          DETAIL: ${{ steps.telegram.outputs.detail }}
+          STATUS: ${{ steps.telegram.outputs.status }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Telegram Notification"
+            echo ""
+            echo "- Status: \`$STATUS\`"
+            echo "- Detail: $DETAIL"
+          } >> "$GITHUB_STEP_SUMMARY"

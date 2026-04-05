@@ -1,0 +1,15 @@
+🎉 *Docker Release Complete*
+
+*Service:* `test-service`
+*Version:* `1.2.3`
+*Commit:* [`1234567`](https://github.com/runlix/test-service/commit/1234567890abcdef1234567890abcdef12345678)
+*Published:* `2026-03-17T12:00:00Z`
+
+*Manifests Created:*
+`1.2.3-debug, 1.2.3-stable`
+
+*Registry:*
+`ghcr.io/runlix/test-service`
+
+[View Workflow Run](https://github.com/runlix/test-service/actions/runs/123456)
+[View Sync PR](https://github.com/runlix/test-service/pull/42)

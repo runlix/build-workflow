@@ -1,0 +1,14 @@
+🎉 *Docker Release Complete*
+
+*Service:* `test-base-image`
+*Version:* `fedcba9` (SHA-based)
+*Commit:* [`fedcba9`](https://github.com/runlix/test-base-image/commit/fedcba9876543210fedcba9876543210fedcba98)
+*Published:* `2026-03-17T12:00:00Z`
+
+*Manifests Created:*
+`debug, stable`
+
+*Registry:*
+`ghcr.io/runlix/test-base-image`
+
+[View Workflow Run](https://github.com/runlix/test-base-image/actions/runs/654321)

@@ -8,6 +8,7 @@ from pathlib import Path
 from tools.ci.src.build_workflow_ci import (
     plan_build_target,
     render_release_json,
+    render_telegram_notification,
     validate_config_command,
     validate_config_payload,
     validate_release_json_file,
@@ -83,6 +84,30 @@ class BuildWorkflowCiTest(unittest.TestCase):
             release_json_path.write_text(json.dumps(payload), encoding="utf-8")
             validated = validate_release_json_file(str(release_json_path))
             self.assertEqual(validated["manifests"][0]["digest"], "sha256:" + ("b" * 64))
+
+    def test_render_telegram_notification_fixtures(self) -> None:
+        versioned_message = render_telegram_notification(
+            "test-fixtures/ci/release-json/release.json",
+            "runlix/test-service",
+            "https://github.com",
+            "123456",
+            "https://github.com/runlix/test-service/pull/42",
+        )
+        expected_versioned = (
+            REPO_ROOT / "test-fixtures/ci/release-json/telegram-message-versioned.txt"
+        ).read_text(encoding="utf-8").rstrip("\n")
+        self.assertEqual(versioned_message, expected_versioned)
+
+        sha_based_message = render_telegram_notification(
+            "test-fixtures/ci/release-json/base-image-release.json",
+            "runlix/test-base-image",
+            "https://github.com",
+            "654321",
+        )
+        expected_sha_based = (
+            REPO_ROOT / "test-fixtures/ci/release-json/telegram-message-sha-based.txt"
+        ).read_text(encoding="utf-8").rstrip("\n")
+        self.assertEqual(sha_based_message, expected_sha_based)
 
     def test_validate_release_json_fixture(self) -> None:
         payload = validate_release_json_file("test-fixtures/ci/release-json/release.json")
