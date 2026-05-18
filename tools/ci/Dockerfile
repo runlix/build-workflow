@@ -1,13 +1,13 @@
 FROM python:3.14-slim-trixie@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637a841e1025b4ca
 
 # renovate: datasource=deb depName=bash suite=trixie
-ARG BASH_VERSION=5.2.37-2+b8
+ARG BASH_VERSION=5.2.37-2+b9
 # renovate: datasource=deb depName=ca-certificates suite=trixie
 ARG CA_CERTIFICATES_VERSION=20250419
 # renovate: datasource=deb depName=git suite=trixie
 ARG GIT_VERSION=1:2.47.3-0+deb13u1
 # renovate: datasource=deb depName=jq suite=trixie
-ARG JQ_VERSION=1.7.1-6+deb13u1
+ARG JQ_VERSION=1.7.1-6+deb13u2
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
