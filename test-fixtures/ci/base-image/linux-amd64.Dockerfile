@@ -1,4 +1,4 @@
-ARG BASE_REF="gcr.io/distroless/base-debian12:latest-amd64@sha256:1f144c77a9ecaaa132fc3037b4417d9f9fd0b7a50101c696af5cb186876aa2a3"
+ARG BASE_REF="gcr.io/distroless/base-debian12:latest-amd64@sha256:d2add786f2a5f43d1ab3ae54cd3193de929d0d12c378ff60891921f56f3e47ff"
 ARG VARIANT
 
 FROM ${BASE_REF}
