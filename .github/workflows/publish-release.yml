@@ -58,7 +58,7 @@ jobs:
     name: validate-inputs
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       has_sync_credentials: ${{ steps.secret-shape.outputs.has_sync_credentials }}
       has_telegram_credentials: ${{ steps.secret-shape.outputs.has_telegram_credentials }}
@@ -104,7 +104,7 @@ jobs:
       - validate-inputs
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs.tool-image }}
     outputs:
@@ -115,7 +115,7 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
     steps:
       - name: Checkout service repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -180,7 +180,7 @@ jobs:
         include: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - name: Checkout service repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -287,10 +287,10 @@ jobs:
       manifests_json: ${{ steps.manifest-metadata.outputs.payload }}
       published_at: ${{ steps.published-at.outputs.value }}
       release_json: ${{ steps.release-json.outputs.payload }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout service repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -401,7 +401,7 @@ jobs:
     needs:
       - plan
       - publish
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -432,7 +432,7 @@ jobs:
       contents: read
     outputs:
       pr_url: ${{ steps.sync-pr.outputs.url }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Create GitHub App token
         id: app-token
@@ -444,7 +444,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout metadata branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           fetch-depth: 0
@@ -571,7 +571,7 @@ jobs:
       - sync-main
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Send Telegram notification
         id: telegram
