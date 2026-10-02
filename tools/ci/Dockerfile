@@ -1,4 +1,4 @@
-FROM python:3.14-slim-trixie@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637a841e1025b4ca
+FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
 
 # renovate: datasource=deb depName=bash suite=trixie
 ARG BASH_VERSION=5.2.37-2+b8
